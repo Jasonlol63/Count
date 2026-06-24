@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.AnnouncementDao">
+    <resultMap id="AnnouncementMap" type="com.eazycount.entity.Announcements">
+        <result column="id" property="id" jdbcType="INTEGER"/>
+        <result column="title" property="title" jdbcType="VARCHAR"/>
+        <result column="content" property="content" jdbcType="LONGVARCHAR"/>
+        <result column="company_code" property="companyCode" jdbcType="VARCHAR"/>
+        <result column="status" property="status" jdbcType="VARCHAR"/>
+        <result column="created_by" property="createdBy" jdbcType="INTEGER"/>
+        <result column="user_type" property="userType" jdbcType="VARCHAR"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+        <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <resultMap id="MaintenanceMap" type="com.eazycount.entity.Maintenance">
+        <result column="id" property="id" jdbcType="INTEGER"/>
+        <result column="prefix" property="prefix" jdbcType="VARCHAR"/>
+        <result column="content" property="content" jdbcType="LONGVARCHAR"/>
+        <result column="company_code" property="companyCode" jdbcType="VARCHAR"/>
+        <result column="status" property="status" jdbcType="VARCHAR"/>
+        <result column="created_by" property="createdBy" jdbcType="INTEGER"/>
+        <result column="user_type" property="userType" jdbcType="VARCHAR"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+        <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <select id="findAllAnnouncement" resultMap="AnnouncementMap">
+        select * from announcements
+    </select>
+
+    <select id="findAllMaintenance" resultMap="MaintenanceMap">
+        select * from maintenance_marquee
+    </select>
+    
+    <insert id="addAnnouncement" useGeneratedKeys="true" keyProperty="id">
+        insert into announcements(title, content, company_code, status, created_by, user_type, created_at)
+        values(#{title}, #{content}, #{companyCode}, #{status}, #{createdBy}, #{userType}, NOW())
+    </insert>
+
+    <insert id="addMaintenance" useGeneratedKeys="true" keyProperty="id">
+        insert into maintenance_marquee(prefix, content, company_code, status, created_by, user_type, created_at)
+        values(#{prefix}, #{content}, #{companyCode}, #{status}, #{createdBy}, #{userType}, NOW())
+    </insert>
+    
+    <update id="updateAnnouncement">
+        update announcements
+        set title = #{title},
+            content = #{content},
+            updated_at = NOW()
+        where id = #{id}
+    </update>
+
+    <update id="updateMaintenance">
+        update maintenance_marquee
+        set prefix = #{prefix},
+            content = #{content},
+            updated_at = NOW()
+        where id = #{id}
+    </update>
+
+    <delete id="deleteAnnouncement">
+        delete from announcements
+        where id = #{id}
+    </delete>
+
+    <delete id="deleteMaintenance">
+        delete from maintenance_marquee
+        where id = #{id}
+    </delete>
+
+</mapper>

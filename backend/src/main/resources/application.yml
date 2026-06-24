@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: Count
+  
+  sql:
+    init:
+      mode: never
+  
+  session:
+    store-type: none
+    timeout: 1h
+    cookie:
+      name: JSESSIONID
+      http-only: true
+      same-site: lax
+  
+  datasource:
+    driverClassName: com.mysql.cj.jdbc.Driver
+    # Login dev DB — apply schema.sql then sql/schema.sql (pending tenant tables)
+    url: jdbc:mysql://localhost:3306/testcount?&serverTimezone=Asia/Shanghai
+    username: root
+    password: 
+    dbcp2:
+      min-idle: 5                                # 数据库连接池的最小维持连接数
+      initial-size: 5                            # 初始化连接数
+      max-total: 5                               # 最大连接数
+      max-wait-millis: 150                       # 等待连接获取的最大超时时间
+  
+  redis:
+    host: localhost
+    port: 6379
+  
+  servlet:
+    multipart:
+      enabled: true
+      file-size-threshold: 2KB
+      max-file-size: 200MB
+      max-request-size: 215MB
+  
+  jwt:
+    secret: your-very-long-secret-key-at-least-32-characters
+    access-token-expiration: 3600000
+    refresh-token-expiration: 604800000
+    cookie-name: ec_access_token
+
+server:
+  port: 8082
+#  address: 255.255.0.0
+
+mybatis:
+  mapper-locations: classpath:mybatis/*.xml
+  type-handlers-package: com.eazycount.config.mybatis
+  configuration:
+    map-underscore-to-camel-case: true
+
+file:
+  image-dir: backend/src/main/resources/static/
