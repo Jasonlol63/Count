@@ -49,7 +49,7 @@ function AlertModal({ open, title, message, confirmText, onClose }) {
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
   const [lang, setLang] = useState(() => localStorage.getItem("login_lang") || "en");
-  const [companyId, setCompanyId] = useState("");
+  const [tenantCode, setTenantCode] = useState("");
   const [email, setEmail] = useState("");
   const [tac, setTac] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -103,10 +103,10 @@ export default function ResetPasswordPage() {
   }, [newPassword, confirmPassword]);
 
   const onSendTac = async () => {
-    const normalizedCompanyId = companyId.toUpperCase().trim();
+    const normalizedTenantCode = tenantCode.toUpperCase().trim();
     const trimmedEmail = validateEmail(email).normalized;
 
-    if (!normalizedCompanyId) {
+    if (!normalizedTenantCode) {
       showModal(i18n.notice, i18n.companyIdFirst);
       return;
     }
@@ -122,7 +122,7 @@ export default function ResetPasswordPage() {
     setIsSendingTac(true);
     try {
       const data = await sendResetTac({
-        companyId: normalizedCompanyId,
+        tenantCode: normalizedTenantCode,
         email: trimmedEmail,
       });
 
@@ -156,7 +156,7 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    const normalizedCompanyId = companyId.toUpperCase().trim();
+    const normalizedTenantCode = tenantCode.toUpperCase().trim();
     const emailCheck = validateEmail(email);
     const trimmedEmail = emailCheck.normalized;
     const trimmedTac = tac.trim();
@@ -166,7 +166,7 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    if (!normalizedCompanyId || !trimmedEmail) {
+    if (!normalizedTenantCode || !trimmedEmail) {
       showModal(i18n.notice, i18n.companyEmailRequired);
       return;
     }
@@ -178,7 +178,7 @@ export default function ResetPasswordPage() {
     setIsResetting(true);
     try {
       const data = await submitResetPassword({
-        companyId: normalizedCompanyId,
+        tenantCode: normalizedTenantCode,
         email: trimmedEmail,
         tac: trimmedTac,
         newPassword,
@@ -225,8 +225,8 @@ export default function ResetPasswordPage() {
                 <input
                   type="text"
                   placeholder={i18n.companyPlaceholder}
-                  value={companyId}
-                  onChange={(event) => setCompanyId(event.target.value.toUpperCase())}
+                  value={tenantCode}
+                  onChange={(event) => setTenantCode(event.target.value.toUpperCase())}
                   required
                 />
               </div>

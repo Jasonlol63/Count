@@ -93,7 +93,7 @@ export default function LoginPage() {
     },
     [navigate, searchParams],
   );
-  const [companyId, setCompanyId] = useState("");
+  const [tenantCode, setTenantCode] = useState("");
   const [userField, setUserField] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
@@ -102,7 +102,6 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [lang, setLang] = useState(() => localStorage.getItem("login_lang") || "en");
 
-  const verifyTimeoutRef = useRef(null);
   const langThumbRef = useRef(null);
   const prevLangRef = useRef(lang);
   const i18n = useMemo(() => LOGIN_I18N[lang] || LOGIN_I18N.en, [lang]);
@@ -248,26 +247,6 @@ export default function LoginPage() {
     return () => ac.abort();
   }, []);
 
-  useEffect(() => {
-    const v = companyId.trim();
-    if (verifyTimeoutRef.current) clearTimeout(verifyTimeoutRef.current);
-    if (!v) return undefined;
-
-    verifyTimeoutRef.current = setTimeout(async () => {
-      try {
-        const fd = new FormData();
-        fd.append("company_id", v);
-        await fetch("/api/company/verify_api.php", { method: "POST", body: fd });
-      } catch {
-        /* silent; login validates */
-      }
-    }, 500);
-
-    return () => {
-      if (verifyTimeoutRef.current) clearTimeout(verifyTimeoutRef.current);
-    };
-  }, [companyId]);
-
   const userPlaceholder = useMemo(
     () => (role === "member" ? i18n.accountPlaceholder : i18n.usernamePlaceholder),
     [role, i18n.accountPlaceholder, i18n.usernamePlaceholder]
@@ -279,8 +258,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       const fd = new FormData();
-      fd.append("action", "login");
-        fd.append("tenant_code", companyId.toUpperCase().trim());
+      fd.append("tenant_code", tenantCode.toUpperCase().trim());
       fd.append("password", password);
       fd.append("login_role", role);
       if (role === "member") {
@@ -290,7 +268,7 @@ export default function LoginPage() {
         if (rememberMe) fd.append("remember_me", "1");
       }
 
-      const res = await fetch(buildApiUrl("api/session/login_api.php"), {
+      const res = await fetch(buildApiUrl("auth/login"), {
         method: "POST",
         body: fd,
         credentials: "include",
@@ -317,16 +295,16 @@ export default function LoginPage() {
         const loginScope = String(loginTenant.type || sessionTenant.type || "")
           .trim()
           .toLowerCase();
-        const loginIdentifier = String(loginTenant.code || sessionTenant.code || companyId)
+        const loginIdentifier = String(loginTenant.code || sessionTenant.code || tenantCode)
           .trim()
           .toUpperCase();
         if (loginScope === "group" || loginScope === "company") {
           seedDashboardFilterFromLogin({
             loginScope,
             loginIdentifier,
-            sessionCompanyId:
+            sessionTenantId:
               sessionTenant.id != null ? Number(sessionTenant.id) : null,
-            sessionCompanyCode: loginScope === "company" ? loginIdentifier : null,
+            sessionTenantCode: loginScope === "company" ? loginIdentifier : null,
           });
         }
 
@@ -420,13 +398,13 @@ export default function LoginPage() {
               <div className="sc-login-input-row">
                 <i className="fas fa-building sc-login-input-icon" />
                 <input
-                  id="company-id"
+                  id="tenant-code"
                   type="text"
                   className="sc-login-input"
                   placeholder={i18n.companyPlaceholder}
                   required
-                  value={companyId}
-                  onChange={(e) => setCompanyId(e.target.value.toUpperCase())}
+                  value={tenantCode}
+                  onChange={(e) => setTenantCode(e.target.value.toUpperCase())}
                 />
               </div>
 

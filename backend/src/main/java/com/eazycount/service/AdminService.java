@@ -10,4 +10,6 @@ public interface AdminService {
     List<AdminListDTO> findAdminsByTenantId(Integer tenantId);
 
     AdminListDTO createAdmin(AdminRequest adminRequest);
+
+    AdminListDTO updateAdmin(AdminRequest adminRequest);
 }

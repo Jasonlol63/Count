@@ -23,8 +23,8 @@ public class SessionUser implements Serializable {
 
     public String user_type;
     public Integer user_id;
-    public Integer company_id;
-    public String company_code;
+    public Integer tenant_id;
+    public String tenant_code;
     public String login_scope;
     public String login_identifier;
     public boolean needs_owner_secondary;
@@ -34,9 +34,9 @@ public class SessionUser implements Serializable {
     public String login_id;
     public String role;
     public List<String> permissions;
-    public boolean is_current_company_c168;
-    public boolean company_has_gambling;
-    public boolean company_has_bank;
+    public boolean is_current_tenant_c168;
+    public boolean tenant_has_game;
+    public boolean tenant_has_bank;
     public int read_only;
 
     public SessionUser() {
@@ -45,8 +45,8 @@ public class SessionUser implements Serializable {
     private SessionUser(
             String userType,
             Integer userId,
-            Integer companyId,
-            String companyCode,
+            Integer tenantId,
+            String tenantCode,
             String loginScope,
             String loginIdentifier,
             boolean needsOwnerSecondary,
@@ -56,15 +56,15 @@ public class SessionUser implements Serializable {
             String loginId,
             String role,
             List<String> permissions,
-            boolean isCurrentCompanyC168,
-            boolean companyHasGambling,
-            boolean companyHasBank,
+            boolean isCurrentTenantC168,
+            boolean tenantHasGame,
+            boolean tenantHasBank,
             int readOnly
     ) {
         this.user_type = userType;
         this.user_id = userId;
-        this.company_id = companyId;
-        this.company_code = companyCode;
+        this.tenant_id = tenantId;
+        this.tenant_code = tenantCode;
         this.login_scope = loginScope;
         this.login_identifier = loginIdentifier;
         this.needs_owner_secondary = needsOwnerSecondary;
@@ -74,9 +74,9 @@ public class SessionUser implements Serializable {
         this.login_id = loginId;
         this.role = role;
         this.permissions = permissions != null ? permissions : Collections.emptyList();
-        this.is_current_company_c168 = isCurrentCompanyC168;
-        this.company_has_gambling = companyHasGambling;
-        this.company_has_bank = companyHasBank;
+        this.is_current_tenant_c168 = isCurrentTenantC168;
+        this.tenant_has_game = tenantHasGame;
+        this.tenant_has_bank = tenantHasBank;
         this.read_only = readOnly;
     }
 
@@ -202,8 +202,8 @@ public class SessionUser implements Serializable {
         return new SessionUser(
                 user_type,
                 user_id,
-                company_id,
-                company_code,
+                tenant_id,
+                tenant_code,
                 login_scope,
                 login_identifier,
                 false,
@@ -213,9 +213,9 @@ public class SessionUser implements Serializable {
                 login_id,
                 role,
                 permissions,
-                is_current_company_c168,
-                company_has_gambling,
-                company_has_bank,
+                is_current_tenant_c168,
+                tenant_has_game,
+                tenant_has_bank,
                 read_only
         );
     }

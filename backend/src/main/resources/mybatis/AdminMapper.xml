@@ -68,6 +68,48 @@
         u.login_id ASC
     </select>
 
+    <select id="findAdminByUserIdAndTenantId" resultMap="AdminListDTO">
+        SELECT
+            u.id                    AS adminId,
+            u.login_id              AS adminLoginId,
+            u.name                  AS adminName,
+            u.email                 AS adminEmail,
+            u.role                  AS adminRole,
+            u.permissions           AS adminPermissions,
+            u.status                AS adminStatus,
+            u.created_by            AS adminCreatedBy,
+            u.created_at            AS adminCreatedAt,
+            u.last_login            AS adminLastLogin,
+            u.read_only             AS adminReadOnly,
+
+            uta.id                  AS adminTenantAccessId,
+            uta.user_id             AS adminTenantAccessUserId,
+            uta.tenant_id           AS adminTenantAccessTenantId,
+            uta.capabilities        AS capabilities,
+            uta.account_permissions AS accountPermissions,
+            uta.process_permissions AS processPermissions,
+            uta.created_at          AS adminTenantAccessCreatedAt,
+            uta.updated_at          AS adminTenantAccessUpdatedAt
+        FROM user u
+            INNER JOIN user_tenant_access uta ON uta.user_id = u.id
+        WHERE u.id = #{userId}
+        AND uta.tenant_id = #{tenantId}
+        LIMIT 1
+    </select>
+
+    <select id="findTenantIdsByUserId" resultType="int">
+        SELECT tenant_id
+        FROM user_tenant_access
+        WHERE user_id = #{userId}
+    </select>
+
+    <select id="countEmailExceptUser" resultType="int">
+        SELECT COUNT(*)
+        FROM user
+        WHERE email = #{email}
+          AND id != #{userId}
+    </select>
+
     <insert id="addAdmin" useGeneratedKeys="true" keyProperty="id">
         insert into user (login_id, name, email, password, secondary_password, role, permissions, status, created_by, created_at, read_only)
         values (#{loginId}, #{name}, #{email}, #{password}, #{secondaryPassword}, #{role}, #{permissions}, #{status}, #{createdBy}, NOW(), #{readOnly})
@@ -83,19 +125,34 @@
         where id = #{id} AND status = #{status}
     </delete>
 
+    <delete id="deleteAdminTenantAccessByUserIdAndTenantId">
+        DELETE FROM user_tenant_access
+        WHERE user_id = #{userId}
+          AND tenant_id = #{tenantId}
+    </delete>
+
     <update id="updateAdmin">
-        update user
-        set login_id = #{loginId},
-            name = #{name},
-            email = #{email},
-            password = #{password},
-            secondary_password = #{secondaryPassword},
-            role = #{role},
-            permissions = #{permissions},
-            status = #{status},
-            created_by = #{createdBy},
-            read_only = #{readOnly}
-        where id = #{id}
+        UPDATE user
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="email != null">email = #{email},</if>
+            <if test="role != null">role = #{role},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="permissions != null">permissions = #{permissions},</if>
+            <if test="readOnly != null">read_only = #{readOnly},</if>
+            <if test="password != null">password = #{password},</if>
+            <if test="secondaryPassword != null">secondary_password = #{secondaryPassword},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateAdminTenantAccess">
+        UPDATE user_tenant_access
+        <set>
+            <if test="accountPermissions != null">account_permissions = #{accountPermissions},</if>
+            <if test="processPermissions != null">process_permissions = #{processPermissions},</if>
+        </set>
+        WHERE id = #{id}
     </update>
 
 </mapper>

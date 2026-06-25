@@ -33,7 +33,7 @@ export function canAccessFullMaintenance(me) {
 export function canAccessLimitedMaintenance(me) {
   if (isOwnerUser(me) || hasFullPermissions(me)) return false;
   if (canAccessFullMaintenance(me)) return false;
-  return !!me?.company_has_gambling;
+  return !!me?.tenant_has_game;
 }
 
 export function showMaintenanceInSidebar(me) {

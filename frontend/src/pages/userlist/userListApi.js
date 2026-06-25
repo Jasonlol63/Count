@@ -189,3 +189,60 @@ export async function createAdminUser(request, signal) {
   }
   return normalizeAdminListItem(json.data);
 }
+
+/** Build Spring {@link AdminRequest} body for POST /api/userlist/update. */
+export function buildAdminUpdateRequest({
+  id,
+  tenantAccessId,
+  scopeTenantId,
+  name,
+  email,
+  password,
+  secondaryPassword,
+  role,
+  status,
+  readOnly,
+  permissions,
+  tenantIds,
+  accountPermissions,
+  processPermissions,
+}) {
+  const body = {
+    id: Number(id),
+    scopeTenantId: Number(scopeTenantId),
+  };
+
+  if (tenantAccessId != null) body.tenantAccessId = Number(tenantAccessId);
+  if (name) body.name = name;
+  if (email) body.email = email;
+  if (password) body.password = password;
+  if (secondaryPassword) body.secondaryPassword = secondaryPassword;
+  if (role) body.role = role;
+  if (status) body.status = status;
+  if (readOnly != null) body.readOnly = !!readOnly;
+  if (permissions != null) body.permissions = permissions;
+  if (Array.isArray(tenantIds) && tenantIds.length) body.tenantIds = tenantIds;
+  if (accountPermissions != null) body.accountPermissions = accountPermissions;
+  if (processPermissions != null) body.processPermissions = processPermissions;
+
+  return body;
+}
+
+/**
+ * POST /api/userlist/update
+ * @returns {Promise<object>} normalized list row
+ */
+export async function updateAdminUser(request, signal) {
+  const res = await fetch(buildApiUrl("api/userlist/update"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(request),
+    signal,
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json?.message || "saveFailed");
+  }
+  return normalizeAdminListItem(json.data);
+}

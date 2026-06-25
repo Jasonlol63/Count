@@ -1,33 +1,34 @@
 /**
- * In-memory cache of `update_company_session_api.php` payloads for instant sidebar updates.
- * Keyed by company id (view_group is not part of flags).
+ * In-memory cache of session tenant flags for instant sidebar updates.
+ * Keyed by tenant id.
  */
 
-/** @type {Map<number, { company_id: number, company_code: string|null, has_gambling: boolean, has_bank: boolean }>} */
-const flagsByCompanyId = new Map();
+/** @type {Map<number, { tenant_id: number, tenant_code: string|null, has_game: boolean, has_bank: boolean }>} */
+const flagsByTenantId = new Map();
 
 export function rememberCompanySessionFlags(data) {
   if (!data || typeof data !== "object") return;
-  const id = Number(data.company_id);
+  const id = Number(data.tenant_id ?? data.company_id);
   if (!Number.isFinite(id) || id <= 0) return;
+  const codeRaw = data.tenant_code ?? data.company_code;
   const code =
-    data.company_code != null && String(data.company_code).trim() !== ""
-      ? String(data.company_code).trim().toUpperCase()
+    codeRaw != null && String(codeRaw).trim() !== ""
+      ? String(codeRaw).trim().toUpperCase()
       : null;
-  flagsByCompanyId.set(id, {
-    company_id: id,
-    company_code: code,
-    has_gambling: Boolean(data.has_gambling),
-    has_bank: Boolean(data.has_bank),
+  flagsByTenantId.set(id, {
+    tenant_id: id,
+    tenant_code: code,
+    has_game: Boolean(data.has_game ?? data.has_gambling ?? data.tenant_has_game),
+    has_bank: Boolean(data.has_bank ?? data.tenant_has_bank),
   });
 }
 
-export function peekCompanySessionFlags(companyId) {
-  const id = Number(companyId);
+export function peekCompanySessionFlags(tenantId) {
+  const id = Number(tenantId);
   if (!Number.isFinite(id) || id <= 0) return null;
-  return flagsByCompanyId.get(id) ?? null;
+  return flagsByTenantId.get(id) ?? null;
 }
 
 export function clearCompanySessionFlagsCache() {
-  flagsByCompanyId.clear();
+  flagsByTenantId.clear();
 }

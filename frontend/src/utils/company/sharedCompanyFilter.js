@@ -313,10 +313,10 @@ export function resolveCrossPageCurrencyPreference({
 
 /** Store linked parent tenant codes from tenant-accessible API (company login: AP+IG). */
 export function persistAccessibleGroupIdsFromApi(json) {
-  const ids = Array.isArray(json?.accessibleParentTenantCodes)
-    ? json.accessibleParentTenantCodes
-    : Array.isArray(json?.accessible_group_ids)
-      ? json.accessible_group_ids
+  const ids = Array.isArray(json?.accessible_parent_tenant_codes)
+    ? json.accessible_parent_tenant_codes
+    : Array.isArray(json?.accessibleParentTenantCodes)
+      ? json.accessibleParentTenantCodes
       : [];
   if (!ids.length) return;
   sessionStorage.setItem(
@@ -356,8 +356,8 @@ export function seedDashboardFilterFromLogin({
   loginScope,
   loginIdentifier,
   companies = [],
-  sessionCompanyId = null,
-  sessionCompanyCode = null,
+  sessionTenantId = null,
+  sessionTenantCode = null,
 }) {
   const ident = String(loginIdentifier || "").trim().toUpperCase();
   const list = filterCompaniesWithDisplayId(companies);
@@ -375,22 +375,27 @@ export function seedDashboardFilterFromLogin({
     persistDashboardGroupOnlyMode(false);
   }
 
-  let row = list.find((c) => String(c.company_id || "").trim().toUpperCase() === ident);
-  if (!row && sessionCompanyId != null) {
-    row = list.find((c) => Number(c.id) === Number(sessionCompanyId));
+  let row = list.find((c) => String(c.tenant_code || "").trim().toUpperCase() === ident);
+  if (!row && sessionTenantId != null) {
+    row = list.find((c) => Number(c.tenant_id ?? c.id) === Number(sessionTenantId));
   }
   if (
     !row &&
-    sessionCompanyCode &&
-    String(sessionCompanyCode).trim().toUpperCase() === ident &&
-    sessionCompanyId != null
+    sessionTenantCode &&
+    String(sessionTenantCode).trim().toUpperCase() === ident &&
+    sessionTenantId != null
   ) {
-    row = { id: sessionCompanyId, company_id: sessionCompanyCode, group_id: null };
+    row = {
+      tenant_id: sessionTenantId,
+      id: sessionTenantId,
+      tenant_code: sessionTenantCode,
+      parent_tenant_code: null,
+    };
   }
 
-  const cidRaw = row?.id != null ? Number(row.id) : Number(sessionCompanyId);
-  const cid = Number.isFinite(cidRaw) && cidRaw > 0 ? cidRaw : null;
-  const group = row?.group_id ? normalizeCompanyGroupId(row) : null;
+  const cidRaw = row?.tenant_id ?? row?.id ?? sessionTenantId;
+  const cid = Number.isFinite(Number(cidRaw)) && Number(cidRaw) > 0 ? Number(cidRaw) : null;
+  const group = row?.parent_tenant_code ? normalizeCompanyGroupId(row) : null;
 
   persistDashboardGroupOnlyMode(false);
   if (group) persistDashboardGroupFilter(group);
@@ -425,8 +430,8 @@ export function applyLoginScopeToSessionStorageIfNeeded(me, companies = []) {
     loginScope: me.login_scope,
     loginIdentifier: me.login_identifier,
     companies,
-    sessionCompanyId: me.company_id,
-    sessionCompanyCode: me.company_code,
+    sessionTenantId: me.tenant_id,
+    sessionTenantCode: me.tenant_code,
   });
   sessionStorage.setItem(DASHBOARD_LOGIN_FILTER_APPLIED_KEY, key);
   return true;
@@ -587,10 +592,10 @@ export function dashboardFilterEventMatchesPersisted(detail) {
  */
 export function shouldApplySessionToSidebar(sessionData, filter = readPersistedDashboardGcFilter()) {
   if (!sessionData || typeof sessionData !== "object") return false;
-  const sid = Number(sessionData.company_id);
+  const sid = Number(sessionData.tenant_id);
   if (!Number.isFinite(sid) || sid <= 0) return false;
 
-  const code = String(sessionData.company_code ?? sessionData.company_id ?? "")
+  const code = String(sessionData.tenant_code ?? "")
     .trim()
     .toUpperCase();
 
@@ -619,10 +624,10 @@ export function shouldApplySessionToSidebar(sessionData, filter = readPersistedD
  */
 export function shouldRefreshExpiryFromSession(sessionData, filter = readPersistedDashboardGcFilter()) {
   if (!sessionData || typeof sessionData !== "object") return false;
-  const sid = Number(sessionData.company_id);
+  const sid = Number(sessionData.tenant_id);
   if (!Number.isFinite(sid) || sid <= 0) return false;
 
-  const code = String(sessionData.company_code ?? sessionData.company_id ?? "")
+  const code = String(sessionData.tenant_code ?? "")
     .trim()
     .toUpperCase();
 
@@ -1338,20 +1343,25 @@ export async function fetchOwnerCompaniesAll(options = {}) {
 }
 
 /**
- * Normalize UI company picker keys so `company_id` / `group_id` stay consistent across pages.
- * Tenant-accessible rows are mapped to this shape via `tenantAccessibleRowToUiCompany`.
+ * Normalize tenant-accessible picker rows for sidebar / filter UI.
  */
 export function normalizeOwnerCompanyRow(row) {
   if (!row || typeof row !== "object") return row;
-  const company_id = row.company_id ?? row.companyId ?? row.code ?? "";
-  const group_id = row.group_id ?? row.groupId ?? row.group ?? null;
-  const native_group_id =
-    row.native_group_id ?? row.nativeGroupId ?? group_id ?? null;
+  const tenantIdRaw = row.tenant_id ?? row.tenantId ?? row.id;
+  const tenant_id = Number(tenantIdRaw);
+  const tenant_code = String(row.tenant_code ?? row.tenantCode ?? "").trim().toUpperCase();
+  const parent_tenant_code = row.parent_tenant_code ?? row.parentTenantCode ?? null;
+  const native_parent_tenant_code =
+    row.native_parent_tenant_code ?? row.nativeParentTenantCode ?? parent_tenant_code ?? null;
+  const tenant_type = row.tenant_type ?? row.tenantType ?? null;
   return {
     ...row,
-    company_id,
-    group_id,
-    native_group_id,
+    tenant_id: Number.isFinite(tenant_id) && tenant_id > 0 ? tenant_id : tenantIdRaw,
+    tenant_code,
+    parent_tenant_code,
+    native_parent_tenant_code,
+    tenant_type,
+    id: Number.isFinite(tenant_id) && tenant_id > 0 ? tenant_id : row.id,
   };
 }
 
@@ -1361,7 +1371,7 @@ export function companyRowIsGroupEntityAnyShape(companyRow) {
   const grp = normalizeCompanyGroupId(companyRow);
   if (!grp) return false;
   const code = String(
-    companyRow.company_id ?? companyRow.companyId ?? companyRow.code ?? companyRow.name ?? "",
+    companyRow.tenant_code ?? companyRow.company_id ?? companyRow.companyId ?? companyRow.code ?? companyRow.name ?? "",
   )
     .trim()
     .toUpperCase();
@@ -1378,7 +1388,7 @@ export function dedupeOwnerCompaniesByCode(companies, preferredCompanyId) {
   const byCode = new Map();
   const norm = (v) => String(v || "").toUpperCase().trim();
   for (const comp of list) {
-    const key = norm(comp.company_id);
+    const key = norm(comp.tenant_code);
     if (!key) continue;
     const existing = byCode.get(key);
     if (!existing) {
@@ -1402,7 +1412,12 @@ export function dedupeOwnerCompaniesByCode(companies, preferredCompanyId) {
 }
 
 export function normalizeCompanyGroupId(comp) {
-  return String(comp?.group_id ?? "").trim().toUpperCase();
+  const raw =
+    comp?.parent_tenant_code ??
+    comp?.parentTenantCode ??
+    comp?.group_id ??
+    "";
+  return String(raw).trim().toUpperCase();
 }
 
 /** Database/native group_id (not ownership-coalesced dashboard group_id). */
@@ -1557,7 +1572,7 @@ export function resolveInitialSelectedGroupFromSession(companies, currentCompany
 }
 
 export function filterCompaniesWithDisplayId(companies) {
-  return (companies || []).filter((c) => c?.company_id && String(c.company_id).trim() !== "");
+  return (companies || []).filter((c) => c?.tenant_code && String(c.tenant_code).trim() !== "");
 }
 
 /**
@@ -1682,7 +1697,7 @@ export function companyRowIsGroupEntity(companyRow, groupId) {
   if (!g || !companyRow) return false;
   if (isVirtualGroupLinkCompanyRow(companyRow)) return false;
   const code = String(
-    companyRow.company_id ?? companyRow.companyId ?? companyRow.code ?? companyRow.name ?? "",
+    companyRow.tenant_code ?? companyRow.company_id ?? companyRow.companyId ?? companyRow.code ?? companyRow.name ?? "",
   )
     .trim()
     .toUpperCase();

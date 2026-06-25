@@ -87,11 +87,13 @@ import {
 } from "./userListLogic.js";
 import {
   buildAdminCreateRequest,
+  buildAdminUpdateRequest,
   createAdminUser,
   fetchAdminListByTenantId,
   normalizeOwnerShadowRow,
   resolveAdminCreateTenantIds,
   resolveListTenantId,
+  updateAdminUser,
 } from "./userListApi.js";
 
 // Components
@@ -2214,9 +2216,98 @@ export default function UserListPage() {
         return;
       }
 
-      const res = await fetch(buildApiUrl("api/users/userlist_api.php"), { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(payload) });
-      const json = await res.json(); if (!json.success) { notifyApi(json.message, "saveFailed", "danger"); return; }
-      if (isEditMode && form.id) {
+      if (rowIsOwnerShadow(editingRow)) {
+        const res = await fetch(buildApiUrl("api/users/userlist_api.php"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+        const json = await res.json();
+        if (!json.success) {
+          notifyApi(json.message, "saveFailed", "danger");
+          return;
+        }
+        if (form.id) {
+          editUserDetailCacheRef.current.delete(String(form.id));
+          setEditReadyIds((prev) => {
+            const next = new Set(prev);
+            next.delete(Number(form.id));
+            return next;
+          });
+        }
+        notifyApi(json.message, "saved", "success");
+        closeModal();
+        if (Array.isArray(saveGroupCodes) && saveGroupCodes.length > 0) {
+          for (const code of saveGroupCodes) {
+            userListCacheRef.current.delete(
+              resolveUserListCacheKey(null, true, code, false, false, false),
+            );
+          }
+        }
+        if (json.data?.will_lose_access) {
+          setUsersRaw((prev) => prev.filter((u) => Number(u.id) !== Number(form.id)));
+        } else if (json.data && !groupOnlyUserList) {
+          setUsersRaw((prev) =>
+            prev.map((u) =>
+              Number(u.id) === Number(json.data.id)
+                ? { ...u, ...json.data, isOwnerShadow: rowIsOwnerShadow(u) }
+                : u
+            )
+          );
+        }
+        void fetchUsers();
+        return;
+      }
+
+      const scopeTenantId = resolveListTenantId({
+        companyId,
+        groupOnly: groupOnlyUserList,
+        anchorCompanyId: mutationScopeCompanyId,
+        scopeCompanyId: mutationScopeCompanyId,
+      });
+      if (scopeTenantId == null) {
+        notify(t("companyNoneSelected"), "danger");
+        return;
+      }
+
+      let tenantIds;
+      if (payload.company_ids?.length) {
+        tenantIds = payload.company_ids
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id) && id > 0);
+      } else if (useDualTenantUserPicker) {
+        tenantIds = resolveAdminCreateTenantIds({
+          useDualTenantUserPicker,
+          selectedGroupIds,
+          selectedCompanyIds,
+          saveCompanyIds,
+          shouldForceGroupScope,
+          currentUserRole,
+          companyId,
+          mutationScopeCompanyId,
+        });
+      }
+
+      const updateRequest = buildAdminUpdateRequest({
+        id: Number(form.id),
+        tenantAccessId: editingRow?.tenantAccess?.id ?? null,
+        scopeTenantId,
+        name: payload.name,
+        email: payload.email,
+        password: payload.password,
+        secondaryPassword: payload.secondary_password,
+        role: payload.role,
+        status: payload.status,
+        readOnly: payload.read_only != null ? !!Number(payload.read_only) : undefined,
+        permissions: payload.permissions,
+        tenantIds: tenantIds?.length ? tenantIds : undefined,
+        accountPermissions: payload.account_permissions,
+        processPermissions: shouldSendProcessPermissions ? payload.process_permissions : undefined,
+      });
+
+      const updated = await updateAdminUser(updateRequest);
+      if (form.id) {
         editUserDetailCacheRef.current.delete(String(form.id));
         setEditReadyIds((prev) => {
           const next = new Set(prev);
@@ -2224,7 +2315,7 @@ export default function UserListPage() {
           return next;
         });
       }
-      notifyApi(json.message, "saved", "success");
+      notifyApi("User updated successfully", "saved", "success");
       closeModal();
       if (Array.isArray(saveGroupCodes) && saveGroupCodes.length > 0) {
         for (const code of saveGroupCodes) {
@@ -2233,17 +2324,16 @@ export default function UserListPage() {
           );
         }
       }
-      if (isEditMode && json.data?.will_lose_access) {
+      const lostAccess = tenantIds?.length && !tenantIds.includes(scopeTenantId);
+      if (lostAccess) {
         setUsersRaw((prev) => prev.filter((u) => Number(u.id) !== Number(form.id)));
-      } else if (json.data && !groupOnlyUserList) {
+      } else if (!groupOnlyUserList) {
         setUsersRaw((prev) =>
-          isEditMode
-            ? prev.map((u) =>
-                Number(u.id) === Number(json.data.id)
-                  ? { ...u, ...json.data, isOwnerShadow: rowIsOwnerShadow(u) }
-                  : u
-              )
-            : [...prev, { ...json.data, isOwnerShadow: false }]
+          prev.map((u) =>
+            Number(u.id) === Number(updated.id)
+              ? { ...u, ...updated, isOwnerShadow: false }
+              : u
+          )
         );
       }
       void fetchUsers();

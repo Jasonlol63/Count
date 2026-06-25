@@ -4,6 +4,7 @@ import com.eazycount.dto.AdminListDTO;
 import com.eazycount.entity.Admin;
 import com.eazycount.entity.AdminTenantAccess;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 
@@ -12,7 +13,19 @@ public interface AdminDao {
 
     List<AdminListDTO> findAdminsByTenantId(int tenantId);
 
+    AdminListDTO findAdminByUserIdAndTenantId(@Param("userId") int userId, @Param("tenantId") int tenantId);
+
+    List<Integer> findTenantIdsByUserId(@Param("userId") int userId);
+
     void addAdmin(Admin admin);
 
     void insertAdminTenantAccess(AdminTenantAccess adminTenantAccess);
+
+    void updateAdmin(Admin admin);
+
+    void updateAdminTenantAccess(AdminTenantAccess adminTenantAccess);
+
+    int countEmailExceptUser(@Param("email") String email, @Param("userId") int userId);
+
+    void deleteAdminTenantAccessByUserIdAndTenantId(@Param("userId") int userId, @Param("tenantId") int tenantId);
 }
