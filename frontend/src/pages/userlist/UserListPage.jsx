@@ -86,8 +86,11 @@ import {
   userListHasMutationScope,
 } from "./userListLogic.js";
 import {
+  buildAdminCreateRequest,
+  createAdminUser,
   fetchAdminListByTenantId,
   normalizeOwnerShadowRow,
+  resolveAdminCreateTenantIds,
   resolveListTenantId,
 } from "./userListApi.js";
 
@@ -2159,6 +2162,58 @@ export default function UserListPage() {
       }
     }
     try {
+      if (!isEditMode) {
+        const tenantIds = resolveAdminCreateTenantIds({
+          useDualTenantUserPicker,
+          selectedGroupIds,
+          selectedCompanyIds,
+          saveCompanyIds,
+          shouldForceGroupScope,
+          currentUserRole,
+          companyId,
+          mutationScopeCompanyId,
+        });
+        if (!tenantIds.length) {
+          notify(t("companyNoneSelected"), "danger");
+          return;
+        }
+        const readOnlyForCreate =
+          roleForReadOnly &&
+          roleHasReadOnlyToggle(roleForReadOnly) &&
+          canInteractWithReadOnlyToggle(currentUserRole, roleForReadOnly)
+            ? form.read_only
+            : true;
+        const createRequest = buildAdminCreateRequest({
+          loginId: payload.login_id,
+          name: payload.name,
+          email: payload.email,
+          password: payload.password,
+          secondaryPassword: payload.secondary_password,
+          role: payload.role,
+          status: payload.status,
+          readOnly: readOnlyForCreate,
+          permissions: payload.permissions,
+          tenantIds,
+          accountPermissions: payload.account_permissions,
+          processPermissions: shouldSendProcessPermissions ? payload.process_permissions : undefined,
+        });
+        const created = await createAdminUser(createRequest);
+        notifyApi("User created successfully", "saved", "success");
+        closeModal();
+        if (Array.isArray(saveGroupCodes) && saveGroupCodes.length > 0) {
+          for (const code of saveGroupCodes) {
+            userListCacheRef.current.delete(
+              resolveUserListCacheKey(null, true, code, false, false, false),
+            );
+          }
+        }
+        if (!groupOnlyUserList) {
+          setUsersRaw((prev) => [...prev, created]);
+        }
+        void fetchUsers();
+        return;
+      }
+
       const res = await fetch(buildApiUrl("api/users/userlist_api.php"), { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(payload) });
       const json = await res.json(); if (!json.success) { notifyApi(json.message, "saveFailed", "danger"); return; }
       if (isEditMode && form.id) {
