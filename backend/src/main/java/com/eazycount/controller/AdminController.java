@@ -2,6 +2,7 @@ package com.eazycount.controller;
 
 import com.eazycount.common.BusinessException;
 import com.eazycount.dto.AdminListDTO;
+import com.eazycount.dto.AdminRequest;
 import com.eazycount.service.AdminService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -26,6 +27,24 @@ public class AdminController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Admin retrieved successfully",
+                    "data", data
+            ));
+        } catch (BusinessException e) {
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", false);
+            body.put("message", e.getMessage());
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        }
+    }
+
+    @PostMapping("/add")
+    public ResponseEntity<Map<String, Object>> add(@RequestBody AdminRequest adminRequest) {
+        try {
+            final AdminListDTO data = adminService.createAdmin(adminRequest);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "User created successfully",
                     "data", data
             ));
         } catch (BusinessException e) {
