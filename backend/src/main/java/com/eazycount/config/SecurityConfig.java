@@ -30,6 +30,7 @@ public class SecurityConfig {
 
     private static final String[] PUBLIC_URLS = {
             "/auth/login",
+            "/auth/logout",
             "/auth/send-reset-tac",
             "/auth/reset-password",
     };

@@ -120,7 +120,7 @@ public class SessionUser implements Serializable {
         final String role = admin.getRole() != null ? admin.getRole().getValue() : "";
         final List<String> moduleKeys = toFrontendModuleKeys(
                 permissionService.resolveAdminModuleKeys(admin, tenant));
-        final boolean hasGambling = permissionService.hasGamblingModule(tenant);
+        final boolean hasGame = permissionService.hasGameModule(tenant);
         final boolean hasBank = permissionService.hasBankModule(tenant);
 
         return new SessionUser(
@@ -138,7 +138,7 @@ public class SessionUser implements Serializable {
                 normalizeLower(role),
                 moduleKeys,
                 isC168,
-                hasGambling,
+                hasGame,
                 hasBank,
                 Boolean.TRUE.equals(admin.getReadOnly()) ? 1 : 0
         );
@@ -146,7 +146,7 @@ public class SessionUser implements Serializable {
 
     private static SessionUser fromMember(User member, Tenant tenant, PermissionService permissionService) {
         final String companyCode = tenantCode(tenant);
-        final boolean hasGambling = permissionService.hasGamblingModule(tenant);
+        final boolean hasGame = permissionService.hasGameModule(tenant);
         final boolean hasBank = permissionService.hasBankModule(tenant);
 
         return new SessionUser(
@@ -164,7 +164,7 @@ public class SessionUser implements Serializable {
                 normalizeLower(Objects.toString(member.getRole(), "")),
                 Collections.emptyList(),
                 "C168".equalsIgnoreCase(companyCode),
-                hasGambling,
+                hasGame,
                 hasBank,
                 0
         );
@@ -174,8 +174,7 @@ public class SessionUser implements Serializable {
         final String companyCode = !tenantCode(tenant).isBlank()
                 ? tenantCode(tenant)
                 : normalizeUpper(Objects.toString(owner.getOwnerCode(), ""));
-        final boolean hasSecondary = owner.getSecondaryPassword() != null && !owner.getSecondaryPassword().isBlank();
-        final boolean hasGambling = permissionService.hasGamblingModule(tenant);
+        final boolean hasGame = permissionService.hasGameModule(tenant);
         final boolean hasBank = permissionService.hasBankModule(tenant);
 
         return new SessionUser(
@@ -185,7 +184,7 @@ public class SessionUser implements Serializable {
                 blankToNull(companyCode),
                 tenant != null ? tenantScope(tenant) : "group",
                 companyCode,
-                hasSecondary,
+                true,
                 false,
                 tenantExpiration(tenant),
                 Objects.toString(owner.getName(), ""),
@@ -193,7 +192,7 @@ public class SessionUser implements Serializable {
                 "owner",
                 toFrontendModuleKeys(permissionService.resolveOwnerModuleKeys(owner, tenant)),
                 "C168".equalsIgnoreCase(companyCode),
-                hasGambling,
+                hasGame,
                 hasBank,
                 0
         );

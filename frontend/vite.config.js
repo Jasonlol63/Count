@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const phpTarget = env.VITE_PHP_PROXY_TARGET || "http://127.0.0.1:8000";
+  const springTarget = env.VITE_SPRING_PROXY_TARGET || "http://127.0.0.1:8082";
 
   return {
     plugins: [
@@ -32,8 +33,9 @@ export default defineConfig(({ mode }) => {
         "/dashboard.php": { target: phpTarget, changeOrigin: true },
         "/member.php": { target: phpTarget, changeOrigin: true },
         "/owner_secondary_password.php": { target: phpTarget, changeOrigin: true },
+        "/auth": { target: springTarget, changeOrigin: true },
+        "/api/announcement": { target: springTarget, changeOrigin: true },
         "/api": { target: phpTarget, changeOrigin: true },
-        "/auth": { target: phpTarget, changeOrigin: true },
         "/reset-password.php": { target: phpTarget, changeOrigin: true },
         "/js": { target: phpTarget, changeOrigin: true },
       },

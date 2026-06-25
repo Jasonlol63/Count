@@ -41,8 +41,7 @@ public class Tenant {
 
     private String feeShareAllocate;
 
-    /** Enabled business modules (from tenant_feature_module → feature_module.code) */
-    private List<String> featureModules;
+    private List<String> categoryCode;
 
     private TenantStatus status;
 

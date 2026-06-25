@@ -36,4 +36,8 @@ public interface AuthDao {
     User findMemberByAccountId(@Param("accountId") String accountId);
 
     List<Tenant> findActiveTenantsByLoginCode(@Param("tenantCode") String tenantCode);
+
+    Admin findAdminSecondaryPasswordById(@Param("adminId") Integer adminId);
+
+    Owner findOwnerSecondaryPasswordById(@Param("ownerId") Integer ownerId);
 }

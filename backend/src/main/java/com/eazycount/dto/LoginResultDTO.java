@@ -15,7 +15,7 @@ import lombok.Setter;
 @AllArgsConstructor
 public class LoginResultDTO {
     private UserDTO identity;
-    /** Tenant the user typed in the login form (company_id field). */
+    /** Tenant the user typed in the login form ({@code tenant_code} field). */
     private Tenant loginTenant;
     /** Tenant the user is allowed to enter after access check. */
     private Tenant sessionTenant;

@@ -198,7 +198,7 @@ export function useMemberPageShell({ navigate, initSession, mondayDmy, todayDmy,
     setLogoutLoading(true);
     try {
       sessionStorage.setItem("ec_skip_session_bootstrap", "1");
-      await fetch(buildApiUrl("api/session/logout_api.php"), {
+      await fetch(buildApiUrl("auth/logout"), {
         method: "POST",
         credentials: "include",
         cache: "no-store",

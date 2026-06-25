@@ -11,17 +11,14 @@ import java.util.List;
  */
 public interface PermissionService {
 
-    /** Effective sidebar module keys: C168 full list, else tenant template ∩ role ∩ optional user JSON. */
     List<String> resolveAdminModuleKeys(Admin admin, Tenant tenant);
-    /**
-     * Owner session permissions. C168 company returns full module list; otherwise empty list
-     * (frontend treats empty as unrestricted).
-     */
+
     List<String> resolveOwnerModuleKeys(Owner owner, Tenant tenant);
 
-    boolean hasGamblingModule(Tenant tenant);
+    boolean hasGameModule(Tenant tenant);
 
     boolean hasBankModule(Tenant tenant);
 
     boolean isC168Account(Tenant tenant);
+
 }

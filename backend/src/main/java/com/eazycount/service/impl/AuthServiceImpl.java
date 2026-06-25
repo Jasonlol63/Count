@@ -11,10 +11,22 @@ import com.eazycount.entity.Admin;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
 import com.eazycount.entity.User;
+import com.eazycount.jwt.JwtService;
+import com.eazycount.security.AuthCookieHelper;
+import com.eazycount.security.AuthTokenStore;
+import com.eazycount.security.LoginUserPrincipal;
+import com.eazycount.security.SecurityUtils;
+import com.eazycount.security.SessionUser;
 import com.eazycount.service.AuthService;
 import com.eazycount.service.LoginRole;
+import io.jsonwebtoken.Claims;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
@@ -27,10 +39,19 @@ public class AuthServiceImpl implements AuthService {
 
     private final AuthDao authDao;
     private final PasswordEncoder passwordEncoder;
+    private final AuthTokenStore authTokenStore;
+    private final JwtService jwtService;
 
-    public AuthServiceImpl(AuthDao authDao, PasswordEncoder passwordEncoder) {
+    public AuthServiceImpl(
+            AuthDao authDao,
+            PasswordEncoder passwordEncoder,
+            AuthTokenStore authTokenStore,
+            JwtService jwtService
+    ) {
         this.authDao = authDao;
         this.passwordEncoder = passwordEncoder;
+        this.authTokenStore = authTokenStore;
+        this.jwtService = jwtService;
     }
 
     @Override
@@ -110,10 +131,13 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("Invalid login result");
         }
 
+        Tenant sessionTenant = result.getSessionTenant();
+        Tenant loginTenant = result.getLoginTenant();
+
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", "success");
-        body.put("tenant", toTenantMap(result.getSessionTenant()));
-        body.put("login_tenant", toTenantMap(result.getLoginTenant()));
+        body.put("tenant", toTenantMap(sessionTenant));
+        body.put("login_tenant", toTenantMap(loginTenant));
         body.put("user_type", result.getUserType());
         body.put("redirect", result.getRedirect());
         return body;
@@ -263,6 +287,7 @@ public class AuthServiceImpl implements AuthService {
         return groupContext;
     }
 
+
     private boolean verifyPassword(String raw, String stored) {
         if (stored == null || stored.isBlank()) {
             return false;
@@ -288,5 +313,135 @@ public class AuthServiceImpl implements AuthService {
             return "";
         }
         return value.trim().toUpperCase();
+    }
+
+
+    @Override
+    public SessionUser applyInitialSecondaryState(SessionUser sessionUser, LoginResultDTO result) {
+        if (result.getIdentity().getOwner() != null) {
+            // owner 始终 needs_owner_secondary=true（由 SessionUser.fromOwner 保证）
+            return sessionUser;
+        }
+        if (result.getIdentity().getAdmin() != null) {
+            Admin admin = result.getIdentity().getAdmin();
+            Tenant tenant = result.getSessionTenant();
+            if (!needsUserSecondaryPassword(admin, tenant)) {
+                return sessionUser.withSecondaryVerified();
+            }
+        }
+        return sessionUser;
+    }
+
+    @Override
+    public void verifyOwnerSecondaryPassword(
+            String secondaryPassword,
+            SessionUser current,
+            String jti,
+            long ttlMillis
+    ) {
+        if (current == null || !"owner".equalsIgnoreCase(current.user_type)) {
+            throw new BusinessException("Unauthorized");
+        }
+        if (!current.needs_owner_secondary) {
+            return; // Already verified
+        }
+
+        String pin = secondaryPassword == null ? "" : secondaryPassword.trim();
+        if (pin.isEmpty()) {
+            throw new BusinessException("Please enter secondary password");
+        }
+        if (!pin.matches("^\\d{6}$")) {
+            throw new BusinessException("Secondary password must be exactly 6 digits");
+        }
+
+        Owner row = authDao.findOwnerSecondaryPasswordById(current.user_id);
+        String storedHash = row != null ? row.getSecondaryPassword() : null;
+
+        if (storedHash != null && !storedHash.isBlank() && !verifyPassword(pin, storedHash)) {
+            throw new BusinessException("Secondary password is incorrect");
+        }
+
+        authTokenStore.save(jti, current.withSecondaryVerified(), ttlMillis);
+    }
+
+    @Override
+    public void verifyUserSecondaryPassword(
+            String secondaryPassword,
+            SessionUser current,
+            String jti,
+            long ttlMillis
+    ) {
+        if (current == null || !"user".equalsIgnoreCase(current.user_type)) {
+            throw new BusinessException("Unauthorized");
+        }
+
+        // 非 C168：直接标记通过
+        if (!current.is_current_company_c168) {
+            authTokenStore.save(jti, current.withSecondaryVerified(), ttlMillis);
+            return;
+        }
+
+        if (!current.needs_user_secondary) {
+            return; // 已验证或本来就不需要
+        }
+
+        String pin = secondaryPassword == null ? "" : secondaryPassword.trim();
+        if (pin.isEmpty()) {
+            throw new BusinessException("Please enter secondary password");
+        }
+        if (!pin.matches("^\\d{6}$")) {
+            throw new BusinessException("Secondary password must be exactly 6 digits");
+        }
+
+        Admin row = authDao.findAdminSecondaryPasswordById(current.user_id);
+        String storedHash = row != null ? row.getSecondaryPassword() : null;
+
+        if (storedHash != null && !storedHash.isBlank() && !verifyPassword(pin, storedHash)) {
+            throw new BusinessException("Secondary password is incorrect");
+        }
+
+        authTokenStore.save(jti, current.withSecondaryVerified(), ttlMillis);
+    }
+
+    @Override
+    public Map<String, Object> logout(HttpServletRequest request, HttpServletResponse response) {
+        String jti = resolveLogoutJti(request);
+        if (StringUtils.hasText(jti)) {
+            authTokenStore.delete(jti);
+        }
+
+        AuthCookieHelper.clearAccessTokenCookie(response, jwtService);
+        SecurityContextHolder.clearContext();
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", true);
+        body.put("message", "Logged out");
+        return body;
+    }
+
+    private String resolveLogoutJti(HttpServletRequest request) {
+        return SecurityUtils.currentPrincipal()
+                .map(LoginUserPrincipal::jti)
+                .orElseGet(() -> extractJtiFromRequest(request));
+    }
+
+    private String extractJtiFromRequest(HttpServletRequest request) {
+        if (request == null || request.getCookies() == null) {
+            return null;
+        }
+
+        final String cookieName = jwtService.getCookieName();
+        for (Cookie cookie : request.getCookies()) {
+            if (!cookieName.equals(cookie.getName()) || !StringUtils.hasText(cookie.getValue())) {
+                continue;
+            }
+            try {
+                Claims claims = jwtService.parseToken(cookie.getValue().trim());
+                return claims.getId();
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 }
