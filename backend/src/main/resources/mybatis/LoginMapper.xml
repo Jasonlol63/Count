@@ -26,6 +26,8 @@
             <result property="ownerId" column="tenantOwnerId"/>
             <result property="parentId" column="parentId"/>
             <result property="expirationDate" column="expirationDate"/>
+            <result property="categoryCode" column="categoryCode"
+                    typeHandler="com.eazycount.handler.JsonStringListTypeHandler"/>
             <result property="status" column="tenantStatus"/>
         </association>
     </resultMap>
@@ -51,6 +53,8 @@
             <result property="ownerId" column="tenantOwnerId"/>
             <result property="parentId" column="parentId"/>
             <result property="expirationDate" column="expirationDate"/>
+            <result property="categoryCode" column="categoryCode"
+                    typeHandler="com.eazycount.handler.JsonStringListTypeHandler"/>
             <result property="status" column="tenantStatus"/>
         </association>
     </resultMap>
@@ -76,6 +80,8 @@
             <result property="ownerId" column="tenantOwnerId"/>
             <result property="parentId" column="parentId"/>
             <result property="expirationDate" column="expirationDate"/>
+            <result property="categoryCode" column="categoryCode"
+                    typeHandler="com.eazycount.handler.JsonStringListTypeHandler"/>
             <result property="status" column="tenantStatus"/>
         </association>
     </resultMap>
@@ -99,6 +105,7 @@
             t.owner_id             AS tenantOwnerId,
             t.parent_id            AS parentId,
             t.expiration_date      AS expirationDate,
+            t.category_code        AS categoryCode,
             t.status               AS tenantStatus
         FROM owner o
                  INNER JOIN tenant t
@@ -146,6 +153,7 @@
             t.owner_id             AS tenantOwnerId,
             t.parent_id            AS parentId,
             t.expiration_date      AS expirationDate,
+            t.category_code        AS categoryCode,
             t.status               AS tenantStatus
         FROM user u
                  INNER JOIN user_tenant_access uta
@@ -191,6 +199,7 @@
             t.owner_id        AS tenantOwnerId,
             t.parent_id       AS parentId,
             t.expiration_date AS expirationDate,
+            t.category_code   AS categoryCode,
             t.status          AS tenantStatus
         FROM account a
                  INNER JOIN account_tenant_access ata
@@ -278,5 +287,19 @@
             UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode}))
                 OR UPPER(TRIM(parent_t.code)) = UPPER(TRIM(#{tenantCode}))
             )
+    </select>
+
+    <select id="findAdminSecondaryPasswordById" resultType="com.eazycount.entity.Admin">
+        SELECT secondary_password AS secondaryPassword
+        FROM user
+        WHERE id = #{adminId}
+        LIMIT 1
+    </select>
+
+    <select id="findOwnerSecondaryPasswordById" resultType="com.eazycount.entity.Owner">
+        SELECT secondary_password AS secondaryPassword
+        FROM owner
+        WHERE id = #{ownerId}
+        LIMIT 1
     </select>
 </mapper>

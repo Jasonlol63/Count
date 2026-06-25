@@ -8,6 +8,9 @@ import com.eazycount.entity.Admin;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
 import com.eazycount.entity.User;
+import com.eazycount.security.SessionUser;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import java.util.List;
 import java.util.Map;
@@ -31,4 +34,11 @@ public interface AuthService {
 
     Map<String, Object> toLoginResponse(LoginResultDTO result);
 
+    SessionUser applyInitialSecondaryState(SessionUser sessionUser, LoginResultDTO result);
+
+    void verifyOwnerSecondaryPassword(String secondaryPassword, SessionUser current, String jti, long ttlMillis);
+
+    void verifyUserSecondaryPassword(String secondaryPassword, SessionUser current, String jti, long ttlMillis);
+
+    Map<String, Object> logout(HttpServletRequest request, HttpServletResponse response);
 }

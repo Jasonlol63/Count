@@ -280,7 +280,7 @@ export default function LoginPage() {
     try {
       const fd = new FormData();
       fd.append("action", "login");
-      fd.append("company_id", companyId.toUpperCase().trim());
+        fd.append("tenant_code", companyId.toUpperCase().trim());
       fd.append("password", password);
       fd.append("login_role", role);
       if (role === "member") {
@@ -290,7 +290,7 @@ export default function LoginPage() {
         if (rememberMe) fd.append("remember_me", "1");
       }
 
-      const res = await fetch(buildApiUrl("auth/login"), {
+      const res = await fetch(buildApiUrl("api/session/login_api.php"), {
         method: "POST",
         body: fd,
         credentials: "include",
@@ -312,12 +312,12 @@ export default function LoginPage() {
         sessionStorage.removeItem(LOGIN_ASSET_RETRY_KEY);
         clearDashboardFilterSession();
         const sessionTenant = data.tenant && typeof data.tenant === "object" ? data.tenant : {};
-        const loginScope = String(data.login_scope || sessionTenant.type || "")
+        const loginTenant =
+          data.login_tenant && typeof data.login_tenant === "object" ? data.login_tenant : {};
+        const loginScope = String(loginTenant.type || sessionTenant.type || "")
           .trim()
           .toLowerCase();
-        const loginIdentifier = String(
-          data.login_identifier || sessionTenant.code || companyId,
-        )
+        const loginIdentifier = String(loginTenant.code || sessionTenant.code || companyId)
           .trim()
           .toUpperCase();
         if (loginScope === "group" || loginScope === "company") {
@@ -325,11 +325,7 @@ export default function LoginPage() {
             loginScope,
             loginIdentifier,
             sessionCompanyId:
-              data.company_id != null
-                ? Number(data.company_id)
-                : sessionTenant.id != null
-                  ? Number(sessionTenant.id)
-                  : null,
+              sessionTenant.id != null ? Number(sessionTenant.id) : null,
             sessionCompanyCode: loginScope === "company" ? loginIdentifier : null,
           });
         }

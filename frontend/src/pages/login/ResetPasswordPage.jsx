@@ -187,7 +187,7 @@ export default function ResetPasswordPage() {
       if (data.success) {
         sessionStorage.setItem("ec_skip_session_bootstrap", "1");
         try {
-          await fetch(buildApiUrl("api/session/logout_api.php"), {
+          await fetch(buildApiUrl("auth/logout"), {
             method: "POST",
             credentials: "include",
             cache: "no-store",
