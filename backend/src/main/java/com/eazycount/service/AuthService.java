@@ -1,9 +1,6 @@
 package com.eazycount.service;
 
-import com.eazycount.dto.AdminTenantDTO;
-import com.eazycount.dto.LoginResultDTO;
-import com.eazycount.dto.OwnerTenantDTO;
-import com.eazycount.dto.UserTenantDTO;
+import com.eazycount.dto.*;
 import com.eazycount.entity.Admin;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
@@ -21,6 +18,14 @@ public interface AuthService {
     List<AdminTenantDTO> findAccessibleTenantsByAdminId(Integer adminId, String tenantCode);
 
     List<UserTenantDTO> findAccessibleTenantsByMemberId(Integer userId, String tenantCode);
+
+    List<TenantListDTO> findAllTenantsByOwnerId(Integer ownerId);
+
+    List<TenantListDTO> findAllTenantsByAdminId(Integer adminId);
+
+    List<TenantListDTO> findAllTenantsByMemberId(Integer userId);
+
+    Map<String, Object> accessibleTenants(boolean all);
 
     Admin findAdminByLoginId(String loginId);
 

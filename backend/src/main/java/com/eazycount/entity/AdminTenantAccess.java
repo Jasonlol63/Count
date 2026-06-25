@@ -17,7 +17,7 @@ import lombok.ToString;
 @ToString
 @NoArgsConstructor
 @AllArgsConstructor
-public class UserTenantAccess {
+public class AdminTenantAccess {
 
     private Long id;
 

@@ -7,6 +7,10 @@
 import { buildApiUrl } from "../core/apiUrl.js";
 import { pathnameIs } from "../routing/pageRoutes.js";
 import {
+  fetchAccessibleTenants,
+  tenantAccessibleRowToUiCompany,
+} from "./tenantAccessibleApi.js";
+import {
   clearCompanySessionFlagsCache,
   peekCompanySessionFlags,
   rememberCompanySessionFlags,
@@ -55,7 +59,7 @@ export const DASHBOARD_SELECTED_CURRENCY_SCOPE_KEY = "dashboard_selected_currenc
 export const DASHBOARD_SELECTED_CURRENCY_BY_SCOPE_KEY = "dashboard_selected_currency_by_scope";
 /** Prevents re-applying login defaults on refresh while the same login session is active. */
 export const DASHBOARD_LOGIN_FILTER_APPLIED_KEY = "dashboard_login_filter_applied";
-/** Linked group ids (AP+IG) from get_owner_companies_api for company login filter pills. */
+/** Linked parent tenant codes (AP+IG) from tenant-accessible API for company login filter pills. */
 export const DASHBOARD_ACCESSIBLE_GROUP_IDS_KEY = "dashboard_accessible_group_ids";
 export const DASHBOARD_GROUP_FILTER_EVENT = "eazycount:dashboard-group-filter-changed";
 export const DASHBOARD_CURRENCY_FILTER_EVENT = "eazycount:dashboard-currency-filter-changed";
@@ -307,9 +311,13 @@ export function resolveCrossPageCurrencyPreference({
   );
 }
 
-/** Store linked group ids from companies API (company login: AP+IG). */
+/** Store linked parent tenant codes from tenant-accessible API (company login: AP+IG). */
 export function persistAccessibleGroupIdsFromApi(json) {
-  const ids = Array.isArray(json?.accessible_group_ids) ? json.accessible_group_ids : [];
+  const ids = Array.isArray(json?.accessibleParentTenantCodes)
+    ? json.accessibleParentTenantCodes
+    : Array.isArray(json?.accessible_group_ids)
+      ? json.accessible_group_ids
+      : [];
   if (!ids.length) return;
   sessionStorage.setItem(
     DASHBOARD_ACCESSIBLE_GROUP_IDS_KEY,
@@ -1315,27 +1323,23 @@ export async function loadOwnerCompaniesCached(fetcher) {
   return ownerCompaniesInflight;
 }
 
-/** Shared GET owner companies — one HTTP request per session (Layout prefetch + page boot). */
+/** Shared GET accessible tenants — one HTTP request per session (Layout prefetch + page boot). */
 export async function fetchOwnerCompaniesAll(options = {}) {
   const { signal, throwOnError = false } = options;
   return loadOwnerCompaniesCached(async () => {
-    const res = await fetch(buildApiUrl("api/transactions/get_owner_companies_api.php?all=1"), {
-      credentials: "include",
+    const { tenants, accessibleParentTenantCodes } = await fetchAccessibleTenants({
       signal,
+      all: true,
+      throwOnError,
     });
-    const json = await res.json();
-    persistAccessibleGroupIdsFromApi(json);
-    if (throwOnError && (!res.ok || !json.success || !Array.isArray(json.data))) {
-      throw new Error(json?.message || json?.error || "Failed to load companies");
-    }
-    const rows = Array.isArray(json?.data) ? json.data : [];
-    return rows.map((r) => normalizeOwnerCompanyRow(r)).filter(Boolean);
+    persistAccessibleGroupIdsFromApi({ accessibleParentTenantCodes });
+    return tenants.map(tenantAccessibleRowToUiCompany).map(normalizeOwnerCompanyRow).filter(Boolean);
   });
 }
 
 /**
- * Normalize keys from `get_owner_companies_api` (and any proxy) so `company_id` / `group_id`
- * match Account List and Maintenance pages — otherwise Transaction filters stay empty.
+ * Normalize UI company picker keys so `company_id` / `group_id` stay consistent across pages.
+ * Tenant-accessible rows are mapped to this shape via `tenantAccessibleRowToUiCompany`.
  */
 export function normalizeOwnerCompanyRow(row) {
   if (!row || typeof row !== "object") return row;

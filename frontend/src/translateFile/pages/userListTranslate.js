@@ -3,6 +3,7 @@ import { createGetText, toLocale } from "../shared/i18nHelpers.js";
 export const USER_LIST_I18N = {
   en: {
     failedToLoadUsers: "Failed to load users",
+    companyScopeRequired: "Company scope is required to load users",
     couldNotSwitchCompany: "Could not switch company",
     companySwitchFailed: "Company switch failed",
     noPermissionCreateAccounts: "You do not have permission to create new accounts",
@@ -133,6 +134,7 @@ export const USER_LIST_I18N = {
   },
   zh: {
     failedToLoadUsers: "加载用户失败",
+    companyScopeRequired: "需要选择公司范围才能加载用户",
     couldNotSwitchCompany: "无法切换公司",
     companySwitchFailed: "公司切换失败",
     noPermissionCreateAccounts: "您没有权限创建新账号",
@@ -278,7 +280,8 @@ const USER_LIST_API_MESSAGE_KEYS = {
   [normApiMessage("User deleted successfully")]: "apiUserDeleted",
   [normApiMessage("Users retrieved successfully")]: "saved",
   [normApiMessage("Unauthorized access")]: "apiUnauthorized",
-  [normApiMessage("Invalid request")]: "apiInvalidRequest",
+  [normApiMessage("Invalid Tenant Id!")]: "companyScopeRequired",
+  [normApiMessage("tenantIdRequired")]: "companyScopeRequired",
   [normApiMessage("You do not have permission to create new accounts")]: "noPermissionCreateAccounts",
   [normApiMessage("只读账号无法执行此操作")]: "readOnlyActionBlocked",
   [normApiMessage("Read-only account: this action is not allowed.")]: "readOnlyActionBlocked",

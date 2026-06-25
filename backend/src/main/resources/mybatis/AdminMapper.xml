@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.AdminDao">
+
+    <resultMap id="AdminListDTO" type="com.eazycount.dto.AdminListDTO">
+        <association property="admin" javaType="com.eazycount.entity.Admin">
+            <id property="id" column="adminId"/>
+            <result property="loginId" column="adminLoginId"/>
+            <result property="name" column="adminName"/>
+            <result property="password" column="adminPassword"/>
+            <result property="secondaryPassword" column="adminSecondaryPassword"/>
+            <result property="email" column="adminEmail"/>
+            <result property="role" column="adminRole"/>
+            <result property="permissions" column="adminPermissions"/>
+            <result property="status" column="adminStatus"/>
+            <result property="createdBy" column="adminCreatedBy"/>
+            <result property="createdAt" column="adminCreatedAt"/>
+            <result property="lastLogin" column="adminLastLogin"/>
+            <result property="readOnly" column="adminReadOnly"/>
+        </association>
+
+        <association property="adminTenantAccess" javaType="com.eazycount.entity.AdminTenantAccess">
+            <id property="id" column="adminTenantAccessId"/>
+            <result property="userId" column="adminTenantAccessUserId"/>
+            <result property="tenantId" column="adminTenantAccessTenantId"/>
+            <result property="capabilities" column="capabilities"/>
+            <result property="accountPermissions" column="accountPermissions"/>
+            <result property="processPermissions" column="processPermissions"/>
+            <result property="createdAt" column="adminTenantAccessCreatedAt"/>
+            <result property="updatedAt" column="adminTenantAccessUpdatedAt"/>
+        </association>
+    </resultMap>
+
+    <select id="findAdminsByTenantId" resultMap="AdminListDTO">
+        SELECT
+        u.id                    AS adminId,
+        u.login_id              AS adminLoginId,
+        u.name                  AS adminName,
+        u.email                 AS adminEmail,
+        u.role                  AS adminRole,
+        u.permissions           AS adminPermissions,
+        u.status                AS adminStatus,
+        u.created_by            AS adminCreatedBy,
+        u.created_at            AS adminCreatedAt,
+        u.last_login            AS adminLastLogin,
+        u.read_only             AS adminReadOnly,
+
+        uta.id                  AS adminTenantAccessId,
+        uta.user_id             AS adminTenantAccessUserId,
+        uta.tenant_id           AS adminTenantAccessTenantId,
+        uta.capabilities        AS capabilities,
+        uta.account_permissions AS accountPermissions,
+        uta.process_permissions AS processPermissions,
+        uta.created_at          AS adminTenantAccessCreatedAt,
+        uta.updated_at          AS adminTenantAccessUpdatedAt
+        FROM user u
+        INNER JOIN user_tenant_access uta ON uta.user_id = u.id
+        WHERE uta.tenant_id = #{tenantId}
+        ORDER BY
+        CASE
+        WHEN u.login_id REGEXP '^[0-9]' THEN 0
+        ELSE 1
+        END,
+        CASE
+        WHEN u.login_id REGEXP '^[0-9]' THEN CAST(u.login_id AS UNSIGNED)
+        ELSE ASCII(UPPER(u.login_id))
+        END,
+        u.login_id ASC
+    </select>
+
+    <insert id="addAdmin" useGeneratedKeys="true" keyProperty="id">
+        insert into user (login_id, name, email, password, secondary_password, role, permissions, status, created_by, created_at, read_only)
+        values (#{loginId}, #{name}, #{email}, #{password}, #{secondaryPassword}, #{role}, #{permissions}, #{status}, #{createdBy}, NOW(), #{readOnly})
+    </insert>
+
+    <insert id="insertUserTenantAccess">
+        INSERT INTO user_tenant_access (user_id, tenant_id, account_permissions, process_permissions)
+        VALUES (#{userId}, #{tenantId}, #{accountPermissions}, #{processPermissions})
+    </insert>
+
+    <delete id="deleteAdmin">
+        delete from user
+        where id = #{id} AND status = #{status}
+    </delete>
+
+    <update id="updateAdmin">
+        update user
+        set login_id = #{loginId},
+            name = #{name},
+            email = #{email},
+            password = #{password},
+            secondary_password = #{secondaryPassword},
+            role = #{role},
+            permissions = #{permissions},
+            status = #{status},
+            created_by = #{createdBy},
+            read_only = #{readOnly}
+        where id = #{id}
+    </update>
+
+</mapper>
