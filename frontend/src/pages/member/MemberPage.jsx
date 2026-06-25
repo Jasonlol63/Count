@@ -771,7 +771,7 @@ export default function MemberPage() {
               >
                 <div className="notification-title">{a.title}</div>
                 <div className="notification-message">{a.content}</div>
-                <div className="notification-time">{a.created_at}</div>
+                <div className="notification-time">{a.created_at ?? a.createdAt}</div>
               </div>
             ))
           ) : (

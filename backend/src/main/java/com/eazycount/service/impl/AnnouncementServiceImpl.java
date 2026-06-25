@@ -31,6 +31,16 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     }
 
     @Override
+    public List<Announcements> findDashboardAnnouncements(){
+        return announcementDao.findDashboardAnnouncements();
+    }
+
+    @Override
+    public List<Maintenance> findMaintenanceInLogin() {
+        return announcementDao.findMaintenanceInLogin();
+    }
+
+    @Override
     public void addMaintenance(Maintenance maintenance) {
         final SessionUser current = SecurityUtils.currentUser();
         if (current == null || current.user_id == null) {

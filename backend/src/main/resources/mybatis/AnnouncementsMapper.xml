@@ -32,6 +32,24 @@
     <select id="findAllMaintenance" resultMap="MaintenanceMap">
         select * from maintenance_marquee
     </select>
+
+    <select id="findDashboardAnnouncements" resultMap="AnnouncementMap">
+        select *
+        from announcements
+        where company_code = 'C168'
+        AND status = 'ACTIVE'
+        order by created_at desc
+        limit 10
+    </select>
+
+    <select id="findMaintenanceInLogin" resultMap="MaintenanceMap">
+        select *
+        from maintenance_marquee
+        where company_code = 'C168'
+        AND status = 'ACTIVE'
+        order by created_at desc
+        limit 10
+    </select>
     
     <insert id="addAnnouncement" useGeneratedKeys="true" keyProperty="id">
         insert into announcements(title, content, company_code, status, created_by, user_type, created_at)

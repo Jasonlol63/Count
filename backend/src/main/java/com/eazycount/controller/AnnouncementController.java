@@ -39,6 +39,27 @@ public class AnnouncementController {
         );
     }
 
+    @GetMapping("/getDashboardAnnouncements")
+    public ResponseEntity<Map<String, Object>> getDashboardAnnouncements(){
+        final List<Announcements> announcements = announcementService.findDashboardAnnouncements();
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "OK",
+                "data",announcements)
+        );
+    }
+
+
+    @GetMapping("/getMaintenanceInLogin")
+    public ResponseEntity<Map<String, Object>> getMaintenanceInLogin(){
+        final List<Maintenance> maintenance = announcementService.findMaintenanceInLogin();
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "OK",
+                "data",maintenance)
+        );
+    }
+
     @PostMapping("/addAnnouncementContent")
     public ResponseEntity<Map<String, Object>> addAnnouncementContentPage(@RequestBody Announcements announcements){
         try {
