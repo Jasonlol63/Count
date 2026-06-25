@@ -231,7 +231,7 @@ export default function LoginPage() {
     const ac = new AbortController();
     (async () => {
       try {
-        const res = await fetch("/api/maintenance/get_public_api.php", {
+        const res = await fetch(buildApiUrl("api/maintenance/get_public_api.php"), {
           signal: ac.signal,
           credentials: "include",
         });

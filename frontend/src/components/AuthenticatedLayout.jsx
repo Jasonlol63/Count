@@ -1449,7 +1449,7 @@ export default function AuthenticatedLayout() {
               >
                 <div className="notification-title">{announcement.title}</div>
                 <div className="notification-message">{announcement.content}</div>
-                <div className="notification-time">{announcement.created_at}</div>
+                <div className="notification-time">{announcement.created_at ?? announcement.createdAt}</div>
               </div>
             ))
           ) : (

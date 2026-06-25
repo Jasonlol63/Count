@@ -11,6 +11,10 @@ public interface AnnouncementService {
 
     List<Maintenance> findAllMaintenance();
 
+    List<Announcements> findDashboardAnnouncements();
+
+    List<Maintenance> findMaintenanceInLogin();
+
     void addAnnouncement(Announcements announcements);
 
     void updateAnnouncement(Announcements announcements);

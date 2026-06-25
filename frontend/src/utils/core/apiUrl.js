@@ -35,6 +35,9 @@ export function buildApiUrl(pathAndQuery) {
     if (raw.startsWith("api/announcements/announcement_delete_api.php")) {
       return "api/announcement/deleteAnnouncement";
     }
+    if (raw.startsWith("api/announcements/announcement_get_dashboard_api.php")) {
+      return "api/announcement/getDashboardAnnouncements";
+    }
     if (raw.startsWith("api/maintenance/list_api.php")) {
       return "api/announcement/listMaintenance";
     }
@@ -46,6 +49,9 @@ export function buildApiUrl(pathAndQuery) {
     }
     if (raw.startsWith("api/maintenance/delete_api.php")) {
       return "api/announcement/deleteMaintenance";
+    }
+    if (raw.startsWith("api/maintenance/get_public_api.php")) {
+      return "api/announcement/getMaintenanceInLogin";
     }
     return raw;
   })();
