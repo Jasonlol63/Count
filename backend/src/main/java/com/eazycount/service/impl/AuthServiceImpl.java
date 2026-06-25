@@ -2,11 +2,7 @@ package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.AuthDao;
-import com.eazycount.dto.AdminTenantDTO;
-import com.eazycount.dto.LoginResultDTO;
-import com.eazycount.dto.OwnerTenantDTO;
-import com.eazycount.dto.UserDTO;
-import com.eazycount.dto.UserTenantDTO;
+import com.eazycount.dto.*;
 import com.eazycount.entity.Admin;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
@@ -29,10 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 @Service
 public class AuthServiceImpl implements AuthService {
@@ -258,6 +251,91 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("Group/Company Not Found!");
         }
         return tenants;
+    }
+
+    @Override
+    public List<TenantListDTO> findAllTenantsByOwnerId(Integer ownerId) {
+        if (ownerId == null) {
+            throw new BusinessException("Invalid Login!");
+        }
+        return authDao.findAllTenantsByOwnerId(ownerId); // 空就返回 []
+    }
+
+    @Override
+    public List<TenantListDTO> findAllTenantsByAdminId(Integer adminId) {
+        if (adminId == null) {
+            throw new BusinessException("Invalid Login!");
+        }
+        return authDao.findAllTenantsByAdminId(adminId); // 空就返回 []
+    }
+
+    @Override
+    public List<TenantListDTO> findAllTenantsByMemberId(Integer userId) {
+        if (userId == null) {
+            throw new BusinessException("Invalid Login!");
+        }
+        return authDao.findAllTenantsByMemberId(userId); // 空就返回 []
+    }
+
+    @Override
+    public Map<String, Object> accessibleTenants(boolean all) {
+        SessionUser user = SecurityUtils.currentUser();
+        if (user == null || user.user_id == null) {
+            throw new BusinessException("Not logged in");
+        }
+
+        String userType = String.valueOf(user.user_type).trim().toLowerCase();
+        List<TenantListDTO> rows = switch (userType) {
+            case "owner" -> findAllTenantsByOwnerId(user.user_id);
+            case "member" -> findAllTenantsByMemberId(user.user_id);
+            default -> findAllTenantsByAdminId(user.user_id); // admin tab → user_type = "user"
+        };
+
+        LocalDate today = LocalDate.now();
+        List<Map<String, Object>> data = new ArrayList<>();
+        LinkedHashSet<String> groupIds = new LinkedHashSet<>();
+
+        for (TenantListDTO row : rows) {
+            if (row == null) {
+                continue;
+            }
+            if (row.getExpirationDate() != null && row.getExpirationDate().isBefore(today)) {
+                continue;
+            }
+            if (!all) {
+                // 预留：按 user.company_id / login_scope 过滤
+            }
+
+            boolean isGroup = row.getTenantType() == Tenant.TenantType.GROUP;
+            String code = row.getCode() != null ? row.getCode().trim() : "";
+            String parentGroup = row.getParentGroupCode() != null
+                    ? row.getParentGroupCode().trim().toUpperCase()
+                    : null;
+
+            Map<String, Object> ui = new LinkedHashMap<>();
+            ui.put("id", row.getId());
+            ui.put("company_id", code);
+            ui.put("group_id", isGroup ? code.toUpperCase() : parentGroup);
+            ui.put("native_group_id", isGroup ? code.toUpperCase() : parentGroup);
+            ui.put("expiration_date", row.getExpirationDate());
+            data.add(ui);
+
+            if (isGroup && !code.isBlank()) {
+                groupIds.add(code.toUpperCase());
+            } else {
+                String parent = row.getParentGroupCode();
+                if (parent != null && !parent.isBlank()) {
+                    groupIds.add(parent.trim().toUpperCase());
+                }
+            }
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", true);
+        body.put("message", "");
+        body.put("data", data);
+        body.put("accessible_group_ids", new ArrayList<>(groupIds));
+        return body;
     }
 
     /**

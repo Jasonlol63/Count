@@ -54,6 +54,22 @@ export function normRole(r) {
   return String(r || "").trim().toLowerCase();
 }
 
+export function rowLoginId(row) {
+  return row?.loginId ?? row?.login_id ?? "";
+}
+
+export function rowLastLogin(row) {
+  return row?.lastLogin ?? row?.last_login ?? null;
+}
+
+export function rowCreatedBy(row) {
+  return row?.createdBy ?? row?.created_by ?? "";
+}
+
+export function rowIsOwnerShadow(row) {
+  return !!(row?.isOwnerShadow ?? row?.is_owner_shadow);
+}
+
 /** Partnership / Audit：显示 Read Only 开关 */
 export function roleHasReadOnlyToggle(role) {
   const r = normRole(role);
@@ -77,7 +93,7 @@ export function canInteractWithReadOnlyToggle(currentUserRole, targetUserRole) {
  * Owner / Manager 等上级编辑下级只读账号时仍可修改（含关闭 Read Only）。
  */
 export function isUserModalPageReadOnlyLock(isEditMode, editingRow, role, readOnly, currentUserId) {
-  if (!isEditMode || editingRow?.is_owner_shadow) return false;
+  if (!isEditMode || rowIsOwnerShadow(editingRow)) return false;
   if (!roleHasReadOnlyToggle(role) || !readOnly) return false;
   if (!currentUserId || editingRow?.id == null) return false;
   return Number(editingRow.id) === Number(currentUserId);
@@ -85,7 +101,7 @@ export function isUserModalPageReadOnlyLock(isEditMode, editingRow, role, readOn
 
 /** Owner 登录后编辑列表中的 Owner 影子行（本人公司 Owner 资料） */
 export function isOwnerEditingOwnerShadow(row, currentUserRole) {
-  return !!row?.is_owner_shadow && normRole(currentUserRole) === "owner";
+  return rowIsOwnerShadow(row) && normRole(currentUserRole) === "owner";
 }
 
 /**
@@ -188,11 +204,11 @@ export function getFinalPermissionsForCreation(selectedRole, manuallySelected, c
 
 /**
  * Row capabilities（列表行编辑/删除/状态规则）.
- * @param {object} row — user row with id, role, status, is_owner_shadow
+ * @param {object} row — user row with id, role, status, isOwnerShadow
  */
 export function computeRowCapabilities(row, currentUserId, currentUserRole) {
   const targetRole = normRole(row.role);
-  const isOwnerShadow = !!row.is_owner_shadow;
+  const isOwnerShadow = rowIsOwnerShadow(row);
   const targetUserId = Number(row.id);
   const currentLevel = ROLE_HIERARCHY[normRole(currentUserRole)] ?? 999;
   const targetLevel = ROLE_HIERARCHY[targetRole] ?? 999;
@@ -268,7 +284,7 @@ export function applyUserFilters(users, { search, showInactive, showAll, viewerR
   }
   const q = search.trim().toLowerCase();
   if (q) {
-    rows = rows.filter((u) => `${u.login_id || ""} ${u.name || ""} ${u.email || ""}`.toLowerCase().includes(q));
+    rows = rows.filter((u) => `${rowLoginId(u)} ${u.name || ""} ${u.email || ""}`.toLowerCase().includes(q));
   }
   if (showAll && showInactive) {
     rows = rows.filter((u) => normRole(u.status) === "inactive");
@@ -283,14 +299,14 @@ export function applyUserFilters(users, { search, showInactive, showAll, viewerR
 }
 
 function shadowCmp(a, b) {
-  if (a.is_owner_shadow && !b.is_owner_shadow) return -1;
-  if (!a.is_owner_shadow && b.is_owner_shadow) return 1;
+  if (rowIsOwnerShadow(a) && !rowIsOwnerShadow(b)) return -1;
+  if (!rowIsOwnerShadow(a) && rowIsOwnerShadow(b)) return 1;
   return 0;
 }
 
 function tiebreakLoginName(a, b) {
-  const al = String(a.login_id || "").toLowerCase();
-  const bl = String(b.login_id || "").toLowerCase();
+  const al = rowLoginId(a).toLowerCase();
+  const bl = rowLoginId(b).toLowerCase();
   if (al < bl) return -1;
   if (al > bl) return 1;
   const an = String(a.name || "").toLowerCase();
@@ -324,8 +340,8 @@ export function sortUsers(rows, sortColumn, sortDirection) {
     sortWithShadow((a, b) => Number(a.id || 0) - Number(b.id || 0));
   } else if (sortColumn === "loginId") {
     sortWithShadow((a, b) => {
-      const aKey = String(a.login_id || "").toLowerCase();
-      const bKey = String(b.login_id || "").toLowerCase();
+      const aKey = rowLoginId(a).toLowerCase();
+      const bKey = rowLoginId(b).toLowerCase();
       if (aKey < bKey) return -1;
       if (aKey > bKey) return 1;
       const aName = String(a.name || "").toLowerCase();
@@ -356,8 +372,8 @@ export function sortUsers(rows, sortColumn, sortDirection) {
     );
   } else if (sortColumn === "lastLogin") {
     sortWithShadow((a, b) => {
-      const va = lastLoginSortMs(a.last_login);
-      const vb = lastLoginSortMs(b.last_login);
+      const va = lastLoginSortMs(rowLastLogin(a));
+      const vb = lastLoginSortMs(rowLastLogin(b));
       if (va == null && vb == null) return 0;
       if (va == null) return 1;
       if (vb == null) return -1;
@@ -367,12 +383,12 @@ export function sortUsers(rows, sortColumn, sortDirection) {
     });
   } else if (sortColumn === "createdBy") {
     sortWithShadow((a, b) =>
-      String(a.created_by || "").localeCompare(String(b.created_by || ""), undefined, { sensitivity: "base" }),
+      String(rowCreatedBy(a)).localeCompare(String(rowCreatedBy(b)), undefined, { sensitivity: "base" }),
     );
   } else {
     sortWithShadow((a, b) => {
-      const aKey = String(a.login_id || "").toLowerCase();
-      const bKey = String(b.login_id || "").toLowerCase();
+      const aKey = rowLoginId(a).toLowerCase();
+      const bKey = rowLoginId(b).toLowerCase();
       if (aKey < bKey) return -1;
       if (aKey > bKey) return 1;
       const aName = String(a.name || "").toLowerCase();

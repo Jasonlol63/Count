@@ -35,6 +35,7 @@ export default defineConfig(({ mode }) => {
         "/owner_secondary_password.php": { target: phpTarget, changeOrigin: true },
         "/auth": { target: springTarget, changeOrigin: true },
         "/api/announcement": { target: springTarget, changeOrigin: true },
+        "/api/userlist": { target: springTarget, changeOrigin: true },
         "/api": { target: phpTarget, changeOrigin: true },
         "/reset-password.php": { target: phpTarget, changeOrigin: true },
         "/js": { target: phpTarget, changeOrigin: true },

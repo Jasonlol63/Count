@@ -86,6 +86,100 @@
         </association>
     </resultMap>
 
+    <resultMap id="TenantListMap" type="com.eazycount.dto.TenantListDTO">
+        <id property="id" column="tenantId"/>
+        <result property="tenantType" column="tenantType"/>
+        <result property="code" column="tenantCode"/>
+        <result property="name" column="tenantName"/>
+        <result property="ownerId" column="tenantOwnerId"/>
+        <result property="parentId" column="parentId"/>
+        <result property="parentGroupCode" column="parentGroupCode"/>
+        <result property="expirationDate" column="expirationDate"/>
+        <result property="status" column="tenantStatus"/>
+    </resultMap>
+
+    <select id="findAllTenantsByOwnerId" resultMap="TenantListMap">
+        SELECT
+        t.id              AS tenantId,
+        t.tenant_type     AS tenantType,
+        t.code            AS tenantCode,
+        t.name            AS tenantName,
+        t.owner_id        AS tenantOwnerId,
+        t.parent_id       AS parentId,
+        parent_t.code     AS parentGroupCode,
+        t.expiration_date AS expirationDate,
+        t.status          AS tenantStatus
+        FROM tenant t
+        LEFT JOIN tenant parent_t
+        ON parent_t.id = t.parent_id
+        AND parent_t.status = 'ACTIVE'
+        WHERE t.owner_id = #{ownerId}
+        AND t.status = 'ACTIVE'
+        AND TRIM(t.code) &lt;&gt; ''
+        ORDER BY
+        CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
+        t.code ASC,
+        t.id ASC
+    </select>
+
+    <select id="findAllTenantsByAdminId" resultMap="TenantListMap">
+        SELECT
+        t.id              AS tenantId,
+        t.tenant_type     AS tenantType,
+        t.code            AS tenantCode,
+        t.name            AS tenantName,
+        t.owner_id        AS tenantOwnerId,
+        t.parent_id       AS parentId,
+        parent_t.code     AS parentGroupCode,
+        t.expiration_date AS expirationDate,
+        t.status          AS tenantStatus
+        FROM tenant t
+        LEFT JOIN tenant parent_t
+        ON parent_t.id = t.parent_id
+        AND parent_t.status = 'ACTIVE'
+        INNER JOIN user_tenant_access uta
+        ON uta.tenant_id = t.id
+        INNER JOIN user u
+        ON u.id = uta.user_id
+        WHERE u.id = #{adminId}
+        AND u.status = 'ACTIVE'
+        AND t.status = 'ACTIVE'
+        AND TRIM(t.code) &lt;&gt; ''
+        ORDER BY
+        CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
+        t.code ASC,
+        t.id ASC
+    </select>
+
+    <select id="findAllTenantsByMemberId" resultMap="TenantListMap">
+        SELECT
+        t.id              AS tenantId,
+        t.tenant_type     AS tenantType,
+        t.code            AS tenantCode,
+        t.name            AS tenantName,
+        t.owner_id        AS tenantOwnerId,
+        t.parent_id       AS parentId,
+        parent_t.code     AS parentGroupCode,
+        t.expiration_date AS expirationDate,
+        t.status          AS tenantStatus
+        FROM tenant t
+        LEFT JOIN tenant parent_t
+        ON parent_t.id = t.parent_id
+        AND parent_t.status = 'ACTIVE'
+        INNER JOIN account_tenant_access ata
+        ON ata.tenant_id = t.id
+        INNER JOIN account a
+        ON a.id = ata.account_id
+        WHERE a.id = #{userId}
+        AND a.status = 'ACTIVE'
+        AND t.status = 'ACTIVE'
+        AND TRIM(t.code) &lt;&gt; ''
+        ORDER BY
+        CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
+        t.code ASC,
+        t.id ASC
+    </select>
+
     <select id="findAccessibleTenantsByOwnerId" resultMap="OwnerTenantDTO">
         SELECT
             o.id                   AS ownerPk,

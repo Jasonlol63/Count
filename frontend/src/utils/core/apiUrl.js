@@ -20,6 +20,10 @@ export function buildApiUrl(pathAndQuery) {
       return "auth/verify-user-secondary-password";
     }
     if (raw.startsWith("api/session/logout_api.php")) return "auth/logout";
+    if (raw.startsWith("api/transactions/get_owner_companies_api.php")) {
+      const q = raw.includes("?") ? raw.slice(raw.indexOf("?")) : "";
+      return `auth/tenant-accessible${q}`;
+    }
     if (raw.startsWith("api/users/send_reset_tac_api.php")) return "auth/send-reset-tac";
     if (raw.startsWith("api/users/reset_password_api.php")) return "auth/reset-password";
     // Announcement page — fully migrated to Spring Boot.

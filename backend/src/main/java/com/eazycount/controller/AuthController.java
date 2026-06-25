@@ -17,8 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 
 @RestController
 @RequestMapping("/auth")
@@ -98,6 +97,29 @@ public class AuthController {
         body.put("message", "");
         body.put("data", user);
         return ResponseEntity.ok(body);
+    }
+
+    @GetMapping("/tenant-accessible")
+    public ResponseEntity<Map<String, Object>> tenantAccessible(
+            @RequestParam(value = "all", defaultValue = "1") int all) {
+        SessionUser user = SecurityUtils.currentUser();
+        if (user == null) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", false);
+            body.put("message", "Not logged in");
+            body.put("data", null);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
+        }
+
+        try {
+            return ResponseEntity.ok(authService.accessibleTenants(all == 1));
+        } catch (BusinessException e) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", false);
+            body.put("message", e.getMessage());
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        }
     }
 
     @PostMapping("/verify-owner-secondary-password")

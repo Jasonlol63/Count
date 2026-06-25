@@ -68,6 +68,10 @@ import {
   getFinalPermissionsForCreation,
   getRoleTemplateSidebarList,
   normRole,
+  rowCreatedBy,
+  rowIsOwnerShadow,
+  rowLoginId,
+  rowLastLogin,
   sortUsers,
   roleHasReadOnlyToggle,
   canInteractWithReadOnlyToggle,
@@ -81,6 +85,11 @@ import {
   shouldLoadUserListData,
   userListHasMutationScope,
 } from "./userListLogic.js";
+import {
+  fetchAdminListByTenantId,
+  normalizeOwnerShadowRow,
+  resolveListTenantId,
+} from "./userListApi.js";
 
 // Components
 import UserModal from "./components/UserModal.jsx";
@@ -871,33 +880,25 @@ export default function UserListPage() {
     [isUserListScopeKeyActive],
   );
 
-  const loadUsersListFromApi = useCallback(async (activeCompanyId, signal, { groupOnly = null, selectedGroup: groupOverride = null } = {}) => {
+  const loadUsersListFromApi = useCallback(async (activeCompanyId, signal, {
+    groupOnly = null,
+    selectedGroup: groupOverride = null,
+    scopeCompanyId: scopeCompanyIdOverride = null,
+    anchorCompanyId: anchorCompanyIdOverride = null,
+  } = {}) => {
     const useGroupOnly = groupOnly ?? groupOnlyUserList;
-    const activeGroup = groupOverride ?? selectedGroup;
-    const body = { action: "get" };
-    if (aggregateUserList) {
-      if (groupsAllMode) body.groups_all = 1;
-      if (groupAllMode || groupsAllMode) body.group_all = 1;
-      if (activeGroup && !groupsAllMode) body.group_id = activeGroup;
-    } else if (useGroupOnly && activeGroup) {
-      body.group_id = activeGroup;
-      body.group_only = 1;
-      body.group_aggregate = 1;
-    } else if (activeCompanyId != null) {
-      body.company_id = Number(activeCompanyId);
-    }
-    const res = await fetch(buildApiUrl("api/users/userlist_api.php"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(body),
-      signal,
+    const tenantId = resolveListTenantId({
+      companyId: activeCompanyId,
+      groupOnly: useGroupOnly,
+      anchorCompanyId: anchorCompanyIdOverride,
+      scopeCompanyId: scopeCompanyIdOverride,
     });
-    const json = await res.json();
-    if (!res.ok || !json.success) {
-      throw new Error(json?.message || "failedToLoadUsers");
+    if (tenantId == null) {
+      throw new Error("tenantIdRequired");
     }
-    let list = Array.isArray(json.data) ? json.data.map((u) => ({ ...u, is_owner_shadow: false })) : [];
+
+    let list = await fetchAdminListByTenantId(tenantId, signal);
+
     if (normRole(me.role) === "owner" && me.user_id) {
       try {
         const r2 = await fetch(buildApiUrl("api/users/userlist_api.php"), {
@@ -908,8 +909,8 @@ export default function UserListPage() {
           signal,
         });
         const j2 = await r2.json();
-        if (j2.success && j2.data && normRole(j2.data.role) === "owner") {
-          const shadow = { ...j2.data, is_owner_shadow: true };
+        const shadow = normalizeOwnerShadowRow(j2.success ? j2.data : null);
+        if (shadow && normRole(shadow.role) === "owner") {
           if (!list.some((u) => Number(u.id) === Number(shadow.id))) list = [shadow, ...list];
         }
       } catch {
@@ -917,7 +918,7 @@ export default function UserListPage() {
       }
     }
     return list;
-  }, [aggregateUserList, groupOnlyUserList, groupsAllMode, groupAllMode, me, selectedGroup]);
+  }, [groupOnlyUserList, me]);
 
   const applyUserListCache = useCallback((activeCompanyId, { groupOnly = null, selectedGroup: groupOverride = null } = {}) => {
     const useGroupOnly = groupOnly ?? groupOnlyUserList;
@@ -979,6 +980,8 @@ export default function UserListPage() {
     const loadPromise = loadUsersListFromApi(activeCompanyId, ac.signal, {
       groupOnly: useGroupOnly,
       selectedGroup: activeGroup,
+      scopeCompanyId,
+      anchorCompanyId,
     });
     userListFetchPendingRef.current.set(cacheKey, loadPromise);
 
@@ -988,7 +991,7 @@ export default function UserListPage() {
       applyUserListResult(cacheKey, list, { silent });
     } catch (e) {
       if (ac.signal.aborted || fetchGen !== listFetchGenRef.current) return;
-      if (!silent) notifyApi(null, "failedToLoadUsers", "danger");
+      if (!silent) notifyApi(e?.message, "companyScopeRequired", "danger");
     } finally {
       if (userListFetchPendingRef.current.get(cacheKey) === loadPromise) {
         userListFetchPendingRef.current.delete(cacheKey);
@@ -1004,6 +1007,8 @@ export default function UserListPage() {
     selectedGroup,
     groupsAllMode,
     groupAllMode,
+    scopeCompanyId,
+    anchorCompanyId,
     applyUserListResult,
   ]);
 
@@ -1817,7 +1822,7 @@ export default function UserListPage() {
       setSelectedCompanyIds(scopeCompanyId ? [Number(scopeCompanyId)] : []);
       setSelectedGroupIds([]);
     }
-    if (row.is_owner_shadow) {
+    if (rowIsOwnerShadow(row)) {
       setPermSelected(new Set(PERMISSION_KEYS));
       setSelectedAccountIds(new Set(accList.map((a) => Number(a.id))));
       setSelectedProcessIds(new Set(procList.map((p) => Number(p.id))));
@@ -1920,14 +1925,14 @@ export default function UserListPage() {
       return;
     }
     if (!scopeCompanyId) return;
-    if (row.is_owner_shadow && currentUserRole !== "owner") { notify(t("onlyOwnerCanEditOwner"), "danger"); return; }
+    if (rowIsOwnerShadow(row) && currentUserRole !== "owner") { notify(t("onlyOwnerCanEditOwner"), "danger"); return; }
     const modalCacheKey = resolveModalAccessCacheKey(scopeCompanyId, groupOnlyUserList, selectedGroup);
     const cachedDetail = editUserDetailCacheRef.current.get(String(row.id));
     const loadSeq = ++modalLoadSeqRef.current;
     const cachedAccess = modalAccessCacheRef.current.get(modalCacheKey) || { accounts: modalAccounts, processes: modalProcesses };
     setIsEditMode(true); setEditingRow(row);
-    setForm({ id: String(row.id), login_id: row.login_id || "", name: row.name || "", email: row.email || "", role: normRole(row.role), password: "", secondary_password: "", status: normRole(row.status) || "active", read_only: true });
-    setRoleSelectDisabled(!!row.is_owner_shadow); setLoginDisabled(true);
+    setForm({ id: String(row.id), login_id: rowLoginId(row), name: row.name || "", email: row.email || "", role: normRole(row.role), password: "", secondary_password: "", status: normRole(row.status) || "active", read_only: true });
+    setRoleSelectDisabled(rowIsOwnerShadow(row)); setLoginDisabled(true);
     setFieldLocks(getUserEditFieldLocks(row, currentUserId, currentUserRole));
     void loadCompaniesForModal();
     if (cachedDetail) {
@@ -2113,7 +2118,7 @@ export default function UserListPage() {
       }
     }
     if (form.password.trim()) payload.password = form.password;
-    const allowSecondaryPassword = isC168Company || !!editingRow?.is_owner_shadow;
+    const allowSecondaryPassword = isC168Company || rowIsOwnerShadow(editingRow);
     if (allowSecondaryPassword && form.secondary_password.trim()) {
       if (!/^\d{6}$/.test(form.secondary_password.trim())) {
         notify(t("secondaryPasswordMustBe6Digits"), "danger");
@@ -2125,7 +2130,7 @@ export default function UserListPage() {
     if (roleForReadOnly && roleHasReadOnlyToggle(roleForReadOnly) && canInteractWithReadOnlyToggle(currentUserRole, roleForReadOnly)) {
       payload.read_only = form.read_only ? 1 : 0;
     }
-    if (editingRow?.is_owner_shadow) {
+    if (rowIsOwnerShadow(editingRow)) {
       payload.role = "owner";
     } else if (!isEditMode) {
       payload.permissions = getFinalPermissionsForCreation(form.role, Array.from(permSelected), currentUserRole);
@@ -2180,10 +2185,10 @@ export default function UserListPage() {
           isEditMode
             ? prev.map((u) =>
                 Number(u.id) === Number(json.data.id)
-                  ? { ...u, ...json.data, is_owner_shadow: u.is_owner_shadow }
+                  ? { ...u, ...json.data, isOwnerShadow: rowIsOwnerShadow(u) }
                   : u
               )
-            : [...prev, { ...json.data, is_owner_shadow: false }]
+            : [...prev, { ...json.data, isOwnerShadow: false }]
         );
       }
       void fetchUsers();
@@ -2272,7 +2277,7 @@ export default function UserListPage() {
                     pendingDeleteRef.current = ids;
                     const selectedUserNames = usersRaw
                       .filter((u) => ids.includes(Number(u.id)))
-                      .map((u) => String(u.login_id || u.name || u.email || u.id || "").trim())
+                      .map((u) => String(rowLoginId(u) || u.name || u.email || u.id || "").trim())
                       .filter(Boolean);
                     const details = selectedUserNames.length ? `\n\n${selectedUserNames.join("\n")}` : "";
                     setConfirmMessage(`${t("deleteConfirmWithCount", { count: ids.length })}${details}`);
@@ -2455,15 +2460,15 @@ export default function UserListPage() {
                 const del = getDeleteCheckboxState(r, caps);
                 const editReady = caps.canEditDelete;
                 return (
-                  <div key={`${r.id}-${r.is_owner_shadow ? "o" : "u"}`} className={`user-card user-list-row show-card ${idx % 2 === 0 ? "row-even" : "row-odd"}`}>
+                  <div key={`${r.id}-${rowIsOwnerShadow(r) ? "o" : "u"}`} className={`user-card user-list-row show-card ${idx % 2 === 0 ? "row-even" : "row-odd"}`}>
                     <div className="card-item">{showAll ? idx + 1 : (currentPage - 1) * PAGE_SIZE + idx + 1}</div>
-                    <div className="card-item">{r.login_id}</div>
+                    <div className="card-item">{rowLoginId(r)}</div>
                     <div className="card-item">{r.name}</div>
                     <div className="card-item">{r.email || "-"}</div>
                     <div className="card-item"><span className={`role-badge ${roleBadgeClass(r.role)}`}>{String(r.role || "").toUpperCase()}</span></div>
                     <div className="card-item"><span className={`role-badge ${normRole(r.status) === "active" ? "status-active" : "status-inactive"} ${caps.canToggleStatus && !userMutationsBlocked ? "status-clickable" : ""}`} onClick={() => !userMutationsBlocked && caps.canToggleStatus && toggleUserStatus(r)}>{String(r.status || "").toUpperCase()}</span></div>
-                    <div className="card-item">{formatLastLogin(r.last_login)}</div>
-                    <div className="card-item">{String(r.created_by || "-").toUpperCase()}</div>
+                    <div className="card-item">{formatLastLogin(rowLastLogin(r))}</div>
+                    <div className="card-item">{String(rowCreatedBy(r) || "-").toUpperCase()}</div>
                     <div className="card-item card-item--action">
                       <button className="btn btn-edit" onClick={() => openEdit(r)} disabled={!editReady || userMutationsBlocked} style={{ opacity: editReady && !userMutationsBlocked ? 1 : 0.3 }}><img src={assetUrl("images/edit.svg")} alt="Edit" /></button>
                     </div>
