@@ -54,7 +54,7 @@ export function resolveCompanyLoginGroupId(me, companies = []) {
   const ident = getLoginIdentifier(me);
   if (!ident) return null;
   const row = (companies || []).find(
-    (c) => String(c.company_id || "").trim().toUpperCase() === ident
+    (c) => String(c.tenant_code || "").trim().toUpperCase() === ident
   );
   const gid = row?.group_id ? String(row.group_id).trim().toUpperCase() : null;
   return gid || null;
@@ -178,10 +178,10 @@ export function canPrefetchCompanyScope(me, companyId, companies = [], viewGroup
   }
 
   if (userType === "member") {
-    return Number(me.company_id) === id;
+    return Number(me.tenant_id) === id;
   }
 
-  if (Number(me.company_id) === id) return true;
+  if (Number(me.tenant_id) === id) return true;
 
   const assignedIds = getAssignedCompanyIds(me);
   if (assignedIds.includes(id)) return true;
@@ -451,13 +451,13 @@ export function normalizeCompanyCode(value) {
 }
 
 const SIDEBAR_PATCH_FIELD_KEYS = [
-  "company_id",
-  "company_code",
-  "is_current_company_c168",
+  "tenant_id",
+  "tenant_code",
+  "is_current_tenant_c168",
   "has_c168_domain_page_access",
   "has_c168_auto_renew_access",
-  "company_has_gambling",
-  "company_has_bank",
+  "tenant_has_game",
+  "tenant_has_bank",
   "expiration_date",
   "expiration_hint",
   "expiration_status",
@@ -473,29 +473,28 @@ function meSidebarPatchEqual(a, b) {
 }
 
 /**
- * Optimistic sidebar `me` patch when group/company filter changes (before current_user_api returns).
- * When `companyCode` is supplied in ctx, never fall back to stale `me.company_code` (fixes 95→C168 sidebar).
+ * Optimistic sidebar `me` patch when tenant filter changes (before current-user returns).
+ * When `tenantCode` is supplied in ctx, never fall back to stale `me.tenant_code`.
  */
 export function patchMeFromCompanyContext(me, ctx = {}) {
   if (!me) return me;
-  const rawId = ctx.companyId;
-  const hasExplicitCode = ctx.companyCode != null && String(ctx.companyCode).trim() !== "";
+  const rawId = ctx.tenantId ?? ctx.companyId;
+  const tenantCodeInput = ctx.tenantCode ?? ctx.companyCode;
+  const hasExplicitCode = tenantCodeInput != null && String(tenantCodeInput).trim() !== "";
   if (rawId == null || rawId === "" || !Number.isFinite(Number(rawId)) || Number(rawId) <= 0) {
     const next = {
       ...me,
-      company_id: null,
-      is_current_company_c168: false,
+      tenant_id: null,
+      is_current_tenant_c168: false,
       has_c168_domain_page_access: false,
       has_c168_auto_renew_access: false,
-      company_code: hasExplicitCode ? normalizeCompanyCode(ctx.companyCode) : "",
+      tenant_code: hasExplicitCode ? normalizeCompanyCode(tenantCodeInput) : "",
     };
-    // Group-only filter clears company selection — keep login category flags so sidebar
-    // Maintenance / Data Capture entries do not disappear while viewing group scope.
     if (ctx.hasGambling != null) {
-      next.company_has_gambling = Boolean(ctx.hasGambling);
+      next.tenant_has_game = Boolean(ctx.hasGambling);
     }
     if (ctx.hasBank != null) {
-      next.company_has_bank = Boolean(ctx.hasBank);
+      next.tenant_has_bank = Boolean(ctx.hasBank);
     }
     if (ctx.expirationDate !== undefined) {
       Object.assign(next, buildSidebarExpirationFields(ctx.expirationDate));
@@ -503,16 +502,16 @@ export function patchMeFromCompanyContext(me, ctx = {}) {
     return meSidebarPatchEqual(me, next) ? me : next;
   }
   const id = Number(rawId);
-  const companyChanged = Number(me.company_id) !== id;
-  const explicitCode = hasExplicitCode ? normalizeCompanyCode(ctx.companyCode) : null;
-  const fallbackCode = normalizeCompanyCode(me.company_code) ?? "";
+  const tenantChanged = Number(me.tenant_id) !== id;
+  const explicitCode = hasExplicitCode ? normalizeCompanyCode(tenantCodeInput) : null;
+  const fallbackCode = normalizeCompanyCode(me.tenant_code) ?? "";
   const code = hasExplicitCode ? explicitCode ?? "" : fallbackCode;
   const isC168 = code === "C168";
   const next = {
     ...me,
-    company_id: id,
-    company_code: hasExplicitCode ? code : code || me.company_code,
-    is_current_company_c168: isC168,
+    tenant_id: id,
+    tenant_code: hasExplicitCode ? code : code || me.tenant_code,
+    is_current_tenant_c168: isC168,
   };
   if (isC168) {
     if (userRoleAllowsC168Domain(me.role)) {
@@ -526,19 +525,19 @@ export function patchMeFromCompanyContext(me, ctx = {}) {
     next.has_c168_auto_renew_access = false;
   }
   if (ctx.hasGambling != null) {
-    next.company_has_gambling = Boolean(ctx.hasGambling);
-  } else if (companyChanged) {
+    next.tenant_has_game = Boolean(ctx.hasGambling);
+  } else if (tenantChanged) {
     const cached = peekCompanySessionFlags(id);
     if (cached) {
-      next.company_has_gambling = Boolean(cached.has_gambling);
+      next.tenant_has_game = Boolean(cached.has_game);
     }
   }
   if (ctx.hasBank != null) {
-    next.company_has_bank = Boolean(ctx.hasBank);
-  } else if (companyChanged) {
+    next.tenant_has_bank = Boolean(ctx.hasBank);
+  } else if (tenantChanged) {
     const cached = peekCompanySessionFlags(id);
     if (cached) {
-      next.company_has_bank = Boolean(cached.has_bank);
+      next.tenant_has_bank = Boolean(cached.has_bank);
     }
   }
   if (ctx.expirationDate !== undefined) {
@@ -551,12 +550,12 @@ export function patchMeFromCompanyContext(me, ctx = {}) {
 export function isActiveCompanyContextC168(me) {
   if (!me) return false;
   if (isDashboardGroupOnlyMode()) return false;
-  if (me.is_current_company_c168) return true;
-  if (String(me.company_code || "").trim().toUpperCase() === "C168") return true;
+  if (me.is_current_tenant_c168) return true;
+  if (String(me.tenant_code || "").trim().toUpperCase() === "C168") return true;
   const persistedId = readDashboardSelectedCompanyId();
   if (persistedId != null) {
     const row = findOwnerCompanyById(persistedId);
-    if (String(row?.company_id || "").trim().toUpperCase() === "C168") return true;
+    if (String(row?.tenant_code || "").trim().toUpperCase() === "C168") return true;
   }
   return false;
 }

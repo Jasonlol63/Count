@@ -293,7 +293,7 @@ public class AuthServiceImpl implements AuthService {
 
         LocalDate today = LocalDate.now();
         List<Map<String, Object>> data = new ArrayList<>();
-        LinkedHashSet<String> groupIds = new LinkedHashSet<>();
+        LinkedHashSet<String> parentTenantCodes = new LinkedHashSet<>();
 
         for (TenantListDTO row : rows) {
             if (row == null) {
@@ -303,30 +303,28 @@ public class AuthServiceImpl implements AuthService {
                 continue;
             }
             if (!all) {
-                // 预留：按 user.company_id / login_scope 过滤
+                // 预留：按 session tenant_id / login_scope 过滤
             }
 
             boolean isGroup = row.getTenantType() == Tenant.TenantType.GROUP;
-            String code = row.getCode() != null ? row.getCode().trim() : "";
-            String parentGroup = row.getParentGroupCode() != null
+            String code = row.getCode() != null ? row.getCode().trim().toUpperCase() : "";
+            String parentTenantCode = row.getParentGroupCode() != null
                     ? row.getParentGroupCode().trim().toUpperCase()
                     : null;
 
             Map<String, Object> ui = new LinkedHashMap<>();
-            ui.put("id", row.getId());
-            ui.put("company_id", code);
-            ui.put("group_id", isGroup ? code.toUpperCase() : parentGroup);
-            ui.put("native_group_id", isGroup ? code.toUpperCase() : parentGroup);
+            ui.put("tenant_id", row.getId());
+            ui.put("tenant_code", code);
+            ui.put("tenant_type", row.getTenantType() != null ? row.getTenantType().name() : null);
+            ui.put("parent_tenant_code", isGroup ? code : parentTenantCode);
+            ui.put("native_parent_tenant_code", isGroup ? code : parentTenantCode);
             ui.put("expiration_date", row.getExpirationDate());
             data.add(ui);
 
             if (isGroup && !code.isBlank()) {
-                groupIds.add(code.toUpperCase());
-            } else {
-                String parent = row.getParentGroupCode();
-                if (parent != null && !parent.isBlank()) {
-                    groupIds.add(parent.trim().toUpperCase());
-                }
+                parentTenantCodes.add(code);
+            } else if (parentTenantCode != null && !parentTenantCode.isBlank()) {
+                parentTenantCodes.add(parentTenantCode);
             }
         }
 
@@ -334,7 +332,7 @@ public class AuthServiceImpl implements AuthService {
         body.put("success", true);
         body.put("message", "");
         body.put("data", data);
-        body.put("accessible_group_ids", new ArrayList<>(groupIds));
+        body.put("accessible_parent_tenant_codes", new ArrayList<>(parentTenantCodes));
         return body;
     }
 
@@ -454,7 +452,7 @@ public class AuthServiceImpl implements AuthService {
         }
 
         // 非 C168：直接标记通过
-        if (!current.is_current_company_c168) {
+        if (!current.is_current_tenant_c168) {
             authTokenStore.save(jti, current.withSecondaryVerified(), ttlMillis);
             return;
         }

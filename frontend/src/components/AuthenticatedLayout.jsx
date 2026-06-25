@@ -375,7 +375,7 @@ export default function AuthenticatedLayout() {
     const timeoutId = window.setTimeout(() => controller.abort(), 25000);
     (async () => {
       try {
-        const res = await fetch(buildApiUrl("api/session/current_user_api.php"), {
+        const res = await fetch(buildApiUrl("auth/current-user"), {
           credentials: "include",
           signal: controller.signal,
         });
@@ -400,10 +400,10 @@ export default function AuthenticatedLayout() {
         }
         applyLoginScopeToSessionStorageIfNeeded(u);
         rememberCompanySessionFlags({
-          company_id: u.company_id,
-          company_code: u.company_code,
-          has_gambling: u.company_has_gambling,
-          has_bank: u.company_has_bank,
+          tenant_id: u.tenant_id,
+          tenant_code: u.tenant_code,
+          has_game: u.tenant_has_game,
+          has_bank: u.tenant_has_bank,
         });
         setMe(u);
         clearChunkReloadFlag();
@@ -429,7 +429,7 @@ export default function AuthenticatedLayout() {
   const refreshSession = useCallback(async () => {
     const filterAtStart = readPersistedDashboardGcFilter();
     try {
-      const res = await fetch(buildApiUrl("api/session/current_user_api.php"), { credentials: "include" });
+      const res = await fetch(buildApiUrl("auth/current-user"), { credentials: "include" });
       const json = await res.json();
       if (res.ok && json.success && json.data) {
         const filterNow = readPersistedDashboardGcFilter();
@@ -437,10 +437,10 @@ export default function AuthenticatedLayout() {
         if (!shouldRefreshExpiryFromSession(json.data, filterNow)) return null;
         applyLoginScopeToSessionStorageIfNeeded(json.data);
         rememberCompanySessionFlags({
-          company_id: json.data.company_id,
-          company_code: json.data.company_code,
-          has_gambling: json.data.company_has_gambling,
-          has_bank: json.data.company_has_bank,
+          tenant_id: json.data.tenant_id,
+          tenant_code: json.data.tenant_code,
+          has_game: json.data.tenant_has_game,
+          has_bank: json.data.tenant_has_bank,
         });
         let appliedSessionToSidebar = false;
         setMe((prev) => {
@@ -449,8 +449,8 @@ export default function AuthenticatedLayout() {
             appliedSessionToSidebar = true;
             if (filterNow.groupOnly && filterNow.selectedGroup) {
               return patchMeFromCompanyContext(json.data, {
-                companyId: null,
-                companyCode: filterNow.selectedGroup,
+                tenantId: null,
+                tenantCode: filterNow.selectedGroup,
                 hasBank: false,
                 expirationDate: resolveSidebarExpirationForFilter({
                   selectedGroup: filterNow.selectedGroup,
@@ -550,7 +550,7 @@ export default function AuthenticatedLayout() {
       const row = findOwnerCompanyById(cid);
       const companyCode =
         resolved.companyCode ??
-        (row?.company_id ? String(row.company_id).trim().toUpperCase() : null);
+        (row?.tenant_code ? String(row.tenant_code).trim().toUpperCase() : null);
       const flags =
         resolved.hasGambling != null || resolved.hasBank != null
           ? {
@@ -624,13 +624,13 @@ export default function AuthenticatedLayout() {
       }
 
       if (data && typeof data === "object") {
-        const sid = Number(data.company_id);
+        const sid = Number(data.tenant_id);
         const row = Number.isFinite(sid) && sid > 0 ? findOwnerCompanyById(sid) : null;
         const expirationDate = row ? row.expiration_date ?? null : undefined;
         if (shouldApplySessionToSidebar(data, filter)) {
           applySidebarPatch({
-            companyId: data.company_id,
-            companyCode: data.company_code,
+            tenantId: data.tenant_id,
+            tenantCode: data.tenant_code,
             hasGambling: data.has_gambling,
             hasBank: data.has_bank,
             ...(expirationDate !== undefined ? { expirationDate } : {}),
@@ -808,12 +808,12 @@ export default function AuthenticatedLayout() {
     };
 
     const runProcessListWarm = () => {
-      if (!me?.company_id) return;
+      if (!me?.tenant_id) return;
       void import("../pages/processlist/processRoutePrefetch.js").then((mod) => {
-        if (me.company_has_bank && !me.company_has_gambling) {
-          mod.warmBankProcessListRouteCache(me.company_id);
+        if (me.tenant_has_bank && !me.tenant_has_game) {
+          mod.warmBankProcessListRouteCache(me.tenant_id);
         } else {
-          mod.warmProcessListRouteCache(me.company_id);
+          mod.warmProcessListRouteCache(me.tenant_id);
         }
       });
     };
@@ -856,15 +856,15 @@ export default function AuthenticatedLayout() {
         if (routePageKey === "ownership") prefetchOwnershipCompanies();
         if (
           (routePageKey === "process-list" || routePageKey === "games-process-list") &&
-          me?.company_id
+          me?.tenant_id
         ) {
           void import("../pages/processlist/processRoutePrefetch.js").then(({ warmProcessListRouteCache }) => {
-            warmProcessListRouteCache(me.company_id);
+            warmProcessListRouteCache(me.tenant_id);
           });
         }
-        if (routePageKey === "bank-process-list" && me?.company_id) {
+        if (routePageKey === "bank-process-list" && me?.tenant_id) {
           void import("../pages/processlist/processRoutePrefetch.js").then(({ warmBankProcessListRouteCache }) => {
-            warmBankProcessListRouteCache(me.company_id);
+            warmBankProcessListRouteCache(me.tenant_id);
           });
         }
         if (routePageKey === "account-list") {
@@ -954,7 +954,7 @@ export default function AuthenticatedLayout() {
   const avatarSrc = useMemo(() => AVATAR_MAP[selectedAvatarId] || AVATAR_MAP.male1, [selectedAvatarId]);
   const roleLabel = me?.role ? me.role.charAt(0).toUpperCase() + me.role.slice(1).toLowerCase() : "";
   const processSpaPath =
-    me?.company_has_bank && !me?.company_has_gambling ? spaPath("bank-process-list") : spaPath("process-list");
+    me?.tenant_has_bank && !me?.tenant_has_game ? spaPath("bank-process-list") : spaPath("process-list");
   const performLogout = async () => {
     if (logoutLoading) return;
     setLogoutLoading(true);
@@ -1206,7 +1206,7 @@ export default function AuthenticatedLayout() {
               </SidebarNavTip>
             </div>
           )}
-          {canAccess("datacapture") && me?.company_has_gambling && (
+          {canAccess("datacapture") && me?.tenant_has_game && (
             <div className="informationmenu-section">
               <SidebarNavTip label={i18n.sidebarDataCapture} enabled={sidebarIconOnly}>
                 <SidebarSectionLink
@@ -1243,7 +1243,7 @@ export default function AuthenticatedLayout() {
               </SidebarNavTip>
             </div>
           )}
-          {canAccess("report") && me?.company_has_gambling && (
+          {canAccess("report") && me?.tenant_has_game && (
             <div className="informationmenu-section">
               <div className="menu-item-wrapper" onMouseLeave={() => setHoverSection(null)}>
                 <SidebarNavTip label={i18n.sidebarReport} enabled={sidebarIconOnly} placement="top">
@@ -1332,7 +1332,7 @@ export default function AuthenticatedLayout() {
                   onMouseLeave={() => setHoverSection(null)}
                 >
                   <div className="submenu-content">
-                    {showFullMaintenanceMenu && me?.company_has_gambling && (
+                    {showFullMaintenanceMenu && me?.tenant_has_game && (
                       <a
                         {...sidebarSubmenuLinkProps("/capture-maintenance", goTo)}
                         className={`submenu-item ${pageKey === "capture-maintenance" ? "current-page" : ""}`}
@@ -1341,7 +1341,7 @@ export default function AuthenticatedLayout() {
                         <span>{i18n.sidebarDataCapture}</span>
                       </a>
                     )}
-                    {me?.company_has_gambling && (showFullMaintenanceMenu || showLimitedMaintenanceMenu) && (
+                    {me?.tenant_has_game && (showFullMaintenanceMenu || showLimitedMaintenanceMenu) && (
                       <a
                         {...sidebarSubmenuLinkProps("/transaction-maintenance", goTo)}
                         className={`submenu-item ${pageKey === "transaction-maintenance" ? "current-page" : ""}`}
@@ -1350,7 +1350,7 @@ export default function AuthenticatedLayout() {
                         <span>{i18n.sidebarTransaction}</span>
                       </a>
                     )}
-                    {showFullMaintenanceMenu && (me?.company_has_gambling || me?.company_has_bank) && (
+                    {showFullMaintenanceMenu && (me?.tenant_has_game || me?.tenant_has_bank) && (
                       <a
                         {...sidebarSubmenuLinkProps("/payment-maintenance", goTo)}
                         className={`submenu-item ${pageKey === "payment-maintenance" ? "current-page" : ""}`}
@@ -1359,7 +1359,7 @@ export default function AuthenticatedLayout() {
                         <span>{i18n.sidebarPayment}</span>
                       </a>
                     )}
-                    {me?.company_has_gambling && (showFullMaintenanceMenu || showLimitedMaintenanceMenu) && (
+                    {me?.tenant_has_game && (showFullMaintenanceMenu || showLimitedMaintenanceMenu) && (
                       <a
                         {...sidebarSubmenuLinkProps("/formula-maintenance", goTo)}
                         className={`submenu-item ${pageKey === "formula-maintenance" ? "current-page" : ""}`}

@@ -8,9 +8,9 @@ async function safeParseJson(response) {
   }
 }
 
-export async function sendResetTac({ companyId, email }) {
+export async function sendResetTac({ tenantCode, email }) {
   const fd = new FormData();
-  fd.append("company_id", companyId);
+  fd.append("tenant_code", tenantCode);
   fd.append("email", email);
 
   const response = await fetch(buildApiUrl("auth/send-reset-tac"), {
@@ -23,9 +23,9 @@ export async function sendResetTac({ companyId, email }) {
   return safeParseJson(response);
 }
 
-export async function submitResetPassword({ companyId, email, tac, newPassword }) {
+export async function submitResetPassword({ tenantCode, email, tac, newPassword }) {
   const fd = new FormData();
-  fd.append("company_id", companyId);
+  fd.append("tenant_code", tenantCode);
   fd.append("email", email);
   fd.append("tac", tac);
   fd.append("new_password", newPassword);

@@ -1,4 +1,4 @@
-/** Accessible tenants — Spring Boot `GET /auth/tenant-accessible` (replaces get_owner_companies_api.php). */
+/** Accessible tenants — Spring Boot `GET /auth/tenant-accessible`. */
 
 import { buildApiUrl } from "../core/apiUrl.js";
 
@@ -15,23 +15,21 @@ function inferTenantType(tenantCode, parentTenantCode) {
   return "COMPANY";
 }
 
-/** Map Spring tenant-accessible row JSON → internal tenant model (no company_id / group_id). */
+/** Map Spring tenant-accessible row JSON → internal tenant model. */
 export function normalizeTenantAccessibleItem(row) {
   if (!row || typeof row !== "object") return null;
 
-  const tenantId = Number(row.tenantId ?? row.id);
+  const tenantId = Number(row.tenant_id ?? row.tenantId ?? row.id);
   if (!Number.isFinite(tenantId) || tenantId <= 0) return null;
 
-  const tenantCode = String(
-    row.tenantCode ?? row.code ?? row.company_id ?? row.companyId ?? "",
-  ).trim();
+  const tenantCode = String(row.tenant_code ?? row.tenantCode ?? row.code ?? "").trim();
   const parentTenantCode = normalizeTenantCode(
-    row.parentTenantCode ?? row.parentGroupCode ?? row.group_id ?? row.groupId,
+    row.parent_tenant_code ?? row.parentTenantCode ?? row.parentGroupCode,
   );
   const nativeParentTenantCode = normalizeTenantCode(
-    row.nativeParentTenantCode ?? row.native_group_id ?? row.nativeGroupId ?? parentTenantCode,
+    row.native_parent_tenant_code ?? row.nativeParentTenantCode ?? parentTenantCode,
   );
-  const rawType = row.tenantType != null ? String(row.tenantType).trim().toUpperCase() : "";
+  const rawType = row.tenant_type != null ? String(row.tenant_type).trim().toUpperCase() : "";
   const tenantType =
     rawType === "GROUP" || rawType === "COMPANY"
       ? rawType
@@ -42,13 +40,13 @@ export function normalizeTenantAccessibleItem(row) {
     tenantCode,
     parentTenantCode,
     nativeParentTenantCode,
-    expirationDate: row.expirationDate ?? row.expiration_date ?? null,
+    expirationDate: row.expiration_date ?? row.expirationDate ?? null,
     tenantType,
   };
 }
 
-/** Map tenant model → UI company picker row (company_id / group_id unchanged for display). */
-export function tenantAccessibleRowToUiCompany(tenant) {
+/** Map tenant model → sidebar / filter picker row. */
+export function tenantAccessibleRowToUiTenant(tenant) {
   if (!tenant) return null;
   const code = tenant.tenantCode;
   const isGroup = tenant.tenantType === "GROUP";
@@ -56,20 +54,26 @@ export function tenantAccessibleRowToUiCompany(tenant) {
   const native = tenant.nativeParentTenantCode;
 
   return {
-    id: tenant.tenantId,
-    company_id: code,
-    group_id: isGroup ? code.toUpperCase() : parent,
-    native_group_id: isGroup ? (native || code).toUpperCase() : native ?? parent,
+    tenant_id: tenant.tenantId,
+    tenant_code: code,
+    parent_tenant_code: isGroup ? code.toUpperCase() : parent,
+    native_parent_tenant_code: isGroup ? (native || code).toUpperCase() : native ?? parent,
     expiration_date: tenant.expirationDate,
+    tenant_type: tenant.tenantType,
   };
 }
 
+/** @deprecated Use {@link tenantAccessibleRowToUiTenant}. */
+export function tenantAccessibleRowToUiCompany(tenant) {
+  return tenantAccessibleRowToUiTenant(tenant);
+}
+
 export function readAccessibleParentTenantCodes(json) {
+  if (Array.isArray(json?.accessible_parent_tenant_codes)) {
+    return json.accessible_parent_tenant_codes.map(normalizeTenantCode).filter(Boolean);
+  }
   if (Array.isArray(json?.accessibleParentTenantCodes)) {
     return json.accessibleParentTenantCodes.map(normalizeTenantCode).filter(Boolean);
-  }
-  if (Array.isArray(json?.accessible_group_ids)) {
-    return json.accessible_group_ids.map(normalizeTenantCode).filter(Boolean);
   }
   return [];
 }

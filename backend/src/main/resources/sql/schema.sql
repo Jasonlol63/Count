@@ -78,6 +78,7 @@ CREATE TABLE `tenant` (
   `owner_id`          INT UNSIGNED          DEFAULT NULL COMMENT 'FK owner.id',
   `parent_id`         INT UNSIGNED          DEFAULT NULL COMMENT 'company → parent group tenant.id',
   `expiration_date`   DATE                  DEFAULT NULL COMMENT 'Per-tenant expiry (group or company)',
+  `category_code`     JSON                  DEFAULT NULL COMMENT 'Business modules e.g. ["GAME","BANK"]',
   `fee_share_allocations` JSON DEFAULT NULL COMMENT 'Sales/CS/IT/Profit share % by account',
   `status`            ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
   `created_by`        VARCHAR(50)           DEFAULT NULL,

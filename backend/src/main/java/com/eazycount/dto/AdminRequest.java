@@ -8,6 +8,10 @@ import java.util.List;
 @Getter
 @Setter
 public class AdminRequest {
+    private Integer id;              // user.id
+    private Long tenantAccessId;     // user_tenant_access.id（从 list 的 tenantAccess.id 来）
+    private Integer scopeTenantId;
+
     private String loginId;
     private String name;
     private String email;

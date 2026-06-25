@@ -55,4 +55,22 @@ public class AdminController {
             return ResponseEntity.ok(body);
         }
     }
+
+    @PostMapping("/update")
+    public ResponseEntity<Map<String, Object>> update(@RequestBody AdminRequest adminRequest) {
+        try {
+            final AdminListDTO data = adminService.updateAdmin(adminRequest);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "User updated successfully",
+                    "data", data
+            ));
+        } catch (BusinessException e) {
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", false);
+            body.put("message", e.getMessage());
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        }
+    }
 }

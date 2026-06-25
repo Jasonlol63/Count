@@ -42,6 +42,8 @@ CREATE TABLE `tenant` (
   `owner_id`          INT UNSIGNED          DEFAULT NULL COMMENT 'FK owner.id',
   `parent_id`         INT UNSIGNED          DEFAULT NULL COMMENT 'company → parent group tenant.id',
   `expiration_date`   DATE                  DEFAULT NULL COMMENT 'Per-tenant expiry (group or company)',
+  `category_code`     JSON                  DEFAULT NULL COMMENT 'Business modules e.g. ["GAME","BANK"]',
+  `fee_share_allocate` JSON                 DEFAULT NULL COMMENT 'Sales/CS/IT/Profit share % by account',
   `status`            ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
   `created_by`        VARCHAR(50)           DEFAULT NULL,
   `created_at`        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -234,8 +236,8 @@ VALUES (
 
 SET @owner_id = LAST_INSERT_ID();
 
-INSERT INTO `tenant` (`tenant_type`, `code`, `name`, `owner_id`, `parent_id`, `expiration_date`, `status`, `created_by`)
-VALUES ('COMPANY', 'C168', 'C168', @owner_id, NULL, NULL, 'ACTIVE', 'JS');
+INSERT INTO `tenant` (`tenant_type`, `code`, `name`, `owner_id`, `parent_id`, `expiration_date`, `category_code`, `status`, `created_by`)
+VALUES ('COMPANY', 'C168', 'C168', @owner_id, NULL, NULL, JSON_ARRAY('GAME'), 'ACTIVE', 'JS');
 
 SET @tenant_id = LAST_INSERT_ID();
 
