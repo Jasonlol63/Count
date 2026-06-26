@@ -1345,23 +1345,34 @@ export async function fetchOwnerCompaniesAll(options = {}) {
 /**
  * Normalize tenant-accessible picker rows for sidebar / filter UI.
  */
+export function resolveCompanyDisplayCode(row) {
+  return String(
+    row?.tenant_code ?? row?.company_id ?? row?.companyId ?? row?.code ?? row?.name ?? "",
+  )
+    .trim()
+    .toUpperCase();
+}
+
 export function normalizeOwnerCompanyRow(row) {
   if (!row || typeof row !== "object") return row;
   const tenantIdRaw = row.tenant_id ?? row.tenantId ?? row.id;
   const tenant_id = Number(tenantIdRaw);
-  const tenant_code = String(row.tenant_code ?? row.tenantCode ?? "").trim().toUpperCase();
+  const tenant_code = resolveCompanyDisplayCode(row);
   const parent_tenant_code = row.parent_tenant_code ?? row.parentTenantCode ?? null;
   const native_parent_tenant_code =
     row.native_parent_tenant_code ?? row.nativeParentTenantCode ?? parent_tenant_code ?? null;
   const tenant_type = row.tenant_type ?? row.tenantType ?? null;
+  const resolvedId = Number.isFinite(tenant_id) && tenant_id > 0 ? tenant_id : row.id;
   return {
     ...row,
     tenant_id: Number.isFinite(tenant_id) && tenant_id > 0 ? tenant_id : tenantIdRaw,
     tenant_code,
+    company_id: tenant_code,
     parent_tenant_code,
     native_parent_tenant_code,
+    group_id: row.group_id ?? row.groupId ?? parent_tenant_code ?? null,
     tenant_type,
-    id: Number.isFinite(tenant_id) && tenant_id > 0 ? tenant_id : row.id,
+    id: resolvedId,
   };
 }
 

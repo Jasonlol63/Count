@@ -136,6 +136,7 @@ import {
   PERMISSION_KEYS,
   PERMISSION_ICONS,
   ALL_ROLE_OPTIONS,
+  formatRoleLabel,
   normRole,
   getAvailableRolesForCreation,
   getAvailableRolesForEdit,
@@ -477,7 +478,7 @@ export default function UserModal({
                             <option key={o.value} value={o.value}>{o.label}</option>
                           ))}
                           {isEditMode && form.role && !getAvailableRolesForEdit(currentUserRole, editingRow?.role).find((x) => x.value === form.role) ? (
-                            <option value={form.role}>{ALL_ROLE_OPTIONS.find((x) => x.value === form.role)?.label || String(form.role).toUpperCase()}</option>
+                            <option value={form.role}>{formatRoleLabel(form.role)}</option>
                           ) : null}
                         </>
                       )}

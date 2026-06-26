@@ -99,6 +99,21 @@ public class AuthController {
         return ResponseEntity.ok(body);
     }
 
+    /**
+     * Switch active session tenant — replaces {@code api/session/update_company_session_api.php}.
+     */
+    @PostMapping("/switch-tenant")
+    public Map<String, Object> switchTenant(@RequestParam("tenant_id") int tenantId) {
+        LoginUserPrincipal principal = SecurityUtils.currentPrincipal()
+                .orElseThrow(() -> new BusinessException("Not logged in"));
+        return authService.switchSessionTenant(
+                tenantId,
+                principal.user(),
+                principal.jti(),
+                jwtService.getAccessTokenExpiration()
+        );
+    }
+
     @GetMapping("/tenant-accessible")
     public ResponseEntity<Map<String, Object>> tenantAccessible(
             @RequestParam(value = "all", defaultValue = "1") int all) {

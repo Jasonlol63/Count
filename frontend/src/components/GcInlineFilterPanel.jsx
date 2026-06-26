@@ -2,6 +2,8 @@
  * Shared Group / Company pill strip. Currency row is omitted — pages manage currency separately.
  * Set showAllOption only on Dashboard (Group/Company "All" aggregate).
  */
+import { resolveCompanyDisplayCode } from "../utils/company/sharedCompanyFilter.js";
+
 export default function GcInlineFilterPanel({
   t,
   groupIds = [],
@@ -82,7 +84,7 @@ export default function GcInlineFilterPanel({
               {companiesForPicker.map((c) => {
                 const active = !groupAllMode && Number(pickerCompanyId) === Number(c.id);
                 const pending = switchingCompany && active;
-                const label = String(c.company_id || "").toUpperCase();
+                const label = resolveCompanyDisplayCode(c);
                 return (
                   <button
                     key={c.id}

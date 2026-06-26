@@ -2,6 +2,7 @@ package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.AuthDao;
+import com.eazycount.dao.PermissionDao;
 import com.eazycount.dto.*;
 import com.eazycount.entity.Admin;
 import com.eazycount.entity.Owner;
@@ -15,6 +16,7 @@ import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AuthService;
 import com.eazycount.service.LoginRole;
+import com.eazycount.service.PermissionService;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,17 +33,23 @@ import java.util.*;
 public class AuthServiceImpl implements AuthService {
 
     private final AuthDao authDao;
+    private final PermissionDao permissionDao;
+    private final PermissionService permissionService;
     private final PasswordEncoder passwordEncoder;
     private final AuthTokenStore authTokenStore;
     private final JwtService jwtService;
 
     public AuthServiceImpl(
             AuthDao authDao,
+            PermissionDao permissionDao,
+            PermissionService permissionService,
             PasswordEncoder passwordEncoder,
             AuthTokenStore authTokenStore,
             JwtService jwtService
     ) {
         this.authDao = authDao;
+        this.permissionDao = permissionDao;
+        this.permissionService = permissionService;
         this.passwordEncoder = passwordEncoder;
         this.authTokenStore = authTokenStore;
         this.jwtService = jwtService;
@@ -78,6 +86,7 @@ public class AuthServiceImpl implements AuthService {
             }
             Tenant sessionTenant = access.get(0).getTenant();
             assertTenantNotExpired(sessionTenant);
+            authDao.updateMemberLastLogin(member.getId());
             identity.setUser(member);
             identity.setTenant(sessionTenant);
             return buildLoginResult(identity, loginTenant, sessionTenant);
@@ -94,6 +103,7 @@ public class AuthServiceImpl implements AuthService {
             }
             Tenant sessionTenant = access.get(0).getTenant();
             assertTenantNotExpired(sessionTenant);
+            authDao.updateAdminLastLogin(admin.getId());
             identity.setAdmin(admin);
             identity.setTenant(sessionTenant);
             return buildLoginResult(identity, loginTenant, sessionTenant);
@@ -477,6 +487,106 @@ public class AuthServiceImpl implements AuthService {
         }
 
         authTokenStore.save(jti, current.withSecondaryVerified(), ttlMillis);
+    }
+
+    @Override
+    public Map<String, Object> switchSessionTenant(int tenantId, SessionUser current, String jti, long ttlMillis) {
+        if (current == null || current.user_id == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (tenantId <= 0) {
+            throw new BusinessException("Missing tenant_id parameter");
+        }
+        if (!userCanAccessTenantId(current, tenantId)) {
+            throw new BusinessException("No permission to access this company");
+        }
+
+        Tenant tenant = permissionDao.findTenantById(tenantId);
+        if (tenant == null) {
+            throw new BusinessException("No permission to access this company");
+        }
+        assertTenantNotExpired(tenant);
+
+        SessionUser rebuilt = rebuildSessionUserWithTenant(current, tenant);
+        final boolean secondaryAlreadyVerified =
+                !current.needs_owner_secondary && !current.needs_user_secondary;
+        if (secondaryAlreadyVerified || (!rebuilt.needs_owner_secondary && !rebuilt.needs_user_secondary)) {
+            rebuilt = rebuilt.withSecondaryVerified();
+        }
+
+        authTokenStore.save(jti, rebuilt, ttlMillis);
+
+        final boolean hasGame = permissionService.hasGameModule(tenant);
+        final boolean hasBank = permissionService.hasBankModule(tenant);
+        final String code = tenant.getCode() != null ? tenant.getCode().trim().toUpperCase() : null;
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("tenant_id", tenant.getId());
+        data.put("tenant_code", code);
+        data.put("has_game", hasGame);
+        data.put("has_bank", hasBank);
+        data.put("company_id", tenant.getId());
+        data.put("company_code", code);
+        data.put("has_gambling", hasGame);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", true);
+        body.put("message", "Company updated");
+        body.put("error", null);
+        body.put("data", data);
+        return body;
+    }
+
+    private boolean userCanAccessTenantId(SessionUser user, int tenantId) {
+        if (user == null || user.user_id == null) {
+            return false;
+        }
+        final String userType = String.valueOf(user.user_type).trim().toLowerCase();
+        final List<TenantListDTO> rows = switch (userType) {
+            case "owner" -> findAllTenantsByOwnerId(user.user_id);
+            case "member" -> findAllTenantsByMemberId(user.user_id);
+            default -> findAllTenantsByAdminId(user.user_id);
+        };
+        final LocalDate today = LocalDate.now();
+        for (TenantListDTO row : rows) {
+            if (row == null || row.getId() == null || row.getId() != tenantId) {
+                continue;
+            }
+            if (row.getExpirationDate() != null && row.getExpirationDate().isBefore(today)) {
+                return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private SessionUser rebuildSessionUserWithTenant(SessionUser current, Tenant tenant) {
+        final String userType = String.valueOf(current.user_type).trim().toLowerCase();
+        if ("owner".equals(userType)) {
+            Owner owner = authDao.findOwnerByOwnerCode(current.login_id);
+            if (owner == null) {
+                throw new BusinessException("Unauthorized");
+            }
+            return SessionUser.from(owner, tenant, permissionService);
+        }
+        if ("member".equals(userType)) {
+            User member = authDao.findMemberByAccountId(current.login_id);
+            if (member == null) {
+                throw new BusinessException("Unauthorized");
+            }
+            UserDTO identity = new UserDTO();
+            identity.setUser(member);
+            identity.setTenant(tenant);
+            return SessionUser.from(identity, tenant, permissionService);
+        }
+        Admin admin = authDao.findAdminByLoginId(current.login_id);
+        if (admin == null) {
+            throw new BusinessException("Unauthorized");
+        }
+        UserDTO identity = new UserDTO();
+        identity.setAdmin(admin);
+        identity.setTenant(tenant);
+        return SessionUser.from(identity, tenant, permissionService);
     }
 
     @Override

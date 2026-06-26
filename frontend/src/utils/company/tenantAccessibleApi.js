@@ -56,6 +56,7 @@ export function tenantAccessibleRowToUiTenant(tenant) {
   return {
     tenant_id: tenant.tenantId,
     tenant_code: code,
+    company_id: code,
     parent_tenant_code: isGroup ? code.toUpperCase() : parent,
     native_parent_tenant_code: isGroup ? (native || code).toUpperCase() : native ?? parent,
     expiration_date: tenant.expirationDate,

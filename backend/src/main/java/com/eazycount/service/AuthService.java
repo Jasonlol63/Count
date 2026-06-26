@@ -46,4 +46,7 @@ public interface AuthService {
     void verifyUserSecondaryPassword(String secondaryPassword, SessionUser current, String jti, long ttlMillis);
 
     Map<String, Object> logout(HttpServletRequest request, HttpServletResponse response);
+
+    /** Switch active session tenant (replaces legacy update_company_session_api.php). */
+    Map<String, Object> switchSessionTenant(int tenantId, SessionUser current, String jti, long ttlMillis);
 }

@@ -120,17 +120,6 @@
         VALUES (#{userId}, #{tenantId}, #{accountPermissions}, #{processPermissions})
     </insert>
 
-    <delete id="deleteAdmin">
-        delete from user
-        where id = #{id} AND status = #{status}
-    </delete>
-
-    <delete id="deleteAdminTenantAccessByUserIdAndTenantId">
-        DELETE FROM user_tenant_access
-        WHERE user_id = #{userId}
-          AND tenant_id = #{tenantId}
-    </delete>
-
     <update id="updateAdmin">
         UPDATE user
         <set>
@@ -154,5 +143,22 @@
         </set>
         WHERE id = #{id}
     </update>
+
+    <update id="updateStatusByAdminId">
+        update user
+        set status = #{status}
+        where id = #{userId}
+    </update>
+
+    <delete id="deleteAdminByIdAndStatus">
+        delete from user
+        where id = #{userId} AND status = #{status}
+    </delete>
+
+    <delete id="deleteAdminTenantAccessByUserIdAndTenantId">
+        DELETE FROM user_tenant_access
+        WHERE user_id = #{userId}
+        AND tenant_id = #{tenantId}
+    </delete>
 
 </mapper>
