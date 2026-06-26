@@ -15,8 +15,8 @@ public class Currency {
     private Integer id;
     private String tenantId;
     private String code;
-    private String name;
     private SourceType syncSource;
+    private Status status;
     private LocalDateTime createAt;
     private LocalDateTime updateAt;
 
@@ -46,6 +46,33 @@ public class Currency {
             throw new IllegalArgumentException("Unknown syncSource: " + value);
         }
 
+    }
+
+    @Getter
+    public enum Status{
+        ACTIVE("ACTIVE"),
+        INACTIVE("INACTIVE");
+
+        private final String value;
+
+        Status(String value) {
+            this.value = value;
+        }
+
+        public static Status fromValue(String value) {
+            if (value == null) {
+                return null;
+            }
+
+            final String normalized = value.trim();
+            for (Status status : values()) {
+                if (status.name().equalsIgnoreCase(normalized) || status.value.equalsIgnoreCase(normalized)) {
+                    return status;
+                }
+            }
+
+            throw new IllegalArgumentException("Unknown status: " + value);
+        }
     }
 
 }

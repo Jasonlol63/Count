@@ -25,6 +25,11 @@ import {
   ensureMaintenanceDateRangePicker,
 } from "../../../utils/date/dateRangePicker.js";
 import { buildApiUrl } from "../../../utils/core/apiUrl.js";
+import {
+  createCurrency as createTenantCurrency,
+  deleteCurrency as deleteTenantCurrency,
+  fetchAvailableCurrencies,
+} from "../../../utils/api/currencyApi.js";
 import { isCapitalLettersOnly, sanitizeCapitalLettersOnly } from "../../../utils/input/sanitizeCapitalLettersOnly.js";
 import {
   mergeCurrencyCodesWithSavedOrder,
@@ -374,30 +379,28 @@ export function useBankProcessListPage() {
   const loadAccountModalSelectionMeta = useCallback(
     async (accountId, isEdit) => {
       try {
-        const currencyParams = new URLSearchParams({ action: "get_available_currencies" });
-        if (accountId) currencyParams.set("account_id", String(accountId));
-        if (companyId) currencyParams.set("company_id", String(companyId));
         const companyUrl = accountId
           ? `api/accounts/account_company_api.php?action=get_available_companies&account_id=${accountId}`
           : "api/accounts/account_company_api.php?action=get_available_companies";
-        const [curRes, compRes] = await Promise.all([
-          fetch(buildApiUrl(`api/accounts/account_currency_api.php?${currencyParams.toString()}`), { credentials: "include" }),
+        const [curRows, compRes] = await Promise.all([
+          fetchAvailableCurrencies({
+            companyId,
+            tenantId: companyId,
+            accountId,
+          }),
           fetch(buildApiUrl(companyUrl), { credentials: "include" }),
         ]);
-        const curJ = await curRes.json();
         const compJ = await compRes.json();
-        if (curJ.success && Array.isArray(curJ.data)) {
-          setAccountModalCurrencies(
-            curJ.data.map((c) => ({ id: c.id, code: c.code, is_linked: !!c.is_linked }))
-          );
-          if (isEdit) {
-            const ids = curJ.data.filter((c) => c.is_linked).map((c) => Number(c.id));
-            setAccountModalSelectedCurrencyIds(ids);
-            setAccountModalInitialCurrencyIds(ids);
-          } else {
-            setAccountModalSelectedCurrencyIds(pickDefaultAddCurrencyIds(curJ.data));
-            setAccountModalInitialCurrencyIds([]);
-          }
+        setAccountModalCurrencies(
+          curRows.map((c) => ({ id: c.id, code: c.code, is_linked: !!c.is_linked })),
+        );
+        if (isEdit) {
+          const ids = curRows.filter((c) => c.is_linked).map((c) => Number(c.id));
+          setAccountModalSelectedCurrencyIds(ids);
+          setAccountModalInitialCurrencyIds(ids);
+        } else {
+          setAccountModalSelectedCurrencyIds(pickDefaultAddCurrencyIds(curRows));
+          setAccountModalInitialCurrencyIds([]);
         }
         if (compJ.success && Array.isArray(compJ.data)) {
           const linked = compJ.data.filter((c) => c.is_linked).map((c) => Number(c.id));
@@ -465,32 +468,27 @@ export function useBankProcessListPage() {
     const targetCompany = accountModalSelectedCompanyIds[0] || companyId;
     if (!targetCompany) return notify(t("pleaseSelectCompanyFirst"), "danger");
     try {
-      const res = await fetch(buildApiUrl("api/accounts/create_currency_api.php"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, company_id: targetCompany }),
-        credentials: "include",
+      const created = await createTenantCurrency({
+        code,
+        tenantId: targetCompany,
+        companyId: targetCompany,
       });
-      const json = await res.json();
-      if (!json.success || !json.data) return notify(apiMsg(json, "failedCreateCurrency"), "danger");
-      setAccountModalCurrencies((prev) => [...prev, { id: json.data.id, code: json.data.code, is_linked: false }]);
+      setAccountModalCurrencies((prev) => [...prev, { id: created.id, code: created.code, is_linked: false }]);
       setAccountModalCurrencyInput("");
       notify(t("currencyCreated", { code }), "success");
-    } catch {
-      notify(t("failedCreateCurrency"), "danger");
+    } catch (err) {
+      notify(apiMsg(err?.response, "failedCreateCurrency"), "danger");
     }
   };
 
   const removeAccountModalCurrency = async (cid) => {
     try {
-      const res = await fetch(buildApiUrl("api/accounts/delete_currency_api.php"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: cid }),
-        credentials: "include",
+      const result = await deleteTenantCurrency({
+        id: cid,
+        tenantId: companyId,
+        companyId,
       });
-      const json = await res.json();
-      if (!json.success) return notify(apiMsg(json, "failedDeleteCurrency"), "danger");
+      if (!result.success) return notify(apiMsg({ message: result.message }, "failedDeleteCurrency"), "danger");
       const removed = accountModalCurrencies.find((c) => Number(c.id) === Number(cid));
       setAccountModalCurrencies((prev) => prev.filter((c) => Number(c.id) !== Number(cid)));
       setAccountModalSelectedCurrencyIds((prev) => prev.filter((x) => Number(x) !== Number(cid)));

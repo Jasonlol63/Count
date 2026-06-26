@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AccountModal from "../../../components/AccountModal.jsx";
 import { buildApiUrl } from "../../../utils/core/apiUrl.js";
+import {
+  createCurrency as createTenantCurrency,
+  deleteCurrency as deleteTenantCurrency,
+  fetchAvailableCurrencies,
+} from "../../../utils/api/currencyApi.js";
 import { showDomainAlert } from "./DomainNotification.jsx";
 import { getAccountText } from "../../../translateFile/pages/accountTranslate.js";
 import { DEFAULT_FORM, toUpper, normalizeAlertAmount, getAccountModalOrderedRoles } from "../../account/accountLogic.js";
@@ -49,16 +54,12 @@ export default function AddAccountModal({ companyId, companyCode, preferredRole,
 
     async function loadMeta() {
       try {
-        const [rolesRes, curRes, compRes] = await Promise.all([
+        const [rolesRes, curRows, compRes] = await Promise.all([
           fetch(buildApiUrl("api/editdata/editdata_api.php"), { cache: "no-cache", credentials: "include" }),
-          fetch(
-            buildApiUrl(
-              `api/accounts/account_currency_api.php?action=get_available_currencies${
-                numericCompanyId ? `&company_id=${numericCompanyId}` : ""
-              }`
-            ),
-            { cache: "no-cache", credentials: "include" }
-          ),
+          fetchAvailableCurrencies({
+            companyId: numericCompanyId || null,
+            tenantId: numericCompanyId || null,
+          }).catch(() => []),
           fetch(buildApiUrl("api/accounts/account_company_api.php?action=get_available_companies"), {
             cache: "no-cache",
             credentials: "include",
@@ -78,9 +79,8 @@ export default function AddAccountModal({ companyId, companyCode, preferredRole,
           }
         }
 
-        const curJson = await curRes.json();
-        if (curJson.success && Array.isArray(curJson.data)) {
-          setCurrencies(curJson.data.map((c) => ({ id: c.id, code: c.code, is_linked: !!c.is_linked })));
+        if (Array.isArray(curRows)) {
+          setCurrencies(curRows.map((c) => ({ id: c.id, code: c.code, is_linked: !!c.is_linked })));
         }
 
         const compJson = await compRes.json();
@@ -117,23 +117,17 @@ export default function AddAccountModal({ companyId, companyCode, preferredRole,
       return;
     }
     try {
-      const res = await fetch(buildApiUrl("api/accounts/create_currency_api.php"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, company_id: numericCompanyId || undefined }),
-        credentials: "include",
+      const created = await createTenantCurrency({
+        code,
+        tenantId: numericCompanyId || null,
+        companyId: numericCompanyId || null,
       });
-      const json = await res.json();
-      if (json.success) {
-        const newId = Number(json.data.id);
-        setCurrencies((prev) => [...prev, { id: newId, code: json.data.code, is_linked: false }]);
-        setSelectedCurrencyIds((prev) => (prev.map(Number).includes(newId) ? prev : [...prev, newId]));
-        setCurrencyInput("");
-      } else {
-        showDomainAlert(json.message || json.error || t("createFailed"), "danger");
-      }
-    } catch {
-      showDomainAlert(t("createFailed"), "danger");
+      const newId = Number(created.id);
+      setCurrencies((prev) => [...prev, { id: newId, code: created.code, is_linked: false }]);
+      setSelectedCurrencyIds((prev) => (prev.map(Number).includes(newId) ? prev : [...prev, newId]));
+      setCurrencyInput("");
+    } catch (err) {
+      showDomainAlert(err?.response?.message || err?.message || t("createFailed"), "danger");
     }
   };
 
@@ -149,18 +143,16 @@ export default function AddAccountModal({ companyId, companyCode, preferredRole,
     };
 
     try {
-      const res = await fetch(buildApiUrl("api/accounts/delete_currency_api.php"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-        credentials: "include",
+      const result = await deleteTenantCurrency({
+        id,
+        tenantId: numericCompanyId || null,
+        companyId: numericCompanyId || null,
       });
-      const json = await res.json();
-      if (json.success) {
+      if (result.success) {
         dropCurrency();
         return;
       }
-      const msg = String(json.message || json.error || "");
+      const msg = String(result.message || "");
       if (/being used|正在使用|Cannot delete/i.test(msg)) {
         showDomainAlert(msg || t("failedDeleteCurrency"), "danger");
         return;
