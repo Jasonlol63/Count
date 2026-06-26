@@ -1,5 +1,6 @@
 /** User list page — pure helpers (rules aligned with api/users/userlist_api.php + former legacy page) */
 
+import { formatRoleLabel, normRole } from "../../utils/auth/sidebarPermissions.js";
 import {
   companiesForCompanyPicker,
   DASHBOARD_GROUP_FILTER_OPT_OUT_KEY,
@@ -9,6 +10,8 @@ import {
   independentCompaniesForPicker,
   normalizeCompanyGroupId,
 } from "../../utils/company/sharedCompanyFilter.js";
+
+export { formatRoleLabel, normRole };
 
 export const PAGE_SIZE = 20;
 
@@ -49,10 +52,6 @@ export const PERMISSION_ICONS = {
   report: "M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 2 2h8c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z",
   maintenance: "M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z",
 };
-
-export function normRole(r) {
-  return String(r || "").trim().toLowerCase();
-}
 
 export function rowLoginId(row) {
   return row?.loginId ?? row?.login_id ?? "";

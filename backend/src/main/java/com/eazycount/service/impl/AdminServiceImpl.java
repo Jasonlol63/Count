@@ -39,6 +39,49 @@ public class AdminServiceImpl implements AdminService {
         return adminDao.findAdminsByTenantId(tenantId);
     }
 
+    @Override
+    public AdminRequest getAdminDetail(Integer userId, Integer scopeTenantId) {
+        if (userId == null || userId <= 0 || scopeTenantId == null || scopeTenantId <= 0) {
+            throw new BusinessException("Invalid request");
+        }
+
+        AdminListDTO scoped = adminDao.findAdminByUserIdAndTenantId(userId, scopeTenantId);
+        if (scoped == null || scoped.getAdmin() == null || scoped.getAdminTenantAccess() == null) {
+            throw new BusinessException("User not found or access denied");
+        }
+
+        Admin admin = scoped.getAdmin();
+        AdminTenantAccess access = scoped.getAdminTenantAccess();
+        List<Integer> tenantIds = adminDao.findTenantIdsByUserId(userId);
+
+        AdminRequest detail = new AdminRequest();
+        detail.setId(admin.getId());
+        detail.setLoginId(admin.getLoginId());
+        detail.setName(admin.getName());
+        detail.setEmail(admin.getEmail());
+        detail.setRole(admin.getRole() != null ? admin.getRole().getValue() : null);
+        detail.setPermissions(admin.getPermissions());
+        detail.setStatus(admin.getStatus() != null ? admin.getStatus().getValue() : null);
+        detail.setReadOnly(admin.getReadOnly());
+        detail.setTenantAccessId(access.getId());
+        detail.setScopeTenantId(scopeTenantId);
+        detail.setAccountPermissions(parseJsonField(access.getAccountPermissions()));
+        detail.setProcessPermissions(parseJsonField(access.getProcessPermissions()));
+        detail.setTenantIds(tenantIds != null ? tenantIds : List.of());
+        return detail;
+    }
+
+    private Object parseJsonField(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(raw, Object.class);
+        } catch (Exception e) {
+            return raw;
+        }
+    }
+
     @Transactional
     @Override
     public AdminListDTO createAdmin(AdminRequest adminRequest) {
@@ -263,7 +306,79 @@ public class AdminServiceImpl implements AdminService {
         }
     }
 
+    @Transactional
+    @Override
+    public AdminListDTO updateStatusByAdminId(Integer userId, Integer scopeTenantId) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null || session.user_id == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (userId == null || userId <= 0 || scopeTenantId == null || scopeTenantId <= 0) {
+            throw new BusinessException("Invalid request");
+        }
+        if (session.user_id.equals(userId)) {
+            throw new BusinessException("You cannot toggle your own status");
+        }
 
+        AdminListDTO existing = adminDao.findAdminByUserIdAndTenantId(userId, scopeTenantId);
+        if (existing == null || existing.getAdmin() == null || existing.getAdminTenantAccess() == null) {
+            throw new BusinessException("User not found or access denied");
+        }
+
+        Admin current = existing.getAdmin();
+        Admin.UserStatus currentStatus = current.getStatus() != null
+                ? current.getStatus()
+                : Admin.UserStatus.ACTIVE;
+
+        Admin.UserStatus newStatus = currentStatus == Admin.UserStatus.ACTIVE
+                ? Admin.UserStatus.INACTIVE
+                : Admin.UserStatus.ACTIVE;
+
+        adminDao.updateStatusByAdminId(userId, newStatus);
+
+        AdminListDTO result = adminDao.findAdminByUserIdAndTenantId(userId, scopeTenantId);
+        if (result == null) {
+            throw new BusinessException("Status updated, but user is no longer visible in this tenant");
+        }
+        return result;
+    }
+
+    @Transactional
+    @Override
+    public void deleteAdminByIdAndStatus(Integer userId, Integer scopeTenantId) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null || session.user_id == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (userId == null || userId <= 0 || scopeTenantId == null || scopeTenantId <= 0) {
+            throw new BusinessException("Invalid request");
+        }
+        if (session.user_id.equals(userId)) {
+            throw new BusinessException("You cannot delete your own account");
+        }
+
+        AdminListDTO existing = adminDao.findAdminByUserIdAndTenantId(userId, scopeTenantId);
+        if (existing == null || existing.getAdmin() == null) {
+            throw new BusinessException("User not found or access denied");
+        }
+
+        Admin.UserStatus currentStatus = existing.getAdmin().getStatus();
+        if (currentStatus != Admin.UserStatus.INACTIVE) {
+            throw new BusinessException("Only inactive users can be deleted");
+        }
+
+        List<Integer> tenantIds = adminDao.findTenantIdsByUserId(userId);
+        for (Integer tenantId : tenantIds) {
+            if (tenantId != null && tenantId > 0) {
+                adminDao.deleteAdminTenantAccessByUserIdAndTenantId(userId, tenantId);
+            }
+        }
+
+        int deleted = adminDao.deleteAdminByIdAndStatus(userId, Admin.UserStatus.INACTIVE);
+        if (deleted <= 0) {
+            throw new BusinessException("Failed to delete user");
+        }
+    }
 
     private String toJson (Object value){
         if (value == null) return null;

@@ -374,13 +374,13 @@ const C168_DOMAIN_PAGE_ROLES = new Set([
 const C168_AUTO_RENEW_ROLES = new Set(["owner", "admin"]);
 
 export function userRoleAllowsC168Domain(role) {
-  const r = String(role || "").trim().toLowerCase();
+  const r = String(role || "").trim().toLowerCase().replace(/_/g, " ").replace(/\s+/g, " ");
   return C168_DOMAIN_PAGE_ROLES.has(r);
 }
 
 export function userRoleAllowsC168AutoRenew(role, userType) {
   if (String(userType || "").trim().toLowerCase() === "member") return false;
-  const r = String(role || "").trim().toLowerCase();
+  const r = String(role || "").trim().toLowerCase().replace(/_/g, " ").replace(/\s+/g, " ");
   return C168_AUTO_RENEW_ROLES.has(r);
 }
 

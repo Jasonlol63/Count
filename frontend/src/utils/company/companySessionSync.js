@@ -11,14 +11,15 @@ import {
 /** @type {Map<string, Promise<object>>} */
 const sessionSyncInflight = new Map();
 
-function sessionSyncKey(companyId, viewGroup) {
-  const id = Number(companyId);
+function sessionSyncKey(tenantId, viewGroup) {
+  const id = Number(tenantId);
   const vg = viewGroup ? String(viewGroup).trim().toUpperCase() : "";
   return `${id}|${vg}`;
 }
 
-export async function syncCompanySessionApi(companyId, viewGroup = null, options = {}) {
-  const id = Number(companyId);
+/** Switch active session tenant via Spring `POST /auth/switch-tenant`. */
+export async function syncCompanySessionApi(tenantId, viewGroup = null, options = {}) {
+  const id = Number(tenantId);
   if (!Number.isFinite(id) || id <= 0) return { success: false };
 
   const key = sessionSyncKey(id, viewGroup);
@@ -30,13 +31,11 @@ export async function syncCompanySessionApi(companyId, viewGroup = null, options
 
   const promise = (async () => {
     try {
-      const q = new URLSearchParams({ company_id: String(id) });
-      const vg = viewGroup ? String(viewGroup).trim() : "";
-      if (vg) q.set("view_group", vg);
-      const response = await fetch(
-        buildApiUrl(`api/session/update_company_session_api.php?${q.toString()}`),
-        { credentials: "include" },
-      );
+      const q = new URLSearchParams({ tenant_id: String(id) });
+      const response = await fetch(buildApiUrl(`auth/switch-tenant?${q.toString()}`), {
+        method: "POST",
+        credentials: "include",
+      });
       const json = await response.json();
       if (json?.success && json?.data) rememberCompanySessionFlags(json.data);
       return json;
@@ -53,15 +52,15 @@ export async function syncCompanySessionApi(companyId, viewGroup = null, options
   return promise;
 }
 
-export async function syncCompanySessionAndNotify(companyId) {
-  const json = await syncCompanySessionApi(companyId);
+export async function syncCompanySessionAndNotify(tenantId) {
+  const json = await syncCompanySessionApi(tenantId);
   if (json?.success) notifyCompanySessionUpdated(json.data ?? null);
   return json;
 }
 
 /** Write sessionStorage group/company keys used by Dashboard and other SPA pages. */
-export function persistCrossPageCompanySelection(companyId, options = {}) {
-  const id = Number(companyId);
+export function persistCrossPageCompanySelection(tenantId, options = {}) {
+  const id = Number(tenantId);
   if (!Number.isFinite(id) || id <= 0) return null;
   const { selectedGroup = null, companyRow = null } = options;
   const gid =
@@ -74,26 +73,28 @@ export function persistCrossPageCompanySelection(companyId, options = {}) {
 }
 
 /**
- * Keep sessionStorage + PHP session aligned with the active Process/Bank company.
+ * Keep sessionStorage + session tenant aligned with the active Process/Bank company.
  * Safe to call when UI already shows the company but cross-page state is stale.
  */
-export async function ensureCrossPageCompanySelection(companyId, options = {}) {
-  const id = Number(companyId);
+export async function ensureCrossPageCompanySelection(tenantId, options = {}) {
+  const id = Number(tenantId);
   if (!Number.isFinite(id) || id <= 0) return false;
 
   const savedId = readDashboardSelectedCompanyId();
-  const sessionCompanyId =
-    options.sessionCompanyId != null && options.sessionCompanyId !== ""
-      ? Number(options.sessionCompanyId)
-      : null;
+  const sessionTenantId =
+    options.sessionTenantId != null && options.sessionTenantId !== ""
+      ? Number(options.sessionTenantId)
+      : options.sessionCompanyId != null && options.sessionCompanyId !== ""
+        ? Number(options.sessionCompanyId)
+        : null;
   const needsPersist = savedId !== id;
-  const needsPhpSync =
+  const needsSessionSync =
     options.syncPhpSession !== false &&
-    sessionCompanyId != null &&
-    Number.isFinite(sessionCompanyId) &&
-    sessionCompanyId !== id;
+    sessionTenantId != null &&
+    Number.isFinite(sessionTenantId) &&
+    sessionTenantId !== id;
 
-  if (!needsPersist && !needsPhpSync) return true;
+  if (!needsPersist && !needsSessionSync) return true;
 
   const companyRow =
     options.companyRow ||
@@ -105,7 +106,7 @@ export async function ensureCrossPageCompanySelection(companyId, options = {}) {
     companyRow,
   });
 
-  if (needsPhpSync) {
+  if (needsSessionSync) {
     const json = await syncCompanySessionApi(id, gid);
     if (json?.success) notifyCompanySessionUpdated(json.data ?? null);
     return Boolean(json?.success);

@@ -42,4 +42,8 @@ public interface AuthDao {
     Admin findAdminSecondaryPasswordById(@Param("adminId") Integer adminId);
 
     Owner findOwnerSecondaryPasswordById(@Param("ownerId") Integer ownerId);
+
+    void updateAdminLastLogin(Integer adminId);
+
+    void updateMemberLastLogin(Integer memberId);
 }

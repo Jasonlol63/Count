@@ -23,6 +23,7 @@ import {
   canAccessLimitedMaintenance,
   canAccessPermission,
   showMaintenanceInSidebar,
+  formatRoleLabel,
 } from "../utils/auth/sidebarPermissions.js";
 import {
   applyLoginScopeToSessionStorageIfNeeded,
@@ -952,7 +953,7 @@ export default function AuthenticatedLayout() {
   }, [me, sidebarGcTick]);
   
   const avatarSrc = useMemo(() => AVATAR_MAP[selectedAvatarId] || AVATAR_MAP.male1, [selectedAvatarId]);
-  const roleLabel = me?.role ? me.role.charAt(0).toUpperCase() + me.role.slice(1).toLowerCase() : "";
+  const roleLabel = formatRoleLabel(me?.role);
   const processSpaPath =
     me?.tenant_has_bank && !me?.tenant_has_game ? spaPath("bank-process-list") : spaPath("process-list");
   const performLogout = async () => {

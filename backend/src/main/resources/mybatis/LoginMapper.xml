@@ -396,4 +396,16 @@
         WHERE id = #{ownerId}
         LIMIT 1
     </select>
+
+    <update id="updateAdminLastLogin">
+        UPDATE user
+        SET last_login = NOW()
+        WHERE id = #{adminId}
+    </update>
+
+    <update id="updateMemberLastLogin">
+        UPDATE account
+        SET last_login = NOW()
+        WHERE id = #{memberId}
+    </update>
 </mapper>

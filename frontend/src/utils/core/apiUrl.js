@@ -24,6 +24,18 @@ export function buildApiUrl(pathAndQuery) {
       const q = raw.includes("?") ? raw.slice(raw.indexOf("?")) : "";
       return `auth/tenant-accessible${q}`;
     }
+    if (raw.startsWith("api/session/update_company_session_api.php")) {
+      const qIndex = raw.indexOf("?");
+      if (qIndex >= 0) {
+        const params = new URLSearchParams(raw.slice(qIndex + 1));
+        const tenantId = params.get("company_id") ?? params.get("tenant_id");
+        const next = new URLSearchParams();
+        if (tenantId) next.set("tenant_id", tenantId);
+        const qs = next.toString();
+        return qs ? `auth/switch-tenant?${qs}` : "auth/switch-tenant";
+      }
+      return "auth/switch-tenant";
+    }
     if (raw.startsWith("api/users/send_reset_tac_api.php")) return "auth/send-reset-tac";
     if (raw.startsWith("api/users/reset_password_api.php")) return "auth/reset-password";
     // Announcement page — fully migrated to Spring Boot.

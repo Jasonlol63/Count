@@ -67,6 +67,7 @@ import {
   getDeleteCheckboxState,
   getFinalPermissionsForCreation,
   getRoleTemplateSidebarList,
+  formatRoleLabel,
   normRole,
   rowCreatedBy,
   rowIsOwnerShadow,
@@ -89,10 +90,14 @@ import {
   buildAdminCreateRequest,
   buildAdminUpdateRequest,
   createAdminUser,
+  deleteAdminUser,
+  fetchAdminDetailByUserId,
   fetchAdminListByTenantId,
   normalizeOwnerShadowRow,
   resolveAdminCreateTenantIds,
+  resolveAdminTenantIds,
   resolveListTenantId,
+  toggleAdminUserStatus,
   updateAdminUser,
 } from "./userListApi.js";
 
@@ -102,17 +107,70 @@ import UserConfirmModal from "./components/UserConfirmModal.jsx";
 import { processNotificationAboveAccountZIndex, processNotificationZIndex } from "../../components/ProcessModalPortal.jsx";
 import { getUserListText, translateUserListApiMessage } from "../../translateFile/pages/userListTranslate.js";
 import { validateEmail } from "../../utils/input/emailValidation.js";
+import { getSessionTenantId } from "../../utils/auth/sessionTenant.js";
+import { resolveCompanyDisplayCode } from "../../utils/company/sharedCompanyFilter.js";
+
+function tenantIdsFromDetail(detail) {
+  const raw = detail?.tenantIds ?? detail?.tenant_ids ?? [];
+  return (Array.isArray(raw) ? raw : [])
+    .map(Number)
+    .filter((id) => Number.isFinite(id) && id > 0);
+}
+
+function applyTenantIdsToPickerSelection(detail, {
+  useDualTenantUserPicker,
+  modalGroupCompanies,
+  modalSubsidiaryCompanies,
+  modalPickerCompanies,
+  groupOnlyUserList,
+  selectedGroup,
+  scopeCompanyId,
+}) {
+  const tenantIds = tenantIdsFromDetail(detail);
+  if (useDualTenantUserPicker) {
+    const groupIdSet = new Set(modalGroupCompanies.map((c) => Number(c.id)));
+    const companyIdSet = new Set(modalSubsidiaryCompanies.map((c) => Number(c.id)));
+    return {
+      groupIds: tenantIds.filter((id) => groupIdSet.has(id)),
+      companyIds: tenantIds.filter((id) => companyIdSet.has(id)),
+    };
+  }
+
+  const allowed = new Set(modalPickerCompanies.map((c) => Number(c.id)));
+  const ids = tenantIds.filter((id) => allowed.has(id));
+  if (groupOnlyUserList) {
+    const defaultPick = modalPickerCompanies.find(
+      (c) => String(c.group_id || "").toUpperCase() === String(selectedGroup || "").toUpperCase(),
+    );
+    const companyIds =
+      ids.length > 0
+        ? ids
+        : defaultPick?.id != null
+          ? [Number(defaultPick.id)]
+          : modalPickerCompanies[0]
+            ? [Number(modalPickerCompanies[0].id)]
+            : [];
+    return { groupIds: [], companyIds };
+  }
+
+  return {
+    groupIds: [],
+    companyIds: ids.length ? ids : modalPickerCompanies.map((c) => Number(c.id)),
+  };
+}
 
 function roleBadgeClass(role) {
-  return `role-${String(role || "").toLowerCase().replace(/\s+/g, "-")}`;
+  return `role-${normRole(role).replace(/\s+/g, "-")}`;
 }
 
 function normalizeCompanyRow(row) {
   if (!row || typeof row !== "object") return row;
+  const company_id = resolveCompanyDisplayCode(row);
   return {
     ...row,
-    group_id: row.group_id ?? row.groupId ?? row.group ?? null,
-    company_id: row.company_id ?? row.companyId ?? row.code ?? "",
+    group_id: row.group_id ?? row.groupId ?? row.group ?? row.parent_tenant_code ?? null,
+    company_id,
+    tenant_code: row.tenant_code ?? company_id,
   };
 }
 
@@ -443,7 +501,7 @@ export default function UserListPage() {
         ) {
           effectiveNum = resolveBootCompanyId({
             urlCompanyId,
-            sessionCompanyId: me.company_id,
+            sessionCompanyId: getSessionTenantId(me),
             defaultRowId: rows[0]?.id,
           });
         }
@@ -511,7 +569,7 @@ export default function UserListPage() {
           if (needsSubsidiary && targetGroup) {
             const pick = pickDefaultSubsidiaryForGroup(rows, targetGroup, {
               me,
-              preferredCompanyId: me?.company_id ?? effectiveNum,
+              preferredCompanyId: getSessionTenantId(me) ?? effectiveNum,
             });
             if (pick?.id != null) {
               effectiveNum = Number(pick.id);
@@ -546,7 +604,7 @@ export default function UserListPage() {
               if (!isSubsidiaryCompanyRow(bootRow, groupIds)) {
                 const pick = pickDefaultSubsidiaryForGroup(rows, bootGroup || bootRow?.group_id, {
                   me,
-                  preferredCompanyId: me.company_id,
+                  preferredCompanyId: getSessionTenantId(me),
                 });
                 effectiveNum = pick?.id != null ? Number(pick.id) : null;
               }
@@ -554,10 +612,10 @@ export default function UserListPage() {
             if (effectiveNum == null || !Number.isFinite(Number(effectiveNum))) {
               const pick = pickDefaultSubsidiaryForGroup(rows, bootGroup, {
                 me,
-                preferredCompanyId: me.company_id,
+                preferredCompanyId: getSessionTenantId(me),
               });
               if (pick?.id != null) effectiveNum = Number(pick.id);
-              else if (me.company_id != null) effectiveNum = Number(me.company_id);
+              else if (getSessionTenantId(me) != null) effectiveNum = Number(getSessionTenantId(me));
             }
             persistDashboardGroupOnlyMode(false);
           }
@@ -579,7 +637,7 @@ export default function UserListPage() {
             if (!isSubsidiaryCompanyRow(bootRow, groupIds)) {
               const pick = pickDefaultSubsidiaryForGroup(rows, bootGroup || bootRow?.group_id, {
                 me,
-                preferredCompanyId: me.company_id,
+                preferredCompanyId: getSessionTenantId(me),
               });
               effectiveNum = pick?.id != null ? Number(pick.id) : null;
             }
@@ -587,10 +645,10 @@ export default function UserListPage() {
           if (effectiveNum == null || !Number.isFinite(Number(effectiveNum))) {
             const pick = pickDefaultSubsidiaryForGroup(rows, bootGroup, {
               me,
-              preferredCompanyId: me.company_id,
+              preferredCompanyId: getSessionTenantId(me),
             });
             if (pick?.id != null) effectiveNum = Number(pick.id);
-            else if (me.company_id != null) effectiveNum = Number(me.company_id);
+            else if (getSessionTenantId(me) != null) effectiveNum = Number(getSessionTenantId(me));
           }
           persistDashboardGroupOnlyMode(false);
           const groupFilterOptOutBoot =
@@ -643,15 +701,11 @@ export default function UserListPage() {
 
         const syncCompanyId =
           effectiveNum != null && Number.isFinite(Number(effectiveNum)) ? Number(effectiveNum) : null;
-        if (syncCompanyId != null && syncCompanyId !== Number(me.company_id)) {
+        if (syncCompanyId != null && syncCompanyId !== getSessionTenantId(me)) {
           void (async () => {
             try {
-              const syncRes = await fetch(
-                buildApiUrl(`api/session/update_company_session_api.php?company_id=${syncCompanyId}`),
-                { credentials: "include" },
-              );
-              const syncJson = await syncRes.json();
-              if (syncJson.success) notifyCompanySessionUpdated();
+              const syncJson = await syncCompanySessionApi(syncCompanyId);
+              if (syncJson?.success) notifyCompanySessionUpdated(syncJson.data ?? null);
             } catch {
               /* boot session sync is best-effort */
             }
@@ -740,7 +794,7 @@ export default function UserListPage() {
     if (!groupOnlyUserList || !selectedGroup) return null;
     const entityPick = pickDefaultCompanyForGroup(companies, selectedGroup, {
       me,
-      preferredCompanyId: me?.company_id,
+      preferredCompanyId: getSessionTenantId(me),
       groupEntityOnly: true,
     });
     if (entityPick?.id != null) {
@@ -749,7 +803,7 @@ export default function UserListPage() {
     }
     const fallback = pickDefaultCompanyForGroup(companies, selectedGroup, {
       me,
-      preferredCompanyId: me?.company_id,
+      preferredCompanyId: getSessionTenantId(me),
     });
     const id = fallback?.id != null ? Number(fallback.id) : Number.NaN;
     return Number.isFinite(id) && id > 0 ? id : null;
@@ -765,12 +819,12 @@ export default function UserListPage() {
     if (selectedGroup) {
       const pick = pickDefaultCompanyForGroup(companies, selectedGroup, {
         me,
-        preferredCompanyId: me?.company_id ?? companyId,
+        preferredCompanyId: getSessionTenantId(me) ?? companyId,
       });
       const pid = pick?.id != null ? Number(pick.id) : Number.NaN;
       if (Number.isFinite(pid) && pid > 0) return pid;
     }
-    const sessionId = me?.company_id != null ? Number(me.company_id) : Number.NaN;
+    const sessionId = getSessionTenantId(me) != null ? Number(getSessionTenantId(me)) : Number.NaN;
     return Number.isFinite(sessionId) && sessionId > 0 ? sessionId : null;
   }, [companyId, groupOnlyUserList, anchorCompanyId, selectedGroup, companies, me]);
 
@@ -1041,17 +1095,17 @@ export default function UserListPage() {
       selectedGroup: vg ?? selectedGroup,
     });
 
-    const sessionCompanyId = me?.company_id != null ? Number(me.company_id) : null;
-    if (sessionCompanyId === nextCompanyId) return;
+    const sessionTenantId = getSessionTenantId(me);
+    if (sessionTenantId === nextCompanyId) return;
 
-    const previousCompanyId = Number(companyId) === nextCompanyId ? sessionCompanyId : companyId;
+    const previousCompanyId = Number(companyId) === nextCompanyId ? sessionTenantId : companyId;
     const switchGen = ++companySwitchGenRef.current;
 
     try {
       const json = await syncCompanySessionApi(nextCompanyId, vg);
       if (switchGen !== companySwitchGenRef.current) return;
       if (!json?.success) {
-        if (Number(previousCompanyId) !== nextCompanyId) {
+        if (previousCompanyId != null && Number(previousCompanyId) !== nextCompanyId) {
           const revertGroupOnly = previousCompanyId == null;
           skipCompanyFetchEffectRef.current = true;
           flushSync(() => {
@@ -1074,7 +1128,7 @@ export default function UserListPage() {
       notifyCompanySessionUpdated(json.data ?? null);
     } catch {
       if (switchGen !== companySwitchGenRef.current) return;
-      if (Number(previousCompanyId) !== nextCompanyId) {
+      if (previousCompanyId != null && Number(previousCompanyId) !== nextCompanyId) {
         const revertGroupOnly = previousCompanyId == null;
         skipCompanyFetchEffectRef.current = true;
         flushSync(() => {
@@ -1233,7 +1287,7 @@ export default function UserListPage() {
     }
     const pick = pickDefaultSubsidiaryForGroup(companies, selectedGroup, {
       me,
-      preferredCompanyId: me?.company_id ?? companyId,
+      preferredCompanyId: getSessionTenantId(me) ?? companyId,
     });
     if (!pick?.id) {
       if (isCompanyLogin(me) && !canUseGroupOnlyMode(me, selectedGroup)) {
@@ -1387,7 +1441,7 @@ export default function UserListPage() {
         resolveCompanyPickWhenSwitchingGroup(companies, g, companyId) ??
         pickDefaultSubsidiaryForGroup(companies, g, {
           me,
-          preferredCompanyId: companyId ?? me?.company_id,
+          preferredCompanyId: companyId ?? getSessionTenantId(me),
         });
       if (!pick?.id) return;
 
@@ -1742,7 +1796,7 @@ export default function UserListPage() {
     });
   }, []);
 
-  const fetchEditUserDetail = useCallback(async (id, force = false) => {
+  const fetchEditUserDetail = useCallback(async (id, scopeTenantId, force = false) => {
     const cacheKey = String(id || "");
     if (!cacheKey) return null;
     const cached = editUserDetailCacheRef.current.get(cacheKey);
@@ -1756,17 +1810,13 @@ export default function UserListPage() {
         const next = await pending;
         markEditReady(id);
         return next;
-      } catch { return cached || null; }
+      } catch {
+        return cached || null;
+      }
     }
-    const request = fetch(buildApiUrl("api/users/userlist_api.php"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ action: "get", id }),
-    }).then(async (res) => {
-      const json = await res.json();
-      if (!json.success || !json.data) throw new Error(json.message || "Load user failed");
-      return json.data;
+    const request = fetchAdminDetailByUserId(id, scopeTenantId).then((detail) => {
+      if (!detail) throw new Error("Load user failed");
+      return detail;
     });
     editUserDetailPendingRef.current.set(cacheKey, request);
     try {
@@ -1782,47 +1832,60 @@ export default function UserListPage() {
   }, [markEditReady]);
 
   const applyEditDetail = useCallback((row, detail, accList, procList) => {
-    let perms = []; try { perms = detail.permissions ? JSON.parse(detail.permissions) : []; } catch { perms = []; }
-    setPermSelected(new Set(perms.map((p) => String(p).toLowerCase())));
-    setForm((f) => ({ ...f, read_only: detail.read_only !== undefined ? parseInt(detail.read_only, 10) === 1 : true }));
-    let ap = null, pp = null; try { if (detail.account_permissions != null) ap = typeof detail.account_permissions === "string" ? JSON.parse(detail.account_permissions) : detail.account_permissions; } catch { ap = []; }
-    try { if (detail.process_permissions != null) pp = typeof detail.process_permissions === "string" ? JSON.parse(detail.process_permissions) : detail.process_permissions; } catch { pp = []; }
-    setSelectedAccountIds(ap === null ? new Set(accList.map(a => Number(a.id))) : new Set((Array.isArray(ap) ? ap : []).map(x => Number(x.id || x))));
-    setSelectedProcessIds(pp === null ? new Set(procList.map(p => Number(p.id))) : new Set((Array.isArray(pp) ? pp : []).map(x => Number(x.id || x))));
-    if (currentUserRole === "admin" || currentUserRole === "owner") {
-      if (useDualTenantUserPicker) {
-        const groupCodes = Array.isArray(detail.group_codes) ? detail.group_codes : [];
-        const groupIds = resolveGroupEntityIdsFromCodes(modalGroupCompanies, groupCodes);
-        setSelectedGroupIds(groupIds);
-        const allowedCompanies = new Set(modalSubsidiaryCompanies.map((c) => Number(c.id)));
-        const companyIds = Array.isArray(detail.company_ids)
-          ? detail.company_ids.map(Number).filter((id) => allowedCompanies.has(id))
-          : [];
-        setSelectedCompanyIds(companyIds);
-      } else if (Array.isArray(detail.company_ids)) {
-        const allowed = new Set(modalPickerCompanies.map((c) => Number(c.id)));
-        const ids = detail.company_ids.map(Number).filter((id) => allowed.has(id));
-        if (groupOnlyUserList) {
-          const defaultPick = modalPickerCompanies.find(
-            (c) => String(c.group_id || "").toUpperCase() === String(selectedGroup || "").toUpperCase()
-          );
-          setSelectedCompanyIds(
-            ids.length
-              ? ids
-              : defaultPick?.id != null
-                ? [Number(defaultPick.id)]
-                : modalPickerCompanies[0]
-                  ? [Number(modalPickerCompanies[0].id)]
-                  : []
-          );
-        } else {
-          setSelectedCompanyIds(ids.length ? ids : modalPickerCompanies.map((c) => Number(c.id)));
-        }
-        setSelectedGroupIds([]);
-      } else {
-        setSelectedCompanyIds(scopeCompanyId ? [Number(scopeCompanyId)] : []);
-        setSelectedGroupIds([]);
+    let perms = [];
+    try {
+      if (detail.permissions) {
+        perms =
+          typeof detail.permissions === "string" ? JSON.parse(detail.permissions) : detail.permissions;
       }
+    } catch {
+      perms = [];
+    }
+    if (!Array.isArray(perms)) perms = [];
+    setPermSelected(new Set(perms.map((p) => String(p).toLowerCase())));
+    const readOnlyVal =
+      detail.readOnly != null
+        ? !!detail.readOnly
+        : detail.read_only !== undefined
+          ? parseInt(detail.read_only, 10) === 1
+          : true;
+    setForm((f) => ({ ...f, read_only: readOnlyVal }));
+    let ap = null;
+    let pp = null;
+    try {
+      const apRaw = detail.accountPermissions ?? detail.account_permissions;
+      if (apRaw != null) ap = typeof apRaw === "string" ? JSON.parse(apRaw) : apRaw;
+    } catch {
+      ap = [];
+    }
+    try {
+      const ppRaw = detail.processPermissions ?? detail.process_permissions;
+      if (ppRaw != null) pp = typeof ppRaw === "string" ? JSON.parse(ppRaw) : ppRaw;
+    } catch {
+      pp = [];
+    }
+    setSelectedAccountIds(
+      ap === null
+        ? new Set(accList.map((a) => Number(a.id)))
+        : new Set((Array.isArray(ap) ? ap : []).map((x) => Number(x.id || x))),
+    );
+    setSelectedProcessIds(
+      pp === null
+        ? new Set(procList.map((p) => Number(p.id)))
+        : new Set((Array.isArray(pp) ? pp : []).map((x) => Number(x.id || x))),
+    );
+    if (currentUserRole === "admin" || currentUserRole === "owner") {
+      const { groupIds, companyIds } = applyTenantIdsToPickerSelection(detail, {
+        useDualTenantUserPicker,
+        modalGroupCompanies,
+        modalSubsidiaryCompanies,
+        modalPickerCompanies,
+        groupOnlyUserList,
+        selectedGroup,
+        scopeCompanyId,
+      });
+      setSelectedGroupIds(groupIds);
+      setSelectedCompanyIds(companyIds);
     } else {
       setSelectedCompanyIds(scopeCompanyId ? [Number(scopeCompanyId)] : []);
       setSelectedGroupIds([]);
@@ -1894,7 +1957,7 @@ export default function UserListPage() {
         // not whichever subsidiary company chip is currently active (e.g. 95).
         const entityPick = pickDefaultCompanyForGroup(companies, selectedGroup, {
           me,
-          preferredCompanyId: me?.company_id ?? companyId,
+          preferredCompanyId: getSessionTenantId(me) ?? companyId,
           groupEntityOnly: true,
         });
         const entityId = entityPick?.id != null ? Number(entityPick.id) : Number.NaN;
@@ -1931,20 +1994,24 @@ export default function UserListPage() {
     }
     if (!scopeCompanyId) return;
     if (rowIsOwnerShadow(row) && currentUserRole !== "owner") { notify(t("onlyOwnerCanEditOwner"), "danger"); return; }
-    const modalCacheKey = resolveModalAccessCacheKey(scopeCompanyId, groupOnlyUserList, selectedGroup);
-    const cachedDetail = editUserDetailCacheRef.current.get(String(row.id));
+    editUserDetailCacheRef.current.delete(String(row.id));
     const loadSeq = ++modalLoadSeqRef.current;
-    const cachedAccess = modalAccessCacheRef.current.get(modalCacheKey) || { accounts: modalAccounts, processes: modalProcesses };
     setIsEditMode(true); setEditingRow(row);
     setForm({ id: String(row.id), login_id: rowLoginId(row), name: row.name || "", email: row.email || "", role: normRole(row.role), password: "", secondary_password: "", status: normRole(row.status) || "active", read_only: true });
     setRoleSelectDisabled(rowIsOwnerShadow(row)); setLoginDisabled(true);
     setFieldLocks(getUserEditFieldLocks(row, currentUserId, currentUserRole));
     void loadCompaniesForModal();
-    if (cachedDetail) {
-      applyEditDetail(row, cachedDetail, cachedAccess.accounts, cachedAccess.processes);
-    }
     setModalOpen(true);
-    void Promise.all([fetchModalAccountsProcesses(scopeCompanyId, true), fetchEditUserDetail(row.id, true)]).then(([access, detail]) => {
+    const editScopeTenantId = resolveListTenantId({
+      companyId,
+      groupOnly: groupOnlyUserList,
+      anchorCompanyId,
+      scopeCompanyId,
+    });
+    void Promise.all([
+      fetchModalAccountsProcesses(scopeCompanyId, true),
+      editScopeTenantId != null ? fetchEditUserDetail(row.id, editScopeTenantId, true) : Promise.resolve(null),
+    ]).then(([access, detail]) => {
       if (loadSeq !== modalLoadSeqRef.current || !detail) return;
       applyEditDetail(row, detail, access.accounts, access.processes);
     });
@@ -1959,21 +2026,31 @@ export default function UserListPage() {
     }
     const caps = computeRowCapabilities(row, currentUserId, currentUserRole);
     if (!caps.canToggleStatus) return;
+    if (rowIsOwnerShadow(row)) {
+      notify(t("toggleFailed"), "danger");
+      return;
+    }
+
+    const scopeTenantId = resolveListTenantId({
+      companyId,
+      groupOnly: groupOnlyUserList,
+      anchorCompanyId,
+      scopeCompanyId,
+    });
+    if (scopeTenantId == null) return;
+
     try {
-      const fd = new FormData();
-      fd.append("id", String(row.id));
-      const useGroupScopeForToggle = groupOnlyUserList && !!selectedGroup;
-      const toggleCompanyId = useGroupScopeForToggle ? scopeCompanyId : (groupOnlyUserList ? scopeCompanyId : companyId);
-      if (toggleCompanyId != null) fd.append("company_id", String(toggleCompanyId));
-      if (useGroupScopeForToggle) {
-        fd.append("group_id", selectedGroup);
-        fd.append("group_only", "1");
+      const updated = await toggleAdminUserStatus({ id: row.id, scopeTenantId });
+      const newStatus = updated?.status;
+      if (!newStatus) {
+        notify(t("toggleFailed"), "danger");
+        return;
       }
-      const res = await fetch(buildApiUrl("api/users/toggle_status_api.php"), { method: "POST", body: fd, credentials: "include" });
-      const json = await res.json(); const newStatus = json?.data?.newStatus || json?.newStatus;
-      if (!json.success || !newStatus) { notifyApi(json.message, "toggleFailed", "danger"); return; }
+
       setUsersRaw((prev) => {
-        const next = prev.map((u) => (Number(u.id) === Number(row.id) ? { ...u, status: newStatus } : u));
+        const next = prev.map((u) =>
+          Number(u.id) === Number(row.id) ? { ...u, ...updated, status: newStatus } : u,
+        );
         const s = userListScopeRef.current;
         const cacheKey = resolveUserListCacheKey(
           s.companyId,
@@ -1994,7 +2071,9 @@ export default function UserListPage() {
         });
       }
       notify(t("statusUpdated"), "success");
-    } catch { notify(t("toggleFailed"), "danger"); }
+    } catch (e) {
+      notifyApi(e?.message, "toggleFailed", "danger");
+    }
   };
 
   const confirmDelete = async () => {
@@ -2006,32 +2085,35 @@ export default function UserListPage() {
     const ids = pendingDeleteRef.current || []; pendingDeleteRef.current = []; setConfirmOpen(false);
     if (!ids.length) return;
 
-    const buildDeleteBody = (id) => {
-      const body = { action: "delete", id };
-      if (groupOnlyUserList && selectedGroup) {
-        body.group_id = selectedGroup;
-        body.group_only = 1;
-      } else if (companyId != null) {
-        body.company_id = Number(companyId);
-      }
-      return body;
-    };
+    const scopeTenantId = resolveListTenantId({
+      companyId,
+      groupOnly: groupOnlyUserList,
+      anchorCompanyId,
+      scopeCompanyId,
+    });
+    if (scopeTenantId == null) return;
+
+    const eligibleIds = ids.filter((id) => {
+      const row = usersRaw.find((u) => Number(u.id) === Number(id));
+      return row && !rowIsOwnerShadow(row);
+    });
+    if (!eligibleIds.length) {
+      notify(t("apiDeleteUserFailed"), "danger");
+      return;
+    }
 
     const results = await Promise.all(
-      ids.map((id) =>
-        fetch(buildApiUrl("api/users/userlist_api.php"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify(buildDeleteBody(id)),
-        }).then((r) => r.json().catch(() => ({ success: false }))),
+      eligibleIds.map((id) =>
+        deleteAdminUser({ id, scopeTenantId })
+          .then(() => ({ success: true }))
+          .catch((e) => ({ success: false, message: e?.message })),
       ),
     );
 
-    const succeededIds = ids.filter((_, index) => results[index]?.success);
-    const failCount = ids.length - succeededIds.length;
+    const succeededIds = eligibleIds.filter((_, index) => results[index]?.success);
+    const failCount = eligibleIds.length - succeededIds.length;
 
-    if (succeededIds.length === ids.length) {
+    if (succeededIds.length === eligibleIds.length) {
       notify(t("deletedUsersSuccess", { count: succeededIds.length }), "success");
     } else if (succeededIds.length > 0) {
       notify(t("deletionResult", { ok: succeededIds.length, fail: failCount }), "danger");
@@ -2042,6 +2124,24 @@ export default function UserListPage() {
     if (succeededIds.length > 0) {
       const succeededSet = new Set(succeededIds.map(Number));
       setUsersRaw((prev) => prev.filter((u) => !succeededSet.has(Number(u.id))));
+      const s = userListScopeRef.current;
+      const cacheKey = resolveUserListCacheKey(
+        s.companyId,
+        s.groupOnlyUserList,
+        s.selectedGroup,
+        s.aggregateUserList,
+        s.groupsAllMode,
+        s.groupAllMode,
+      );
+      if (cacheKey) {
+        const cached = userListCacheRef.current.get(cacheKey);
+        if (cached) {
+          userListCacheRef.current.set(
+            cacheKey,
+            cached.filter((u) => !succeededSet.has(Number(u.id))),
+          );
+        }
+      }
     }
     setSelectedDeleteIds(new Set());
     setSelectAllUsers(false);
@@ -2115,7 +2215,7 @@ export default function UserListPage() {
         payload.company_id = Number(companyId);
         const entityPick = pickDefaultCompanyForGroup(companies, saveGroupId, {
           me,
-          preferredCompanyId: me?.company_id ?? companyId,
+          preferredCompanyId: getSessionTenantId(me) ?? companyId,
           groupEntityOnly: true,
         });
         const entityId = entityPick?.id != null ? Number(entityPick.id) : Number.NaN;
@@ -2165,7 +2265,7 @@ export default function UserListPage() {
     }
     try {
       if (!isEditMode) {
-        const tenantIds = resolveAdminCreateTenantIds({
+        const tenantIds = resolveAdminTenantIds({
           useDualTenantUserPicker,
           selectedGroupIds,
           selectedCompanyIds,
@@ -2271,13 +2371,15 @@ export default function UserListPage() {
         return;
       }
 
+      const caps = computeRowCapabilities(editingRow, currentUserId, currentUserRole);
+      const permissionsForUpdate =
+        caps.isSelf || caps.isHigherLevel || caps.isSameLevel
+          ? undefined
+          : Array.from(permSelected);
+
       let tenantIds;
-      if (payload.company_ids?.length) {
-        tenantIds = payload.company_ids
-          .map((id) => Number(id))
-          .filter((id) => Number.isFinite(id) && id > 0);
-      } else if (useDualTenantUserPicker) {
-        tenantIds = resolveAdminCreateTenantIds({
+      if (!fieldLocks.company) {
+        tenantIds = resolveAdminTenantIds({
           useDualTenantUserPicker,
           selectedGroupIds,
           selectedCompanyIds,
@@ -2287,23 +2389,32 @@ export default function UserListPage() {
           companyId,
           mutationScopeCompanyId,
         });
+        if (!tenantIds.length) {
+          notify(t("companyNoneSelected"), "danger");
+          return;
+        }
       }
 
       const updateRequest = buildAdminUpdateRequest({
         id: Number(form.id),
         tenantAccessId: editingRow?.tenantAccess?.id ?? null,
         scopeTenantId,
-        name: payload.name,
-        email: payload.email,
-        password: payload.password,
+        name: form.name.trim(),
+        email: emailCheck.normalized,
+        password: form.password.trim() || undefined,
         secondaryPassword: payload.secondary_password,
         role: payload.role,
         status: payload.status,
-        readOnly: payload.read_only != null ? !!Number(payload.read_only) : undefined,
-        permissions: payload.permissions,
+        readOnly:
+          roleForReadOnly &&
+          roleHasReadOnlyToggle(roleForReadOnly) &&
+          canInteractWithReadOnlyToggle(currentUserRole, roleForReadOnly)
+            ? form.read_only
+            : undefined,
+        permissions: permissionsForUpdate,
         tenantIds: tenantIds?.length ? tenantIds : undefined,
-        accountPermissions: payload.account_permissions,
-        processPermissions: shouldSendProcessPermissions ? payload.process_permissions : undefined,
+        accountPermissions: accountPerms,
+        processPermissions: shouldSendProcessPermissions ? processPerms : undefined,
       });
 
       const updated = await updateAdminUser(updateRequest);
@@ -2610,7 +2721,7 @@ export default function UserListPage() {
                     <div className="card-item">{rowLoginId(r)}</div>
                     <div className="card-item">{r.name}</div>
                     <div className="card-item">{r.email || "-"}</div>
-                    <div className="card-item"><span className={`role-badge ${roleBadgeClass(r.role)}`}>{String(r.role || "").toUpperCase()}</span></div>
+                    <div className="card-item"><span className={`role-badge ${roleBadgeClass(r.role)}`}>{formatRoleLabel(r.role)}</span></div>
                     <div className="card-item"><span className={`role-badge ${normRole(r.status) === "active" ? "status-active" : "status-inactive"} ${caps.canToggleStatus && !userMutationsBlocked ? "status-clickable" : ""}`} onClick={() => !userMutationsBlocked && caps.canToggleStatus && toggleUserStatus(r)}>{String(r.status || "").toUpperCase()}</span></div>
                     <div className="card-item">{formatLastLogin(rowLastLogin(r))}</div>
                     <div className="card-item">{String(rowCreatedBy(r) || "-").toUpperCase()}</div>

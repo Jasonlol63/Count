@@ -28,4 +28,9 @@ public interface AdminDao {
     int countEmailExceptUser(@Param("email") String email, @Param("userId") int userId);
 
     void deleteAdminTenantAccessByUserIdAndTenantId(@Param("userId") int userId, @Param("tenantId") int tenantId);
+
+    void updateStatusByAdminId(@Param("userId") int userId, @Param("status") Admin.UserStatus status);
+
+    int deleteAdminByIdAndStatus(@Param("userId") int userId, @Param("status") Admin.UserStatus status);
 }
+

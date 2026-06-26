@@ -102,8 +102,63 @@ export async function fetchAdminListByTenantId(tenantId, signal) {
   return Array.isArray(json.data) ? json.data.map(normalizeAdminListItem) : [];
 }
 
-/** Resolve tenant.id list for Spring create — company.id in picker === tenant.id. */
-export function resolveAdminCreateTenantIds({
+/** Map Spring edit-modal detail JSON. */
+export function normalizeAdminDetail(data) {
+  if (!data || typeof data !== "object") return null;
+  const tenantIds = Array.isArray(data.tenantIds ?? data.tenant_ids)
+    ? (data.tenantIds ?? data.tenant_ids).map(Number).filter((id) => Number.isFinite(id) && id > 0)
+    : [];
+  const readOnlyRaw = data.readOnly ?? data.read_only;
+  return {
+    id: data.id,
+    loginId: data.loginId ?? data.login_id ?? "",
+    name: data.name ?? "",
+    email: data.email ?? "",
+    role: data.role ?? "",
+    permissions: data.permissions ?? null,
+    status: data.status ?? "",
+    readOnly: readOnlyRaw != null ? !!readOnlyRaw : true,
+    read_only: readOnlyRaw != null ? (readOnlyRaw ? 1 : 0) : 1,
+    tenantAccessId: data.tenantAccessId ?? data.tenant_access_id ?? null,
+    scopeTenantId: data.scopeTenantId ?? data.scope_tenant_id ?? null,
+    accountPermissions: data.accountPermissions ?? data.account_permissions ?? null,
+    processPermissions: data.processPermissions ?? data.process_permissions ?? null,
+    account_permissions: data.accountPermissions ?? data.account_permissions ?? null,
+    process_permissions: data.processPermissions ?? data.process_permissions ?? null,
+    tenantIds,
+  };
+}
+
+/**
+ * POST /api/userlist/get?user_id=&scope_tenant_id=
+ * @returns {Promise<object|null>}
+ */
+export async function fetchAdminDetailByUserId(userId, scopeTenantId, signal) {
+  const uid = Number(userId);
+  const tid = Number(scopeTenantId);
+  if (!Number.isFinite(uid) || uid <= 0 || !Number.isFinite(tid) || tid <= 0) {
+    throw new Error("tenantIdRequired");
+  }
+
+  const res = await fetch(
+    buildApiUrl(
+      `api/userlist/get?user_id=${encodeURIComponent(uid)}&scope_tenant_id=${encodeURIComponent(tid)}`,
+    ),
+    {
+      method: "POST",
+      credentials: "include",
+      signal,
+    },
+  );
+  const json = await res.json();
+  if (!res.ok || !json.success || !json.data) {
+    throw new Error(json?.message || "failedToLoadUser");
+  }
+  return normalizeAdminDetail(json.data);
+}
+
+/** Resolve tenant.id list for Spring create/update — picker row id === tenant.id. */
+export function resolveAdminTenantIds({
   useDualTenantUserPicker = false,
   selectedGroupIds = [],
   selectedCompanyIds = [],
@@ -138,6 +193,11 @@ export function resolveAdminCreateTenantIds({
 
   const fallback = companyId != null ? Number(companyId) : Number.NaN;
   return Number.isFinite(fallback) && fallback > 0 ? [fallback] : [];
+}
+
+/** @deprecated Use {@link resolveAdminTenantIds}. */
+export function resolveAdminCreateTenantIds(params) {
+  return resolveAdminTenantIds(params);
 }
 
 /** Build Spring {@link AdminRequest} body for POST /api/userlist/add. */
@@ -245,4 +305,52 @@ export async function updateAdminUser(request, signal) {
     throw new Error(json?.message || "saveFailed");
   }
   return normalizeAdminListItem(json.data);
+}
+
+/**
+ * POST /api/userlist/updateStatus
+ * @returns {Promise<object>} normalized list row
+ */
+export async function toggleAdminUserStatus({ id, scopeTenantId }, signal) {
+  const userId = Number(id);
+  const tenantId = Number(scopeTenantId);
+  if (!Number.isFinite(userId) || userId <= 0 || !Number.isFinite(tenantId) || tenantId <= 0) {
+    throw new Error("invalidRequest");
+  }
+
+  const res = await fetch(buildApiUrl("api/userlist/updateStatus"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ id: userId, scopeTenantId: tenantId }),
+    signal,
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json?.message || "toggleFailed");
+  }
+  return normalizeAdminListItem(json.data);
+}
+
+/**
+ * POST /api/userlist/delete
+ */
+export async function deleteAdminUser({ id, scopeTenantId }, signal) {
+  const userId = Number(id);
+  const tenantId = Number(scopeTenantId);
+  if (!Number.isFinite(userId) || userId <= 0 || !Number.isFinite(tenantId) || tenantId <= 0) {
+    throw new Error("invalidRequest");
+  }
+
+  const res = await fetch(buildApiUrl("api/userlist/delete"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ id: userId, scopeTenantId: tenantId }),
+    signal,
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json?.message || "apiDeleteUserFailed");
+  }
 }
