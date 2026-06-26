@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.CurrencyDao">
+    <resultMap id="CurrencyMap" type="com.eazycount.entity.Currency">
+        <id column="id" property="id"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="code" property="code"/>
+        <result column="sync_source" property="syncSource"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createAt"/>
+        <result column="updated_at" property="updateAt"/>
+    </resultMap>
+
+    <select id="findCurrencyByTenantId" resultMap="CurrencyMap">
+        select * from currency
+        where tenant_id = #{tenantId}
+    </select>
+
+    <select id="findByIdAndTenantId" resultMap="CurrencyMap">
+        SELECT id, tenant_id, code, sync_source, status, created_at, updated_at
+        FROM currency
+        WHERE id = #{id}
+        AND tenant_id = #{tenantId}
+        LIMIT 1
+    </select>
+
+    <select id="findDuplicateByTenantIDAndCode" resultType="int">
+        SELECT COUNT(*)
+        FROM currency
+        WHERE tenant_id = #{tenantId}
+        AND UPPER(TRIM(code)) = UPPER(TRIM(#{code}))
+    </select>
+
+    <insert id="addNewCurrency" useGeneratedKeys="true" keyProperty="id">
+        insert into currency (tenant_id, code, sync_source, status, created_at, updated_at)
+        values (#{tenantId}, #{code}, #{syncSource}, #{status}, NOW(), NOW())
+    </insert>
+
+    <delete id="deleteCurrencyByIdAndTenantId">
+        delete from currency
+        where id = #{id}
+        AND tenant_id = #{tenantId}
+    </delete>
+
+</mapper>

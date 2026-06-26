@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildApiUrl } from "../../../utils/core/apiUrl.js";
+import { fetchAvailableCurrencies } from "../../../utils/api/currencyApi.js";
 import { fetchSummaryFormCatalog } from "../lib/summaryApi.js";
 import {
   addSelectedDescriptionToForm,
@@ -24,7 +25,6 @@ import {
 import { pushSummaryNotification } from "../lib/summaryNotify.js";
 import { removeSuppressedRow } from "../lib/summarySuppressedRows.js";
 import {
-  applyTenantLedgerToParams,
   LEDGER_GROUP,
   resolvePageLedgerScope,
 } from "../../../utils/company/tenantLedgerParams.js";
@@ -78,18 +78,21 @@ function pickDefaultAccountCurrency(list, preferredCurrencyId = null) {
 
 async function fetchAccountCurrencies(accountId, captureScope, companyId) {
   if (!accountId) return [];
-  const params = new URLSearchParams({ action: "get_available_currencies" });
-  params.set("account_id", String(accountId));
-  applyTenantLedgerToParams(params, resolveEditFormulaLedgerScope(captureScope, companyId));
-  const response = await fetch(
-    buildApiUrl(`api/accounts/account_currency_api.php?${params.toString()}`),
-    { credentials: "include" }
-  );
-  const json = await response.json();
-  if (json.success && Array.isArray(json.data)) {
-    return json.data.map(normalizeAccountCurrencyRow);
+  const ledgerScope = resolveEditFormulaLedgerScope(captureScope, companyId);
+  try {
+    const rows = await fetchAvailableCurrencies({
+      ledgerScope,
+      companyId,
+      anchorCompanyId:
+        ledgerScope.ledger === LEDGER_GROUP
+          ? captureScope?.scopeCompanyId ?? companyId
+          : null,
+      accountId,
+    });
+    return rows.map(normalizeAccountCurrencyRow);
+  } catch {
+    return [];
   }
-  return [];
 }
 
 /**
