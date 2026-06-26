@@ -1,4 +1,133 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.eazycount.dao.XXXX">
+<mapper namespace="com.eazycount.dao.UserDao">
+    <!-- Flat list row: account + tenant access join → UserListDTO -->
+    <resultMap id="UserListDTOMap" type="com.eazycount.dto.UserListDTO">
+        <id property="id" column="accountPkId" jdbcType="INTEGER"/>
+        <result property="tenantAccessId" column="tenantAccessId" jdbcType="BIGINT"/>
+        <result property="scopeTenantId" column="scopeTenantId" jdbcType="INTEGER"/>
+        <result property="accountId" column="accountLoginId" jdbcType="VARCHAR"/>
+        <result property="name" column="accountName" jdbcType="VARCHAR"/>
+        <result property="password" column="accountPassword" jdbcType="VARCHAR"/>
+        <result property="role" column="accountRole" jdbcType="VARCHAR"/>
+        <result property="status" column="accountStatus" jdbcType="VARCHAR"
+                typeHandler="com.eazycount.config.mybatis.AccountStatusTypeHandler"/>
+        <result property="createdSource" column="accountCreatedSource" jdbcType="VARCHAR"/>
+        <result property="paymentAlert" column="accountPaymentAlert" jdbcType="TINYINT"/>
+        <result property="alertDay" column="accountAlertDay" jdbcType="VARCHAR"/>
+        <result property="alertAmount" column="accountAlertAmount" jdbcType="DECIMAL"/>
+        <result property="alertSpecificDate" column="accountAlertSpecificDate" jdbcType="DATE"/>
+        <result property="remark" column="accountRemark" jdbcType="LONGVARCHAR"/>
+    </resultMap>
+
+    <select id="findUserByTenantId" resultMap="UserListDTOMap">
+        SELECT
+        a.id                    AS accountPkId,
+        a.account_id            AS accountLoginId,
+        a.name                  AS accountName,
+        a.password              AS accountPassword,
+        a.role                  AS accountRole,
+        a.created_source        AS accountCreatedSource,
+        a.status                AS accountStatus,
+        a.payment_alert         AS accountPaymentAlert,
+        a.alert_day             AS accountAlertDay,
+        a.alert_amount          AS accountAlertAmount,
+        a.alert_specific_date   AS accountAlertSpecificDate,
+        a.remark                AS accountRemark,
+        ata.id                  AS tenantAccessId,
+        ata.tenant_id           AS scopeTenantId
+        FROM account a
+        INNER JOIN account_tenant_access ata ON ata.account_id = a.id
+        WHERE ata.tenant_id = #{tenantId}
+        ORDER BY a.account_id ASC
+    </select>
+
+    <select id="findUserByAccIdAndTenantId" resultMap="UserListDTOMap">
+        SELECT
+        a.id                    AS accountPkId,
+        a.account_id            AS accountLoginId,
+        a.name                  AS accountName,
+        a.password              AS accountPassword,
+        a.role                  AS accountRole,
+        a.created_source        AS accountCreatedSource,
+        a.status                AS accountStatus,
+        a.payment_alert         AS accountPaymentAlert,
+        a.alert_day             AS accountAlertDay,
+        a.alert_amount          AS accountAlertAmount,
+        a.alert_specific_date   AS accountAlertSpecificDate,
+        a.remark                AS accountRemark,
+        ata.id                  AS tenantAccessId,
+        ata.tenant_id           AS scopeTenantId
+        FROM account a
+        INNER JOIN account_tenant_access ata ON ata.account_id = a.id
+        WHERE a.id = #{account_id}
+          AND ata.tenant_id = #{tenantId}
+        LIMIT 1
+    </select>
+
+    <select id="findTenantIdsByUserId" resultType="int">
+        SELECT tenant_id
+        FROM account_tenant_access
+        WHERE account_id = #{id}
+    </select>
+
+    <insert id="addUserDetails" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO account (
+            account_id, name, role, password, status, created_source,
+            payment_alert, alert_day, alert_amount, alert_specific_date, remark, created_at
+        )
+        VALUES (
+            #{accountId},
+            #{name},
+            #{role},
+            #{password},
+            #{status},
+            #{createdSource},
+            #{paymentAlert},
+            #{alertDay},
+            #{alertAmount},
+            #{alertSpecificDate},
+            #{remark},
+            NOW()
+        )
+    </insert>
+
+    <insert id="insertAccountTenantAccess" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO account_tenant_access (account_id, tenant_id)
+        VALUES (#{accountId}, #{tenantId})
+    </insert>
+
+    <update id="updateUserDetails">
+        UPDATE account
+        SET account_id = #{accountId},
+            name = #{name},
+            role = #{role},
+            password = #{password},
+            payment_alert = #{paymentAlert},
+            alert_day = #{alertDay},
+            alert_amount = #{alertAmount},
+            alert_specific_date = #{alertSpecificDate},
+            remark = #{remark}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateAccountTenantAccess">
+        UPDATE account_tenant_access
+        SET account_id = #{accountId},
+            tenant_id = #{tenantId}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteUserByIdAndStatus">
+        DELETE FROM account
+        WHERE id = #{id}
+          AND status = #{status}
+    </delete>
+
+    <delete id="deleteUserTenantAccessByIdAndTenantId">
+        DELETE FROM account_tenant_access
+        WHERE id = #{id}
+          AND tenant_id = #{tenantId}
+    </delete>
+
 </mapper>

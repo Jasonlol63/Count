@@ -1,6 +1,8 @@
 package com.eazycount.entity;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Date;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -33,6 +35,16 @@ public class User {
     private AccountStatus status;
 
     private String createdSource;
+
+    private Integer paymentAlert;
+
+    private String alertDay;
+
+    private BigDecimal alertAmount;
+
+    private Date alertSpecificDate;
+
+    private String remark;
 
     private LocalDateTime lastLogin;
 
