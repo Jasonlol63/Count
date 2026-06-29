@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class CurrencyServiceImpl implements CurrencyService {
@@ -121,14 +122,27 @@ public class CurrencyServiceImpl implements CurrencyService {
         }
 
         Currency currency = currencyDao.findByIdAndTenantId(id, tenantId);
-        if(currency == null){
+        if (currency == null) {
             throw new BusinessException("Currency not found or access denied");
         }
 
-        try{
-            currencyDao.deleteCurrencyByIdAndTenantId(id, tenantId);
-        }catch (Exception e){
-            throw new BusinessException("Delete Currency Failed!");
+        List<UserLinkedDTO> accountsInUse = currencyDao.findLinkedAccountsByCurrencyIdAndTenantId(id, tenantId);
+        if (accountsInUse != null && !accountsInUse.isEmpty()) {
+            String labels = accountsInUse.stream()
+                    .map(a -> {
+                        String name = a.getName() != null ? a.getName().trim() : "";
+                        String code = a.getAccountId() != null ? a.getAccountId().trim() : "";
+                        if (!name.isEmpty() && !code.isEmpty()) return name + " (" + code + ")";
+                        return !name.isEmpty() ? name : code;
+                    })
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.joining(", "));
+
+            try {
+                currencyDao.deleteCurrencyByIdAndTenantId(id, tenantId);
+            } catch (Exception e) {
+                throw new BusinessException("Delete Currency Failed!");
+            }
         }
     }
 
