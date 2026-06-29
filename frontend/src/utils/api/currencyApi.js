@@ -37,12 +37,22 @@ function normalizeSyncSource(raw) {
 /** Map Spring currency JSON → UI row shape used across account modals. */
 export function normalizeCurrencyRow(raw, { isLinked = false } = {}) {
   const syncSource = normalizeSyncSource(raw);
+  const linked =
+    raw?.is_linked != null
+      ? !!raw.is_linked
+      : raw?.isLinked != null
+        ? !!raw.isLinked
+        : raw?.linked != null
+          ? !!raw.linked
+          : !!isLinked;
+  const deletable =
+    raw?.deletable != null ? !!raw.deletable : syncSource !== "subsidiary";
   return {
     id: Number(raw?.id),
     code: String(raw?.code ?? ""),
-    is_linked: !!isLinked,
+    is_linked: linked,
     sync_source: syncSource,
-    deletable: syncSource !== "subsidiary",
+    deletable,
   };
 }
 
@@ -76,30 +86,34 @@ export async function fetchCurrencyListByTenantId(tenantId, signal) {
   return Array.isArray(json.data) ? json.data : [];
 }
 
-/** Legacy PHP helper — linked flags when editing an existing account. */
-async function fetchLinkedCurrencyIdSet(accountId, ledgerScope, signal) {
+/**
+ * POST /api/currency/available?tenant_id=&account_id=
+ * @returns {Promise<object[]>} raw Spring rows with is_linked
+ */
+async function fetchAvailableCurrenciesFromSpring(tenantId, accountId, signal) {
+  const params = new URLSearchParams({ tenant_id: String(tenantId) });
   const aid = Number(accountId);
-  if (!Number.isFinite(aid) || aid <= 0) return new Set();
-
-  const params = new URLSearchParams({
-    action: "get_available_currencies",
-    account_id: String(aid),
-  });
-  if (ledgerScope) applyTenantLedgerToParams(params, ledgerScope);
+  if (Number.isFinite(aid) && aid > 0) {
+    params.set("account_id", String(aid));
+  }
 
   const { res, json } = await parseJsonResponse(
-    await fetch(buildApiUrl(`api/accounts/account_currency_api.php?${params.toString()}`), {
+    await fetch(buildApiUrl(`api/currency/available?${params}`), {
+      method: "POST",
       credentials: "include",
       signal,
     }),
   );
 
-  if (!res.ok || !json.success || !Array.isArray(json.data)) return new Set();
-  return new Set(json.data.filter((c) => c.is_linked).map((c) => Number(c.id)));
+  if (!res.ok || !json.success) {
+    throw new Error(json?.message || "failedToLoadCurrencies");
+  }
+
+  return Array.isArray(json.data) ? json.data : [];
 }
 
 /**
- * Tenant currencies for account modals (Spring list + optional PHP is_linked merge).
+ * Tenant currencies for account modals (Spring `/api/currency/available`).
  * @returns {Promise<object[]>}
  */
 export async function fetchAvailableCurrencies(
@@ -127,14 +141,112 @@ export async function fetchAvailableCurrencies(
     throw new Error("tenantIdRequired");
   }
 
-  const [rows, linkedIds] = await Promise.all([
-    fetchCurrencyListByTenantId(tid, signal),
-    fetchLinkedCurrencyIdSet(accountId, ledgerScope, signal),
-  ]);
+  const rows = await fetchAvailableCurrenciesFromSpring(tid, accountId, signal);
 
   return rows
-    .map((row) => normalizeCurrencyRow(row, { isLinked: linkedIds.has(Number(row.id)) }))
+    .map((row) => normalizeCurrencyRow(row))
     .filter((row) => Number.isFinite(row.id) && row.id > 0);
+}
+
+function normalizeLinkedAccountRow(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const id = Number(raw.id);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  return {
+    id,
+    name: String(raw.name ?? ""),
+    account_id: String(raw.account_id ?? raw.accountId ?? ""),
+  };
+}
+
+/**
+ * POST /api/currency/account/linked-accounts?currency_id=&tenant_id=
+ * @returns {Promise<{ linkedAccountIds: number[], linkedAccounts: object[] }>}
+ */
+export async function fetchLinkedAccountsByCurrency(
+  { currencyId, tenantId },
+  signal,
+) {
+  const cid = Number(currencyId);
+  const tid = Number(tenantId);
+  if (!Number.isFinite(cid) || cid <= 0 || !Number.isFinite(tid) || tid <= 0) {
+    throw new Error("invalidRequest");
+  }
+
+  const params = new URLSearchParams({
+    currency_id: String(cid),
+    tenant_id: String(tid),
+  });
+
+  const { res, json } = await parseJsonResponse(
+    await fetch(buildApiUrl(`api/currency/account/linked-accounts?${params}`), {
+      method: "POST",
+      credentials: "include",
+      signal,
+    }),
+  );
+
+  if (!res.ok || !json.success) {
+    throw new Error(json?.message || "failedToLoadLinkedAccounts");
+  }
+
+  const linkedAccountIds = (json.data?.linked_account_ids || [])
+    .map(Number)
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  const linkedAccounts = (Array.isArray(json.data?.linked_accounts) ? json.data.linked_accounts : [])
+    .map(normalizeLinkedAccountRow)
+    .filter(Boolean);
+
+  return { linkedAccountIds, linkedAccounts };
+}
+
+/**
+ * POST /api/currency/account/linked-accounts-update
+ * Currency Setting bulk link / unlink accounts for one currency.
+ */
+export async function bulkUpdateAccountCurrency(
+  {
+    tenantId,
+    currencyId,
+    linkedAccountIds = [],
+    unlinkedAccountIds = [],
+  },
+  signal,
+) {
+  const tid = Number(tenantId);
+  const cid = Number(currencyId);
+  if (!Number.isFinite(tid) || tid <= 0 || !Number.isFinite(cid) || cid <= 0) {
+    throw new Error("invalidRequest");
+  }
+
+  const linked = (Array.isArray(linkedAccountIds) ? linkedAccountIds : [])
+    .map(Number)
+    .filter((id) => Number.isFinite(id) && id > 0);
+  const unlinked = (Array.isArray(unlinkedAccountIds) ? unlinkedAccountIds : [])
+    .map(Number)
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  const { res, json } = await parseJsonResponse(
+    await fetch(buildApiUrl("api/currency/account/linked-accounts-update"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        tenantId: tid,
+        currencyId: cid,
+        linked_account_ids: linked,
+        unlinked_account_ids: unlinked,
+      }),
+      signal,
+    }),
+  );
+
+  if (!res.ok || !json.success) {
+    throw new Error(json?.message || "saveFailed");
+  }
+
+  return json;
 }
 
 /**

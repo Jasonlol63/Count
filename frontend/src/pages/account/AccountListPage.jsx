@@ -59,6 +59,8 @@ import {
   createCurrency as createTenantCurrency,
   deleteCurrency as deleteTenantCurrency,
   fetchAvailableCurrencies,
+  fetchLinkedAccountsByCurrency,
+  bulkUpdateAccountCurrency,
 } from "../../utils/api/currencyApi.js";
 import "../../../public/css/account-list.css";
 import "../../../public/css/accountCSS.css";
@@ -1960,28 +1962,12 @@ export default function AccountListPage() {
   const loadSelectionMeta = async (
     id,
     isEdit,
-    { selectCode = null, ledgerScope = undefined, forcePageLedgerScope = false } = {},
+    { selectCode = null } = {},
   ) => {
-    const scopeForRequest = forcePageLedgerScope
-      ? undefined
-      : ledgerScope !== undefined
-        ? ledgerScope
-        : modalLedgerScopeRef.current ?? modalLedgerScope;
     try {
-      const modalScope =
-        scopeForRequest !== undefined
-          ? resolveModalLedgerScope(pageLedgerScope, scopeForRequest)
-          : forcePageLedgerScope
-            ? pageLedgerScope
-            : resolveModalLedgerScope(
-                pageLedgerScope,
-                modalLedgerScopeRef.current ?? modalLedgerScope,
-              );
       const [curRows] = await Promise.all([
         fetchAvailableCurrencies({
-          ledgerScope: modalScope,
-          companyId,
-          anchorCompanyId: activeScopeTenantId,
+          tenantId: activeScopeTenantId,
           accountId: id || null,
         }),
       ]);
@@ -2042,7 +2028,7 @@ export default function AccountListPage() {
     if (!hasAccountMutationScope) return;
     syncModalLedgerScope(null);
     setCurrencySettingOpen(true);
-    void loadSelectionMeta(null, false, { forcePageLedgerScope: true });
+    void loadSelectionMeta(null, false);
     if (settingCurrencyId) void loadCurrencyLinks(settingCurrencyId);
   };
 
@@ -2088,6 +2074,7 @@ export default function AccountListPage() {
       { groupOnly: groupOnlyAccountMode },
     );
     setEditModalOpen(true);
+    void loadSelectionMeta(id, true);
   };
 
   const confirmDelete = async () => {
@@ -2124,40 +2111,13 @@ export default function AccountListPage() {
       if (!scopeTenantId) return notify(t("saveFailed"), "danger");
       const formPayload = { ...form, alert_amount: amount };
       const request = isEditMode
-        ? buildAccountUpdateRequest(formPayload, scopeTenantId)
-        : buildAccountCreateRequest(formPayload, scopeTenantId);
-      const savedRow = isEditMode
-        ? await updateAccountUser(request)
-        : await createAccountUser(request);
-      let postSaveCurrencyError = null;
-      if (!isEditMode && savedRow?.id && selectedCurrencyIds.length) {
-        for (const cid of selectedCurrencyIds) {
-          const currencyRes = await fetch(accountCurrencyApiUrl("add_currency"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ account_id: Number(savedRow.id), currency_id: Number(cid) }),
-            credentials: "include",
-          });
-          const currencyJson = await currencyRes.json();
-          if (!currencyRes.ok || !currencyJson.success) {
-            postSaveCurrencyError = String(currencyJson?.message || "");
-            break;
-          }
-        }
-      }
+        ? buildAccountUpdateRequest(formPayload, scopeTenantId, selectedCurrencyIds)
+        : buildAccountCreateRequest(formPayload, scopeTenantId, selectedCurrencyIds);
+      await (isEditMode ? updateAccountUser(request) : createAccountUser(request));
       setAddModalOpen(false);
       setEditModalOpen(false);
       setHiddenCurrencyIds([]);
-      if (postSaveCurrencyError) {
-        notify(
-          t("accountSavedCurrencySyncFailed", {
-            detail: translateAccountApiMessage(lang, postSaveCurrencyError, "saveFailed"),
-          }),
-          "danger",
-        );
-      } else {
-        notify(t("accountSavedSuccessfully"));
-      }
+      notify(t("accountSavedSuccessfully"));
       refreshAccountList();
     } catch (e) {
       notify(translateAccountApiMessage(lang, e?.message, "saveFailed"), "danger");
@@ -2196,8 +2156,6 @@ export default function AccountListPage() {
       if (/already exists|duplicate/i.test(msg)) {
         await loadSelectionMeta(isEditMode && form.id ? form.id : null, isEditMode, {
           selectCode: code,
-          ledgerScope: currencySettingOpen ? undefined : modalLedgerScopeRef.current ?? modalLedgerScope,
-          forcePageLedgerScope: currencySettingOpen,
         });
         setCurrencyInput("");
         return;
@@ -2218,26 +2176,12 @@ export default function AccountListPage() {
 
   const fetchAccountsUsingCurrency = async (currencyId) => {
     try {
-      const params = new URLSearchParams({
-        action: "get_linked_accounts_by_currency",
-        currency_id: String(currencyId),
+      const { linkedAccounts, linkedAccountIds } = await fetchLinkedAccountsByCurrency({
+        currencyId,
+        tenantId: activeScopeTenantId,
       });
-      appendModalCurrencyScopeParams(params);
-      const res = await fetch(
-        buildApiUrl(`api/accounts/bulk_account_currency_api.php?${params.toString()}`),
-        { method: "POST", credentials: "include" },
-      );
-      const json = await res.json();
-      if (!json.success) return [];
-      const fromApi = Array.isArray(json.data?.linked_accounts) ? json.data.linked_accounts : [];
-      if (fromApi.length > 0) {
-        return fromApi.map((a) => ({
-          id: Number(a.id),
-          name: String(a.name ?? ""),
-          account_id: String(a.account_id ?? ""),
-        }));
-      }
-      const linkedIds = new Set((json.data?.linked_account_ids || []).map(Number));
+      if (linkedAccounts.length > 0) return linkedAccounts;
+      const linkedIds = new Set(linkedAccountIds);
       return accountsRaw
         .filter((a) => linkedIds.has(Number(a.id)))
         .map((a) => ({
@@ -2406,13 +2350,16 @@ export default function AccountListPage() {
 
   const loadCurrencyLinks = async (curId) => {
     try {
-      const params = new URLSearchParams({ action: "get_linked_accounts_by_currency", currency_id: String(curId) });
-      appendCurrencyScopeParams(params);
-      const res = await fetch(buildApiUrl(`api/accounts/bulk_account_currency_api.php?${params.toString()}`), { method: "POST", credentials: "include" });
-      const json = await res.json();
-      const ids = new Set((json.data?.linked_account_ids || []).map(Number));
-      setSettingLinked(ids); setSettingInitial(new Set(ids));
-    } catch { notify(t("loadLinksFailed"), "danger"); }
+      const { linkedAccountIds } = await fetchLinkedAccountsByCurrency({
+        currencyId: curId,
+        tenantId: activeScopeTenantId,
+      });
+      const ids = new Set(linkedAccountIds);
+      setSettingLinked(ids);
+      setSettingInitial(new Set(ids));
+    } catch {
+      notify(t("loadLinksFailed"), "danger");
+    }
   };
 
   const saveCurrencySetting = async () => {
@@ -2426,11 +2373,12 @@ export default function AccountListPage() {
       if (now && !was) linked.push(id); if (!now && was) unlinked.push(id);
     });
     try {
-      const params = new URLSearchParams({ action: "bulk_update" });
-      appendCurrencyScopeParams(params);
-      const res = await fetch(buildApiUrl(`api/accounts/bulk_account_currency_api.php?${params.toString()}`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currency_id: settingCurrencyId, linked_account_ids: linked, unlinked_account_ids: unlinked }), credentials: "include" });
-      const json = await res.json();
-      if (!res.ok || !json.success) return notifyApi(json.message, "saveFailed", "danger");
+      await bulkUpdateAccountCurrency({
+        tenantId: activeScopeTenantId,
+        currencyId: settingCurrencyId,
+        linkedAccountIds: linked,
+        unlinkedAccountIds: unlinked,
+      });
       setSettingInitial(new Set(settingLinked));
       setCurrencySettingOpen(false);
       notify(t("currencySettingsSaved"));

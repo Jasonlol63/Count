@@ -1,5 +1,7 @@
 package com.eazycount.controller;
 
+import com.eazycount.dto.UserCurrencyDTO;
+import com.eazycount.dto.UserLinkedDTO;
 import com.eazycount.entity.Currency;
 import com.eazycount.service.CurrencyService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,6 +66,61 @@ public class CurrencyController {
             body.put("data", null);
             return ResponseEntity.ok(body);
 
+        } catch (com.eazycount.common.BusinessException e) {
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", false);
+            body.put("message", e.getMessage());
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        }
+    }
+
+    @PostMapping ("/available")
+    public ResponseEntity<Map<String, Object>> accountCurrency(@RequestParam("tenant_id") Integer tenantId, @RequestParam(value = "account_id", required = false) Integer accountId) {
+        try{
+            final List<UserCurrencyDTO> data = currencyService.findAvailableCurrencies(tenantId, accountId);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Currency retrieved successfully",
+                    "data", data
+            ));
+        } catch (com.eazycount.common.BusinessException e) {
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", false);
+            body.put("message", e.getMessage());
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        }
+    }
+
+    @PostMapping("/account/linked-accounts")
+    public ResponseEntity<Map<String, Object>> linkedAccounts(@RequestParam("currency_id") Integer currencyId, @RequestParam("tenant_id") Integer tenantId) {
+        try {
+            final UserLinkedDTO data =
+                    currencyService.findLinkedAccountsByCurrencyIdAndTenantId(currencyId, tenantId);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Linked accounts retrieved successfully",
+                    "data", data
+            ));
+        } catch (com.eazycount.common.BusinessException e) {
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", false);
+            body.put("message", e.getMessage());
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        }
+    }
+
+    @PostMapping("/account/linked-accounts-update")
+    public ResponseEntity<Map<String, Object>> UpdateLinkedAccounts(@RequestBody UserLinkedDTO request) {
+        try {
+            currencyService.bulkUpdateAccountCurrency(request);
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "Currency settings saved");
+            body.put("data", null);
+            return ResponseEntity.ok(body);
         } catch (com.eazycount.common.BusinessException e) {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", false);

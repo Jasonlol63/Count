@@ -81,7 +81,20 @@ export async function fetchAccountListByTenantId(tenantId, signal) {
   return rows.map(normalizeAccountListItem).filter(Boolean);
 }
 
-export function buildAccountCreateRequest(form, scopeTenantId) {
+function normalizeAccountCurrencyIds(currencyIds) {
+  if (!Array.isArray(currencyIds)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of currencyIds) {
+    const id = Number(raw);
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+export function buildAccountCreateRequest(form, scopeTenantId, currencyIds = []) {
   return {
     accountId: String(form.account_id || "").trim(),
     name: String(form.name || "").trim(),
@@ -94,11 +107,12 @@ export function buildAccountCreateRequest(form, scopeTenantId) {
     alertAmount:
       form.alert_amount !== "" && form.alert_amount != null ? form.alert_amount : null,
     scopeTenantId: Number(scopeTenantId),
+    currencyIds: normalizeAccountCurrencyIds(currencyIds),
   };
 }
 
-export function buildAccountUpdateRequest(form, scopeTenantId) {
-  const body = buildAccountCreateRequest(form, scopeTenantId);
+export function buildAccountUpdateRequest(form, scopeTenantId, currencyIds = []) {
+  const body = buildAccountCreateRequest(form, scopeTenantId, currencyIds);
   body.id = Number(form.id);
   if (!form.password) delete body.password;
   return body;
