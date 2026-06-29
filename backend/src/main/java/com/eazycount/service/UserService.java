@@ -1,6 +1,5 @@
 package com.eazycount.service;
 
-import com.eazycount.dto.AdminRequest;
 import com.eazycount.dto.UserListDTO;
 
 import java.util.List;
@@ -9,11 +8,9 @@ import java.util.List;
 public interface UserService {
     List<UserListDTO> findUserByTenantId(Integer tenantId);
 
-    AdminRequest getUserDetails(Integer id, Integer scopeTenantId);
+    UserListDTO createUser(UserListDTO userListDTO);
 
-    UserListDTO createUser(UserRequest userRequest);
-
-    UserListDTO updateUser(UserRequest userRequest);
+    UserListDTO updateUser(UserListDTO userListDTO);
 
     UserListDTO updateStatusByUserId(Integer id, Integer scopeTenantId);
 

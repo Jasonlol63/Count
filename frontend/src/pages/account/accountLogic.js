@@ -2,7 +2,12 @@
 
 import { buildApiUrl } from "../../utils/core/apiUrl.js";
 import {
-  companiesForCompanyPicker,
+  fetchAccountListByTenantId,
+  filterAccountListRows,
+  resolveAccountListTenantId,
+} from "./accountListApi.js";
+import {
+  companiesInGroupList,
   DASHBOARD_GROUP_FILTER_OPT_OUT_KEY,
   dedupeOwnerCompaniesByCode,
   excludeGroupLabelsFromCompanyPicker,
@@ -70,13 +75,16 @@ export function getOrderedRoles(roles) {
   return [...out, ...Array.from(map.values()).sort((a, b) => a.localeCompare(b))];
 }
 
-/** Add/Edit Account modal：DB 未建 role 时仍展示的核心角色 */
-const ACCOUNT_MODAL_FALLBACK_ROLES = ["DEBTOR"];
+/** 账本账户角色（Add/Edit 弹窗固定列表，不依赖 editdata API） */
+export const ACCOUNT_LEDGER_ROLES = [...ROLE_PRIORITY];
 
-export function getAccountModalOrderedRoles(roles) {
-  const merged = [...(roles || [])];
-  ACCOUNT_MODAL_FALLBACK_ROLES.forEach((role) => {
-    if (!merged.some((r) => toUpper(r) === role)) merged.push(role);
+export function getAccountModalOrderedRoles(extraRoles = []) {
+  const merged = [...ACCOUNT_LEDGER_ROLES];
+  (extraRoles || []).forEach((r) => {
+    const t = String(r || "").trim();
+    if (t && !merged.some((x) => toUpper(x) === toUpper(t))) {
+      merged.push(t);
+    }
   });
   return getOrderedRoles(merged);
 }
@@ -100,15 +108,34 @@ export function buildAccountsFetchKey(companyId, searchTerm, showInactive, showA
   return `${companyId || ""}|${String(searchTerm || "").trim()}|${showInactive ? "1" : "0"}|${showAll ? "1" : "0"}`;
 }
 
-export function buildAccountsUrl(companyId, searchTerm, showInactive, showAll, { groupId = null } = {}) {
-  const url = new URL(buildApiUrl("api/accounts/accountlistapi.php"));
-  url.searchParams.set("company_id", String(companyId));
-  const gid = groupId ? String(groupId).trim().toUpperCase() : "";
-  if (gid) url.searchParams.set("group_id", gid);
-  if (String(searchTerm || "").trim()) url.searchParams.set("search", String(searchTerm || "").trim());
-  if (showInactive) url.searchParams.set("showInactive", "1");
-  if (showAll) url.searchParams.set("showAll", "1");
-  return url;
+/** Spring list URL (POST) — prefer {@link fetchAccountsForCompany}. */
+export function buildAccountsUrl(companyId) {
+  const tid = resolveAccountListTenantId(companyId);
+  return buildApiUrl(`api/account/list?tenant_id=${encodeURIComponent(tid ?? "")}`);
+}
+
+/** POST /api/account/list with client-side filters. */
+export async function fetchAccountsForCompany(
+  companyId,
+  { searchTerm = "", showInactive = false, showAll = false, signal, allStatuses = false } = {},
+) {
+  const tid = resolveAccountListTenantId(companyId);
+  if (!tid) {
+    return { success: false, message: "tenantIdRequired", data: { accounts: [] } };
+  }
+  try {
+    const rows = await fetchAccountListByTenantId(tid, signal);
+    const accounts = allStatuses
+      ? filterAccountListRows(rows, { searchTerm, applyStatusFilter: false })
+      : filterAccountListRows(rows, { searchTerm, showInactive, showAll });
+    return { success: true, data: { accounts } };
+  } catch (e) {
+    return {
+      success: false,
+      message: e?.message || "failedToLoadAccounts",
+      data: { accounts: [] },
+    };
+  }
 }
 
 export function buildGroupAccountsUrl(groupId, searchTerm, showInactive, showAll, { groupOnly = true } = {}) {
@@ -146,10 +173,7 @@ export async function fetchMergedAccounts({
   const tasks = [];
   for (const cid of companyIds) {
     tasks.push(
-      fetch(buildAccountsUrl(cid, searchTerm, showInactive, showAll).toString(), {
-        credentials: "include",
-        signal,
-      }).then((r) => r.json()),
+      fetchAccountsForCompany(cid, { searchTerm, showInactive, showAll, signal }),
     );
   }
   for (const gid of groupIds) {
@@ -201,13 +225,9 @@ export function resolveAccountListInlinePickerCompanies({
     return independentPicker();
   }
 
-  if (Array.isArray(companiesForPickerFromHook) && companiesForPickerFromHook.length > 0) {
-    return companiesForPickerFromHook;
-  }
-
   const effectiveGroup = String(selectedGroup).trim().toUpperCase();
   return dedupeOwnerCompaniesByCode(
-    companiesForCompanyPicker(companies, effectiveGroup, groupIds),
+    excludeGroupLabelsFromCompanyPicker(companiesInGroupList(companies, effectiveGroup), groupIds),
     preferredCompanyId,
   );
 }
@@ -232,15 +252,10 @@ export function shouldLoadAccountListData({
   return false;
 }
 
-/** Whether Add / list mutations have a resolvable company or group ledger scope. */
-export function accountListHasMutationScope(
-  scopeCompanyId,
-  { groupOnly = false, selectedGroup = null, canUseGroupLedger = false } = {},
-) {
-  const cid = scopeCompanyId != null ? Number(scopeCompanyId) : Number.NaN;
-  if (Number.isFinite(cid) && cid > 0) return true;
-  const gid = String(selectedGroup || "").trim().toUpperCase();
-  return Boolean(groupOnly && gid && canUseGroupLedger);
+/** Whether Spring account mutations have a tenant scope (company pill id === tenant.id). */
+export function accountListHasMutationScope(activeTenantId) {
+  const tid = activeTenantId != null ? Number(activeTenantId) : Number.NaN;
+  return Number.isFinite(tid) && tid > 0;
 }
 
 export function readAccountListGroupFilterOptOut() {
