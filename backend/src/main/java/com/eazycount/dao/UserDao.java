@@ -1,9 +1,6 @@
 package com.eazycount.dao;
 
-import com.eazycount.dto.AdminListDTO;
 import com.eazycount.dto.UserListDTO;
-import com.eazycount.entity.Admin;
-import com.eazycount.entity.AdminTenantAccess;
 import com.eazycount.entity.User;
 import com.eazycount.entity.UserTenantAccess;
 import org.apache.ibatis.annotations.Mapper;
@@ -16,7 +13,7 @@ public interface UserDao {
 
     List<UserListDTO> findUserByTenantId(int tenantId);
 
-    UserListDTO findUserByAccIdAndTenantId(@Param("account_id") int accountId, @Param("tenantId") int tenantId);
+    UserListDTO findUserByIdAndTenantId(@Param("id") int id, @Param("tenantId") int tenantId);
 
     List<Integer> findTenantIdsByUserId(@Param("id") int id);
 
@@ -28,10 +25,10 @@ public interface UserDao {
 
     void updateAccountTenantAccess(UserTenantAccess userTenantAccess);
 
-    int deleteUserByIdAndStatus(@Param("id") int id, @Param("status") Admin.UserStatus status);
+    void deleteUserByIdAndStatus(@Param("id") int id, @Param("status") User.AccountStatus status);
 
-    void deleteUserTenantAccessByIdAndTenantId(@Param("id") int id, @Param("tenantId") int tenantId);
+    void deleteUserTenantAccessByAccountIdAndTenantId(@Param("accountId") int accountId, @Param("tenantId") int tenantId);
 
-    void updateStatusByUserId(@Param("id") int id, @Param("status") Admin.UserStatus status);
+    void updateStatusByUserId(@Param("id") int id, @Param("status") User.AccountStatus status);
 
 }

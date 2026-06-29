@@ -10,8 +10,7 @@
         <result property="name" column="accountName" jdbcType="VARCHAR"/>
         <result property="password" column="accountPassword" jdbcType="VARCHAR"/>
         <result property="role" column="accountRole" jdbcType="VARCHAR"/>
-        <result property="status" column="accountStatus" jdbcType="VARCHAR"
-                typeHandler="com.eazycount.config.mybatis.AccountStatusTypeHandler"/>
+        <result property="status" column="accountStatus" jdbcType="VARCHAR"/>
         <result property="createdSource" column="accountCreatedSource" jdbcType="VARCHAR"/>
         <result property="paymentAlert" column="accountPaymentAlert" jdbcType="TINYINT"/>
         <result property="alertDay" column="accountAlertDay" jdbcType="VARCHAR"/>
@@ -42,7 +41,7 @@
         ORDER BY a.account_id ASC
     </select>
 
-    <select id="findUserByAccIdAndTenantId" resultMap="UserListDTOMap">
+    <select id="findUserByIdAndTenantId" resultMap="UserListDTOMap">
         SELECT
         a.id                    AS accountPkId,
         a.account_id            AS accountLoginId,
@@ -60,7 +59,7 @@
         ata.tenant_id           AS scopeTenantId
         FROM account a
         INNER JOIN account_tenant_access ata ON ata.account_id = a.id
-        WHERE a.id = #{account_id}
+        WHERE a.id = #{id}
           AND ata.tenant_id = #{tenantId}
         LIMIT 1
     </select>
@@ -99,8 +98,7 @@
 
     <update id="updateUserDetails">
         UPDATE account
-        SET account_id = #{accountId},
-            name = #{name},
+        SET name = #{name},
             role = #{role},
             password = #{password},
             payment_alert = #{paymentAlert},
@@ -114,8 +112,16 @@
     <update id="updateAccountTenantAccess">
         UPDATE account_tenant_access
         SET account_id = #{accountId},
-            tenant_id = #{tenantId}
-        WHERE id = #{id}
+            tenant_id = #{tenantId},
+            updated_at = NOW()
+        WHERE account_id = #{accountId}
+          AND tenant_id = #{tenantId}
+    </update>
+
+    <update id="updateStatusByUserId">
+        update account
+        set status = #{status}
+        where id = #{id}
     </update>
 
     <delete id="deleteUserByIdAndStatus">
@@ -124,9 +130,9 @@
           AND status = #{status}
     </delete>
 
-    <delete id="deleteUserTenantAccessByIdAndTenantId">
+    <delete id="deleteUserTenantAccessByAccountIdAndTenantId">
         DELETE FROM account_tenant_access
-        WHERE id = #{id}
+        WHERE account_id = #{accountId}
           AND tenant_id = #{tenantId}
     </delete>
 

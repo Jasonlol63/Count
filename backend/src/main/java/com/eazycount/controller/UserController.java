@@ -5,14 +5,14 @@ import com.eazycount.dto.UserListDTO;
 import com.eazycount.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+@RestController
+@RequestMapping("/api/account")
 public class UserController {
     @Autowired
     private UserService userService;
@@ -24,7 +24,7 @@ public class UserController {
             final List<UserListDTO> data = userService.findUserByTenantId(tenantId);
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "message", "Admin retrieved successfully",
+                    "message", "User retrieved successfully",
                     "data", data
             ));
         } catch (com.eazycount.common.BusinessException e) {
@@ -36,30 +36,11 @@ public class UserController {
         }
     }
 
-    @PostMapping("/get")
-    public ResponseEntity<Map<String, Object>> get(
-            @RequestParam("user_id") Integer userId,
-            @RequestParam("scope_tenant_id") Integer scopeTenantId) {
-        try {
-            final AdminRequest data = adminService.getAdminDetail(userId, scopeTenantId);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "User found",
-                    "data", data
-            ));
-        } catch (com.eazycount.common.BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
-        }
-    }
 
     @PostMapping("/add")
-    public ResponseEntity<Map<String, Object>> add(@RequestBody UserRequest userRequest) {
+    public ResponseEntity<Map<String, Object>> add(@RequestBody UserListDTO userListDTO) {
         try {
-            final UserListDTO data = userService.createUser(userRequest);
+            final UserListDTO data = userService.createUser(userListDTO);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "User created successfully",
@@ -75,9 +56,9 @@ public class UserController {
     }
 
     @PostMapping("/update")
-    public ResponseEntity<Map<String, Object>> update(@RequestBody UserRequest userRequest) {
+    public ResponseEntity<Map<String, Object>> update(@RequestBody UserListDTO userListDTO) {
         try {
-            final UserListDTO data = userService.updateUser(userRequest);
+            final UserListDTO data = userService.updateUser(userListDTO);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "User updated successfully",
@@ -93,9 +74,9 @@ public class UserController {
     }
 
     @PostMapping("/updateStatus")
-    public ResponseEntity<Map<String, Object>> updateStatus(@RequestBody UserRequest userRequest){
+    public ResponseEntity<Map<String, Object>> updateStatus(@RequestBody UserListDTO userListDTO){
         try {
-            final UserListDTO data = userService.updateStatusByUserId(userRequest.getId(), userRequest.getTenantId())
+            final UserListDTO data = userService.updateStatusByUserId(userListDTO.getId(), userListDTO.getScopeTenantId());
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "User Status updated successfully",
@@ -111,9 +92,9 @@ public class UserController {
     }
 
     @PostMapping("/delete")
-    public ResponseEntity<Map<String, Object>> delete(@RequestBody UserRequest userRequest) {
+    public ResponseEntity<Map<String, Object>> delete(@RequestBody UserListDTO userListDTO) {
         try {
-            userService.deleteUserByIdAndStatus(userRequest.getId(), userRequest.getScopeTenantId());
+            userService.deleteUserByIdAndStatus(userListDTO.getId(), userListDTO.getScopeTenantId());
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", true);
             body.put("message", "User deleted successfully");

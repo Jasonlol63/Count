@@ -36,6 +36,8 @@ export default defineConfig(({ mode }) => {
         "/auth": { target: springTarget, changeOrigin: true },
         "/api/announcement": { target: springTarget, changeOrigin: true },
         "/api/userlist": { target: springTarget, changeOrigin: true },
+        "/api/account": { target: springTarget, changeOrigin: true },
+        "/api/currency": { target: springTarget, changeOrigin: true },
         "/api": { target: phpTarget, changeOrigin: true },
         "/reset-password.php": { target: phpTarget, changeOrigin: true },
         "/js": { target: phpTarget, changeOrigin: true },

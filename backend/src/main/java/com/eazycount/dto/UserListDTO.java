@@ -18,6 +18,9 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UserListDTO {
+    private User user;
+    private UserTenantAccess userTenantAccess;
+
     private Integer id;              // user.id
     private Long tenantAccessId;     // user_tenant_access.id（从 list 的 tenantAccess.id 来）
     private Integer scopeTenantId;
@@ -25,6 +28,7 @@ public class UserListDTO {
     private String accountId;
     private String name;
     private String role;
+    private String password;
     private User.AccountStatus status;
     private String createdSource;
     private Integer paymentAlert;
