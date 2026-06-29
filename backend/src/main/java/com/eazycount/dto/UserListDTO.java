@@ -40,4 +40,5 @@ public class UserListDTO {
 
     /** tenant.id list (company.id in frontend picker) */
     private List<Integer> tenantIds;
+    private List<Integer> currencyIds;
 }

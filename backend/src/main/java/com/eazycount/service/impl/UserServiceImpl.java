@@ -1,12 +1,14 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
+import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.UserDao;
 import com.eazycount.dto.UserListDTO;
 import com.eazycount.entity.User;
 import com.eazycount.entity.UserTenantAccess;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
+import com.eazycount.service.CurrencyService;
 import com.eazycount.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -27,6 +29,9 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private UserDao userDao;
+
+    @Autowired
+    private CurrencyService currencyService;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -62,6 +67,11 @@ public class UserServiceImpl implements UserService {
         }
         if (userListDTO == null) {
             throw new BusinessException("Invalid request");
+        }
+
+        Integer tenantId = userListDTO.getScopeTenantId();
+        if (tenantId == null || tenantId <= 0) {
+            throw new BusinessException("Invalid tenant id");
         }
 
         User user = new User();
@@ -103,6 +113,12 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException("Create user tenant access failed!");
         }
 
+        currencyService.insertAccountCurrency(
+                user.getId(),
+                tenantId,
+                userListDTO.getCurrencyIds()
+        );
+
         userListDTO.setId(user.getId());
         userListDTO.setTenantAccessId(userTenantAccess.getId());
         userListDTO.setScopeTenantId(userListDTO.getScopeTenantId());
@@ -126,6 +142,11 @@ public class UserServiceImpl implements UserService {
         UserListDTO existing = userDao.findUserByIdAndTenantId(userListDTO.getId(), userListDTO.getScopeTenantId());
         if(existing == null){
             throw new BusinessException("User not found!");
+        }
+
+        Integer tenantId = userListDTO.getScopeTenantId();
+        if (tenantId == null || tenantId <= 0) {
+            throw new BusinessException("Invalid tenant id");
         }
 
         try {
@@ -160,6 +181,17 @@ public class UserServiceImpl implements UserService {
         if (updated == null) {
             throw new BusinessException("User not found after update!");
         }
+
+        currencyService.deleteByAccountIdAndTenantId(
+                userListDTO.getId(),
+                userListDTO.getScopeTenantId()
+        );
+        currencyService.insertAccountCurrency(
+                userListDTO.getId(),
+                userListDTO.getScopeTenantId(),
+                userListDTO.getCurrencyIds()
+        );
+
         return updated;
     }
 

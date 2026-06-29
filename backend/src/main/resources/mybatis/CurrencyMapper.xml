@@ -11,6 +11,22 @@
         <result column="updated_at" property="updateAt"/>
     </resultMap>
 
+    <resultMap id="UserCurrencyMap" type="com.eazycount.entity.UserCurrency">
+        <id column="id" property="id"/>
+        <result column="account_id" property="accountId"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="currency_id" property="currencyId"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="created_at" property="createAt"/>
+        <result column="updated_at" property="updateAt"/>
+    </resultMap>
+
+    <resultMap id="LinkedAccountMap" type="com.eazycount.dto.UserLinkedDTO">
+        <id column="id" property="id"/>
+        <result column="name" property="name"/>
+        <result column="account_id" property="accountId"/>
+    </resultMap>
+
     <select id="findCurrencyByTenantId" resultMap="CurrencyMap">
         select * from currency
         where tenant_id = #{tenantId}
@@ -41,5 +57,93 @@
         where id = #{id}
         AND tenant_id = #{tenantId}
     </delete>
+
+
+    <!---account-currency side mapper-->
+    <select id="findCurrencyIdsByAccountIdAndTenantId" resultType="int">
+        SELECT currency_id
+        FROM account_currency
+        WHERE account_id = #{accountId}
+        AND tenant_id = #{tenantId}
+        ORDER BY sort_order ASC, id ASC
+    </select>
+
+    <select id="countValidCurrenciesForTenant" resultType="int">
+        SELECT COUNT(*)
+        FROM currency
+        WHERE tenant_id = #{tenantId}
+        AND id IN
+        <foreach collection="currencyIds" item="cid" open="(" separator="," close=")">
+            #{cid}
+        </foreach>
+    </select>
+
+    <insert id="insertAccountCurrency" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO account_currency (account_id, tenant_id, currency_id, sort_order, created_at, updated_at )
+        VALUES ( #{accountId}, #{tenantId},#{currencyId}, #{sortOrder}, NOW(), NOW())
+    </insert>
+
+    <delete id="deleteByAccountIdAndTenantId">
+        DELETE FROM account_currency
+        WHERE account_id = #{accountId}
+        AND tenant_id = #{tenantId}
+    </delete>
+
+    <!--  Account Linked Currency Side -->
+    <select id="findLinkedAccountsByCurrencyIdAndTenantId" resultMap="LinkedAccountMap">
+        SELECT DISTINCT
+        a.id,
+        a.name,
+        a.account_id
+        FROM account a
+        INNER JOIN account_tenant_access ata
+        ON ata.account_id = a.id
+        AND ata.tenant_id = #{tenantId}
+        INNER JOIN account_currency ac
+        ON ac.account_id = a.id
+        AND ac.tenant_id = #{tenantId}
+        AND ac.currency_id = #{currencyId}
+        ORDER BY a.name ASC, a.account_id ASC
+    </select>
+
+    <!-- Update Linked Account Currency -->
+    <select id="countAccountCurrencyLink" resultType="int">
+        SELECT COUNT(*)
+        FROM account_currency
+        WHERE account_id = #{accountId}
+        AND tenant_id = #{tenantId}
+        AND currency_id = #{currencyId}
+    </select>
+
+    <select id="maxSortOrderByAccountIdAndTenantId" resultType="int">
+        SELECT COALESCE(MAX(sort_order), -1)
+        FROM account_currency
+        WHERE account_id = #{accountId}
+        AND tenant_id = #{tenantId}
+    </select>
+
+    <delete id="deleteByAccountIdAndTenantIdAndCurrencyId">
+        DELETE FROM account_currency
+        WHERE account_id = #{accountId}
+        AND tenant_id = #{tenantId}
+        AND currency_id = #{currencyId}
+    </delete>
+
+    <select id="countByAccountIdAndTenantId" resultType="int">
+        SELECT COUNT(*)
+        FROM account_currency
+        WHERE account_id = #{accountId}
+        AND tenant_id = #{tenantId}
+    </select>
+
+    <select id="countAccountsInTenant" resultType="int">
+        SELECT COUNT(DISTINCT ata.account_id)
+        FROM account_tenant_access ata
+        WHERE ata.tenant_id = #{tenantId}
+        AND ata.account_id IN
+        <foreach collection="accountIds" item="aid" open="(" separator="," close=")">
+            #{aid}
+        </foreach>
+    </select>
 
 </mapper>
