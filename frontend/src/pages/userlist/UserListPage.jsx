@@ -957,27 +957,8 @@ export default function UserListPage() {
     }
 
     let list = await fetchAdminListByTenantId(tenantId, signal);
-
-    if (normRole(me.role) === "owner" && me.user_id) {
-      try {
-        const r2 = await fetch(buildApiUrl("api/users/userlist_api.php"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ action: "get", id: me.user_id }),
-          signal,
-        });
-        const j2 = await r2.json();
-        const shadow = normalizeOwnerShadowRow(j2.success ? j2.data : null);
-        if (shadow && normRole(shadow.role) === "owner") {
-          if (!list.some((u) => Number(u.id) === Number(shadow.id))) list = [shadow, ...list];
-        }
-      } catch {
-        /* owner shadow optional */
-      }
-    }
     return list;
-  }, [groupOnlyUserList, me]);
+  }, [groupOnlyUserList]);
 
   const applyUserListCache = useCallback((activeCompanyId, { groupOnly = null, selectedGroup: groupOverride = null } = {}) => {
     const useGroupOnly = groupOnly ?? groupOnlyUserList;

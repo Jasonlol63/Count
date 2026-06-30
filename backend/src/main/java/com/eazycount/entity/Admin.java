@@ -50,6 +50,7 @@ public class Admin {
 
     @Getter
     public enum UserRole {
+        OWNER("OWNER"),
         ADMIN("ADMIN"),
         MANAGER("MANAGER"),
         SUPERVISOR("SUPERVISOR"),

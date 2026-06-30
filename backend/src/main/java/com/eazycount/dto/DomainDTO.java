@@ -1,20 +1,16 @@
 package com.eazycount.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
 
-@Getter
-@Setter
-@NoArgsConstructor
-public class DomainListItemDto {
-
+public class DomainDTO {
     private Integer id;
+
+    @JsonProperty("tenant_id")
+    private Integer tenantId;
+
+    private String code;
 
     @JsonProperty("owner_code")
     private String ownerCode;
@@ -23,13 +19,14 @@ public class DomainListItemDto {
 
     private String email;
 
+    private String password;
+
+    @JsonProperty("secondary_password")
+    private String secondaryPassword;
+
     @JsonProperty("created_by")
     private String createdBy;
 
     @JsonProperty("created_at")
     private LocalDateTime createdAt;
-
-    private List<TenantBriefDto> groups = new ArrayList<>();
-
-    private List<TenantBriefDto> companies = new ArrayList<>();
 }

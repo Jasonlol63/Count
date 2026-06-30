@@ -33,10 +33,29 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     public List<AdminListDTO> findAdminsByTenantId(Integer tenantId) {
-        if(tenantId == null){
+        if (tenantId == null) {
             throw new BusinessException("Invalid Tenant Id!");
         }
-        return adminDao.findAdminsByTenantId(tenantId);
+        List<AdminListDTO> list = new ArrayList<>(adminDao.findAdminsByTenantId(tenantId));
+
+        SessionUser session = SecurityUtils.currentUser();
+        if (session != null && "owner".equals(session.user_type)) {
+            AdminListDTO ownerRow = buildOwnerAsAdminListDTO(session);
+            list.add(0, ownerRow);
+        }
+
+        return list;
+    }
+
+    private AdminListDTO buildOwnerAsAdminListDTO(SessionUser session) {
+        Admin admin = new Admin();
+        admin.setId(session.user_id);
+        admin.setName(session.name);
+        admin.setLoginId(session.login_id);
+        admin.setEmail(session.email);
+        admin.setRole(Admin.UserRole.OWNER);
+        admin.setStatus(Admin.UserStatus.ACTIVE);
+        return new AdminListDTO(admin, null);
     }
 
     @Override
@@ -134,7 +153,8 @@ public class AdminServiceImpl implements AdminService {
 
         AdminTenantAccess firstAccess = null;
         for (Integer tenantId : adminRequest.getTenantIds()) {
-            if (tenantId == null || tenantId <= 0) continue;
+            if (tenantId == null || tenantId <= 0)
+                continue;
 
             AdminTenantAccess access = new AdminTenantAccess();
             access.setUserId(admin.getId());
@@ -252,8 +272,7 @@ public class AdminServiceImpl implements AdminService {
         AdminListDTO result = adminDao.findAdminByUserIdAndTenantId(userId, scopeTenantId);
         if (result == null) {
             throw new BusinessException(
-                    "User updated successfully, but no longer belongs to the current tenant"
-            );
+                    "User updated successfully, but no longer belongs to the current tenant");
         }
         return result;
     }
@@ -273,8 +292,7 @@ public class AdminServiceImpl implements AdminService {
             int userId,
             List<Integer> tenantIds,
             String accountPermissions,
-            String processPermissions
-    ) {
+            String processPermissions) {
         List<Integer> desired = new ArrayList<>();
         for (Integer tenantId : tenantIds) {
             if (tenantId != null && tenantId > 0 && !desired.contains(tenantId)) {
@@ -380,8 +398,9 @@ public class AdminServiceImpl implements AdminService {
         }
     }
 
-    private String toJson (Object value){
-        if (value == null) return null;
+    private String toJson(Object value) {
+        if (value == null)
+            return null;
         if (value instanceof String s) {
             return s.isBlank() ? null : s;
         }

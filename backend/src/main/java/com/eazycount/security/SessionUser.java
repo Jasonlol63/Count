@@ -32,12 +32,13 @@ public class SessionUser implements Serializable {
     public String expiration_date;
     public String name;
     public String login_id;
+    public String email;
     public String role;
     public List<String> permissions;
     public boolean is_current_tenant_c168;
     public boolean tenant_has_game;
     public boolean tenant_has_bank;
-    public int read_only;
+     public int read_only;
 
     public SessionUser() {
     }
@@ -54,6 +55,7 @@ public class SessionUser implements Serializable {
             String expirationDate,
             String name,
             String loginId,
+            String email,
             String role,
             List<String> permissions,
             boolean isCurrentTenantC168,
@@ -72,6 +74,7 @@ public class SessionUser implements Serializable {
         this.expiration_date = expirationDate;
         this.name = name;
         this.login_id = loginId;
+        this.email = email;
         this.role = role;
         this.permissions = permissions != null ? permissions : Collections.emptyList();
         this.is_current_tenant_c168 = isCurrentTenantC168;
@@ -135,6 +138,7 @@ public class SessionUser implements Serializable {
                 tenantExpiration(tenant),
                 Objects.toString(admin.getName(), ""),
                 normalizeUpper(Objects.toString(admin.getLoginId(), "")),
+                Objects.toString(admin.getEmail(), ""),
                 normalizeLower(role),
                 moduleKeys,
                 isC168,
@@ -161,6 +165,7 @@ public class SessionUser implements Serializable {
                 tenantExpiration(tenant),
                 Objects.toString(member.getName(), ""),
                 normalizeUpper(Objects.toString(member.getAccountId(), "")),
+                "",
                 normalizeLower(Objects.toString(member.getRole(), "")),
                 Collections.emptyList(),
                 "C168".equalsIgnoreCase(companyCode),
@@ -189,6 +194,7 @@ public class SessionUser implements Serializable {
                 tenantExpiration(tenant),
                 Objects.toString(owner.getName(), ""),
                 normalizeUpper(Objects.toString(owner.getOwnerCode(), "")),
+                Objects.toString(owner.getEmail(), ""),
                 "owner",
                 toFrontendModuleKeys(permissionService.resolveOwnerModuleKeys(owner, tenant)),
                 "C168".equalsIgnoreCase(companyCode),
@@ -211,6 +217,7 @@ public class SessionUser implements Serializable {
                 expiration_date,
                 name,
                 login_id,
+                email,
                 role,
                 permissions,
                 is_current_tenant_c168,

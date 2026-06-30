@@ -29,9 +29,11 @@ export function resolveListTenantId({
 /** Map Spring {@link AdminListDTO} JSON to camelCase list row. */
 export function normalizeAdminListItem(item) {
   const admin = item?.admin ?? {};
-  const access = item?.adminTenantAccess ?? {};
+  const access = item?.adminTenantAccess ?? null;
   const role = admin.role != null ? String(admin.role) : "";
   const status = admin.status != null ? String(admin.status) : "";
+  const isOwner = role.toLowerCase() === "owner";
+  const hasAccess = access != null;
 
   return {
     id: admin.id,
@@ -45,8 +47,8 @@ export function normalizeAdminListItem(item) {
     createdAt: admin.createdAt ?? null,
     lastLogin: admin.lastLogin ?? null,
     readOnly: admin.readOnly ?? false,
-    isOwnerShadow: false,
-    tenantAccess: {
+    isOwnerShadow: isOwner && !hasAccess, // 如果是 owner 且没有 tenant access，则标记为 shadow
+    tenantAccess: hasAccess ? {
       id: access.id ?? null,
       userId: access.userId ?? null,
       tenantId: access.tenantId ?? null,
@@ -55,7 +57,7 @@ export function normalizeAdminListItem(item) {
       processPermissions: access.processPermissions ?? null,
       createdAt: access.createdAt ?? null,
       updatedAt: access.updatedAt ?? null,
-    },
+    } : null,
   };
 }
 
