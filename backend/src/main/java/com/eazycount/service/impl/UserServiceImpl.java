@@ -16,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 public class UserServiceImpl implements UserService {
@@ -274,7 +273,7 @@ public class UserServiceImpl implements UserService {
         }
     }
 
-    /*Account Link Side*/
+    /* Account Link Side */
     @Override
     public void insertAccountLink(UserLink userLink) {
         SessionUser session = SecurityUtils.currentUser();
@@ -358,7 +357,7 @@ public class UserServiceImpl implements UserService {
         }
     }
 
-    /*Account Link - Delete by AccountId (all links of one account in tenant)*/
+    /* Account Link - Delete by AccountId (all links of one account in tenant) */
     @Override
     @Transactional
     public void deleteAccountLinkByAccountId(int accountId, int tenantId) {
@@ -419,8 +418,10 @@ public class UserServiceImpl implements UserService {
     @Override
     public void deleteAccountLinkByPair(int accountId1, int accountId2, int tenantId) {
         SessionUser session = SecurityUtils.currentUser();
-        if (session == null) throw new BusinessException("Not logged in");
-        if (tenantId != session.tenant_id) throw new BusinessException("Unauthorized tenant access");
+        if (session == null)
+            throw new BusinessException("Not logged in");
+        if (tenantId != session.tenant_id)
+            throw new BusinessException("Unauthorized tenant access");
 
         if (accountId1 > accountId2) {
             int temp = accountId1;
@@ -438,8 +439,10 @@ public class UserServiceImpl implements UserService {
     @Override
     public Map<String, Object> getLinkedAccounts(int accountId, int tenantId) {
         SessionUser session = SecurityUtils.currentUser();
-        if (session == null) throw new BusinessException("Not logged in");
-        if (tenantId != session.tenant_id) throw new BusinessException("Unauthorized tenant access");
+        if (session == null)
+            throw new BusinessException("Not logged in");
+        if (tenantId != session.tenant_id)
+            throw new BusinessException("Unauthorized tenant access");
 
         List<UserLink> links = userDao.findByAccountId(accountId, session.tenant_id);
         List<UserListDTO> accounts = new ArrayList<>();
