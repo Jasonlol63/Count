@@ -2,8 +2,7 @@ package com.eazycount.service;
 
 import com.eazycount.dto.UserCurrencyDTO;
 import com.eazycount.dto.UserLinkedDTO;
-import com.eazycount.entity.Currency;
-import com.eazycount.entity.UserCurrency;
+import com.eazycount.entity.Currency;  
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
