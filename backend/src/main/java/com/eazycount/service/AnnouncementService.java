@@ -2,7 +2,6 @@ package com.eazycount.service;
 
 import com.eazycount.entity.Announcements;
 import com.eazycount.entity.Maintenance;
-import org.springframework.stereotype.Service;
 
 import java.util.List;
 

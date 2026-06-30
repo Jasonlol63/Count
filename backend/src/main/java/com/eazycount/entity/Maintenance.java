@@ -3,7 +3,6 @@ package com.eazycount.entity;
 import lombok.*;
 
 import java.time.LocalDateTime;
-import java.util.Date;
 
 @Getter
 @Setter
@@ -22,14 +21,16 @@ public class Maintenance {
 
     @Getter
     @NoArgsConstructor
-    public enum Status{
+    public enum Status {
         ACTIVE("ACTIVE"),
         INACTIVE("INACTIVE");
 
         private String value;
+
         Status(String value) {
             this.value = value;
         }
+
         public static Status fromValue(String value) {
             if (value == null) {
                 return null;
@@ -46,11 +47,12 @@ public class Maintenance {
         }
     }
 
-    public enum User{
+    public enum User {
         USER("USER"),
         OWNER("OWNER");
 
         private final String value;
+
         User(String value) {
             this.value = value;
         }

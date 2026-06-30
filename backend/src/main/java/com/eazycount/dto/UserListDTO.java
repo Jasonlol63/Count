@@ -1,7 +1,6 @@
 package com.eazycount.dto;
 
 import com.eazycount.entity.User;
-import com.eazycount.entity.UserCurrency;
 import com.eazycount.entity.UserTenantAccess;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -21,8 +20,8 @@ public class UserListDTO {
     private User user;
     private UserTenantAccess userTenantAccess;
 
-    private Integer id;              // user.id
-    private Long tenantAccessId;     // user_tenant_access.id（从 list 的 tenantAccess.id 来）
+    private Integer id; // user.id
+    private Long tenantAccessId; // user_tenant_access.id（从 list 的 tenantAccess.id 来）
     private Integer scopeTenantId;
 
     private String accountId;

@@ -2,7 +2,6 @@ package com.eazycount.service;
 
 import com.eazycount.dto.AdminListDTO;
 import com.eazycount.dto.AdminRequest;
-import com.eazycount.entity.Admin;
 
 import java.util.List;
 
