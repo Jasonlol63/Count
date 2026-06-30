@@ -13,10 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -125,7 +122,6 @@ public class CurrencyServiceImpl implements CurrencyService {
         if (currency == null) {
             throw new BusinessException("Currency not found or access denied");
         }
-
         List<UserLinkedDTO> accountsInUse = currencyDao.findLinkedAccountsByCurrencyIdAndTenantId(id, tenantId);
         if (accountsInUse != null && !accountsInUse.isEmpty()) {
             String labels = accountsInUse.stream()
@@ -138,11 +134,14 @@ public class CurrencyServiceImpl implements CurrencyService {
                     .filter(s -> !s.isEmpty())
                     .collect(Collectors.joining(", "));
 
-            try {
-                currencyDao.deleteCurrencyByIdAndTenantId(id, tenantId);
-            } catch (Exception e) {
-                throw new BusinessException("Delete Currency Failed!");
-            }
+            Map<String, Object> payload = Map.of("accounts_in_use", accountsInUse);
+            throw new BusinessException("Cannot delete currency. The following accounts are using it: " + labels, payload);
+        }
+
+        try {
+            currencyDao.deleteCurrencyByIdAndTenantId(id, tenantId);
+        } catch (Exception e) {
+            throw new BusinessException("Failed to delete currency");
         }
     }
 

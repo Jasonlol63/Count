@@ -13,10 +13,17 @@ import java.util.Map;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<Map<String, String>> handleBusinessException(BusinessException exception) {
+    public ResponseEntity<Map<String, Object>> handleBusinessException(BusinessException exception) {
+        if (exception.getPayload() != null) {
+            return ResponseEntity.ok(Map.of(
+                    "status", "error",
+                    "message", exception.getMessage() != null ? exception.getMessage() : "",
+                    "payload", exception.getPayload()
+            ));
+        }
         return ResponseEntity.ok(Map.of(
                 "status", "error",
-                "message", exception.getMessage()
+                "message", exception.getMessage() != null ? exception.getMessage() : ""
         ));
     }
 
