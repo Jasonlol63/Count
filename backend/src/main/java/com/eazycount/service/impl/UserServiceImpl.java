@@ -3,6 +3,7 @@ package com.eazycount.service.impl;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.UserDao;
 import com.eazycount.dto.UserListDTO;
+import com.eazycount.entity.UserLink;
 import com.eazycount.entity.User;
 import com.eazycount.entity.UserTenantAccess;
 import com.eazycount.security.SecurityUtils;
@@ -14,9 +15,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.Locale;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class UserServiceImpl implements UserService {
@@ -272,5 +272,225 @@ public class UserServiceImpl implements UserService {
         } catch (Exception e) {
             throw new BusinessException("Delete User failed!");
         }
+    }
+
+    /*Account Link Side*/
+    @Override
+    public void insertAccountLink(UserLink userLink) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null || session.user_id == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (userLink == null) {
+            throw new BusinessException("Invalid request");
+        }
+
+        final int tenantId = session.tenant_id;
+        if (tenantId <= 0) {
+            throw new BusinessException("Invalid tenant id");
+        }
+
+        int a = userLink.getAccountId1();
+        int b = userLink.getAccountId2();
+        if (a <= 0 || b <= 0) {
+            throw new BusinessException("Invalid account id");
+        }
+        if (a == b) {
+            throw new BusinessException("Cannot link the same account");
+        }
+
+        final int a1 = Math.min(a, b);
+        final int a2 = Math.max(a, b);
+        // 校验两端账号都属于该租户
+        if (userDao.findUserByIdAndTenantId(a1, tenantId) == null) {
+            throw new BusinessException("User A not found in tenant!");
+        }
+        if (userDao.findUserByIdAndTenantId(a2, tenantId) == null) {
+            throw new BusinessException("User B not found in tenant!");
+        }
+
+        UserLink.LinkType linkType = userLink.getLinkType();
+        if (linkType == null) {
+            linkType = UserLink.LinkType.BIDIRECTIONAL; // 默认双向
+        }
+
+        Integer source = userLink.getSourceAccountId();
+        if (linkType == UserLink.LinkType.UNIDIRECTIONAL) {
+            if (source == null || (source != a1 && source != a2)) {
+                throw new BusinessException("sourceAccountId must be one of the pair for UNIDIRECTIONAL");
+            }
+        } else { // BIDIRECTIONAL
+            source = null; // 双向时应为 null
+        }
+
+        List<UserLink> existing = userDao.findByPair(a1, a2, tenantId);
+        if (existing != null && !existing.isEmpty()) {
+            throw new BusinessException("Accounts are already linked in this tenant");
+        }
+
+        UserLink accLink = new UserLink();
+        accLink.setAccountId1(a1);
+        accLink.setAccountId2(a2);
+        accLink.setTenantId(tenantId);
+        accLink.setLinkType(linkType);
+        accLink.setSourceAccountId(source);
+        try {
+            userDao.insertAccountLink(accLink);
+        } catch (Exception e) {
+            throw new BusinessException("Insert Account Link failed!");
+        }
+    }
+
+    @Override
+    @Transactional
+    public void deleteAccountLinkById(long id) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null || session.user_id == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (id <= 0) {
+            throw new BusinessException("Invalid link id");
+        }
+        try {
+            userDao.deleteById(id, session.tenant_id);
+        } catch (Exception e) {
+            throw new BusinessException("Delete Account Link failed!");
+        }
+    }
+
+    /*Account Link - Delete by AccountId (all links of one account in tenant)*/
+    @Override
+    @Transactional
+    public void deleteAccountLinkByAccountId(int accountId, int tenantId) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null || session.user_id == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (accountId <= 0 || tenantId <= 0) {
+            throw new BusinessException("Invalid request");
+        }
+        if (tenantId != session.tenant_id) {
+            throw new BusinessException("Unauthorized tenant access");
+        }
+        try {
+            userDao.deleteByAccountId(accountId, session.tenant_id);
+        } catch (Exception e) {
+            throw new BusinessException("Delete Account Link by Account failed!");
+        }
+    }
+
+    @Override
+    @Transactional
+    public void updateAccountLink(UserLink userLink) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null || session.user_id == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (userLink == null) {
+            throw new BusinessException("Invalid request");
+        }
+
+        // If ID is provided, use it for deletion
+        if (userLink.getId() != null && userLink.getId() > 0) {
+            try {
+                userDao.deleteById(userLink.getId(), session.tenant_id);
+            } catch (Exception e) {
+                throw new BusinessException("Update Account Link failed (delete by id step)!");
+            }
+        } else {
+            // Otherwise try deletion by pair
+            if (userLink.getAccountId1() != null && userLink.getAccountId2() != null) {
+                int a1 = Math.min(userLink.getAccountId1(), userLink.getAccountId2());
+                int a2 = Math.max(userLink.getAccountId1(), userLink.getAccountId2());
+                try {
+                    userDao.deleteByPair(a1, a2, session.tenant_id);
+                } catch (Exception e) {
+                    throw new BusinessException("Update Account Link failed (delete by pair step)!");
+                }
+            } else {
+                throw new BusinessException("Link ID or Account IDs required for update");
+            }
+        }
+
+        userLink.setId(null);
+        insertAccountLink(userLink);
+    }
+
+    @Override
+    public void deleteAccountLinkByPair(int accountId1, int accountId2, int tenantId) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null) throw new BusinessException("Not logged in");
+        if (tenantId != session.tenant_id) throw new BusinessException("Unauthorized tenant access");
+
+        if (accountId1 > accountId2) {
+            int temp = accountId1;
+            accountId1 = accountId2;
+            accountId2 = temp;
+        }
+
+        try {
+            userDao.deleteByPair(accountId1, accountId2, session.tenant_id);
+        } catch (Exception e) {
+            throw new BusinessException("Delete Account Link by pair failed!");
+        }
+    }
+
+    @Override
+    public Map<String, Object> getLinkedAccounts(int accountId, int tenantId) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null) throw new BusinessException("Not logged in");
+        if (tenantId != session.tenant_id) throw new BusinessException("Unauthorized tenant access");
+
+        List<UserLink> links = userDao.findByAccountId(accountId, session.tenant_id);
+        List<UserListDTO> accounts = new ArrayList<>();
+        Map<Integer, String> linkTypesMap = new HashMap<>();
+
+        for (UserLink link : links) {
+            int linkedId = (link.getAccountId1() == accountId) ? link.getAccountId2() : link.getAccountId1();
+
+            // Bidirectional is always included.
+            // Unidirectional is included only if current account is the source.
+            if (link.getLinkType() == UserLink.LinkType.BIDIRECTIONAL ||
+                    (link.getLinkType() == UserLink.LinkType.UNIDIRECTIONAL &&
+                            link.getSourceAccountId() != null && link.getSourceAccountId() == accountId)) {
+
+                UserListDTO linkedUser = userDao.findUserByIdAndTenantId(linkedId, session.tenant_id);
+                if (linkedUser != null) {
+                    accounts.add(linkedUser);
+                    linkTypesMap.put(linkedId, link.getLinkType().name().toLowerCase());
+                }
+            }
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("accounts", accounts);
+        result.put("link_types_map", linkTypesMap);
+        result.put("tenant_id", session.tenant_id);
+        return result;
+    }
+
+    @Override
+    public List<UserListDTO> getAllLinkedAccounts(int accountId, int tenantId) {
+        Map<String, Object> linkedData = getLinkedAccounts(accountId, tenantId);
+        @SuppressWarnings("unchecked")
+        List<UserListDTO> accounts = (List<UserListDTO>) linkedData.get("accounts");
+
+        // Include current account if not present
+        boolean currentPresent = false;
+        for (UserListDTO acc : accounts) {
+            if (acc.getId() == accountId) {
+                currentPresent = true;
+                break;
+            }
+        }
+
+        if (!currentPresent) {
+            UserListDTO current = userDao.findUserByIdAndTenantId(accountId, tenantId);
+            if (current != null) {
+                accounts.add(0, current);
+            }
+        }
+
+        return accounts;
     }
 }

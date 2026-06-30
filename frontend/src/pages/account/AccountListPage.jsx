@@ -2387,22 +2387,6 @@ export default function AccountListPage() {
     } catch { notify(t("saveFailed"), "danger"); }
   };
 
-  const buildLinkScopePayload = useCallback(() => {
-    const payload = {};
-    const gid =
-      (selectedGroup && String(selectedGroup).trim().toUpperCase()) ||
-      (isGroupLogin(sessionMe) ? getLoginIdentifier(sessionMe) : null);
-    if (gid) payload.group_id = gid;
-    if (groupOnlyAccountMode) {
-      payload.group_only = true;
-    } else if (companyId) {
-      payload.company_id = Number(companyId);
-    } else if (activeScopeTenantId) {
-      payload.company_id = Number(activeScopeTenantId);
-    }
-    return payload;
-  }, [selectedGroup, groupOnlyAccountMode, companyId, activeScopeTenantId, sessionMe]);
-
   const openLink = async (id) => {
     if (accountMutationsBlocked) {
       notify(t("readOnlyActionBlocked"), "danger");
@@ -2425,13 +2409,10 @@ export default function AccountListPage() {
             showInactive: false,
             showAll: true,
           });
-      const linkedUrl = new URL(buildApiUrl("api/accounts/account_link_api.php"));
-      linkedUrl.searchParams.set("action", "get_linked_accounts");
+      const tenantId = Number(activeScopeTenantId) || Number(companyId) || 0;
+      const linkedUrl = new URL(buildApiUrl("api/account/link/list"));
       linkedUrl.searchParams.set("account_id", String(id));
-      const linkScope = buildLinkScopePayload();
-      if (linkScope.group_id) linkedUrl.searchParams.set("group_id", String(linkScope.group_id));
-      if (linkScope.group_only) linkedUrl.searchParams.set("group_only", "1");
-      if (linkScope.company_id) linkedUrl.searchParams.set("company_id", String(linkScope.company_id));
+      linkedUrl.searchParams.set("tenant_id", String(tenantId));
       const [linkedRes] = await Promise.all([
         fetch(linkedUrl.toString(), { credentials: "include" }),
       ]);
@@ -2469,20 +2450,17 @@ export default function AccountListPage() {
     }
     if (!linkingAccountId || (!companyId && !(groupOnlyAccountMode && selectedGroup))) return;
     try {
-      const linkScope = buildLinkScopePayload();
-      const refUrl = new URL(buildApiUrl("api/accounts/account_link_api.php"));
-      refUrl.searchParams.set("action", "get_linked_accounts");
+      const tenantId = Number(activeScopeTenantId) || Number(companyId) || 0;
+      const refUrl = new URL(buildApiUrl("api/account/link/list"));
       refUrl.searchParams.set("account_id", String(linkingAccountId));
-      if (linkScope.group_id) refUrl.searchParams.set("group_id", String(linkScope.group_id));
-      if (linkScope.group_only) refUrl.searchParams.set("group_only", "1");
-      if (linkScope.company_id) refUrl.searchParams.set("company_id", String(linkScope.company_id));
+      refUrl.searchParams.set("tenant_id", String(tenantId));
       const refRes = await fetch(refUrl.toString(), { credentials: "include" });
       const refJson = await refRes.json();
       if (!refJson?.success) {
         notifyApi(refJson?.message, "failedSaveAccountLinks", "danger");
         return;
       }
-      const linkScopeCompanyId = Number(refJson?.data?.company_id) || Number(linkScope.company_id) || 0;
+      const linkScopeCompanyId = Number(refJson?.data?.tenant_id) || tenantId;
       if (!Number.isFinite(linkScopeCompanyId) || linkScopeCompanyId <= 0) {
         notify(t("pleaseSelectCompanyFirst"), "danger");
         return;
@@ -2498,45 +2476,41 @@ export default function AccountListPage() {
       const toRemove = [...currentTypeIds].filter((id) => !desiredIds.has(id));
 
       for (const linkedId of toRemove) {
-        await fetch(buildApiUrl("api/accounts/account_link_api.php?action=unlink_accounts"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            account_id_1: Number(linkingAccountId),
-            account_id_2: Number(linkedId),
-            company_id: linkScopeCompanyId,
-            ...linkScope,
-          }),
+        const unlinkUrl = new URL(buildApiUrl("api/account/link/pair"));
+        unlinkUrl.searchParams.set("account_id_1", String(linkingAccountId));
+        unlinkUrl.searchParams.set("account_id_2", String(linkedId));
+        unlinkUrl.searchParams.set("tenant_id", String(linkScopeCompanyId));
+
+        await fetch(unlinkUrl.toString(), {
+          method: "DELETE",
           credentials: "include",
         });
       }
       for (const linkedId of toAdd) {
-        await fetch(buildApiUrl("api/accounts/account_link_api.php?action=link_accounts"), {
+        await fetch(buildApiUrl("api/account/link"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            account_id_1: Number(linkingAccountId),
-            account_id_2: Number(linkedId),
-            company_id: linkScopeCompanyId,
-            ...linkScope,
-            link_type: linkType,
-            source_account_id: linkType === "unidirectional" ? Number(linkingAccountId) : null,
+            accountId1: Number(linkingAccountId),
+            accountId2: Number(linkedId),
+            tenantId: linkScopeCompanyId,
+            linkType: linkType.toUpperCase(),
+            sourceAccountId: linkType === "unidirectional" ? Number(linkingAccountId) : null,
           }),
           credentials: "include",
         });
       }
       if (toAdd.length === 0 && toRemove.length === 0 && desiredIds.size > 0) {
         for (const linkedId of desiredIds) {
-          await fetch(buildApiUrl("api/accounts/account_link_api.php?action=update_link_type"), {
-            method: "POST",
+          await fetch(buildApiUrl("api/account/link"), {
+            method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              account_id_1: Number(linkingAccountId),
-              account_id_2: Number(linkedId),
-              company_id: linkScopeCompanyId,
-              ...linkScope,
-              link_type: linkType,
-              source_account_id: linkType === "unidirectional" ? Number(linkingAccountId) : null,
+              accountId1: Number(linkingAccountId),
+              accountId2: Number(linkedId),
+              tenantId: linkScopeCompanyId,
+              linkType: linkType.toUpperCase(),
+              sourceAccountId: linkType === "unidirectional" ? Number(linkingAccountId) : null,
             }),
             credentials: "include",
           });
