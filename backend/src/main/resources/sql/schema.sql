@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS `feature_module`;
 DROP TABLE IF EXISTS `password_reset_tac`;
 DROP TABLE IF EXISTS `password_reset_tac_owner`;
 DROP TABLE IF EXISTS `account_tenant_access`;
+DROP TABLE IF EXISTS `account_link`;
 DROP TABLE IF EXISTS `user_tenant_access`;
 DROP TABLE IF EXISTS `tenant`;
 DROP TABLE IF EXISTS `account`;
@@ -157,6 +158,22 @@ CREATE TABLE `account_tenant_access` (
   KEY `idx_ata_account_id` (`account_id`),
   KEY `idx_ata_tenant_id` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Member access per tenant';
+
+CREATE TABLE `account_link` (
+  `id`                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `account_id_1`      INT UNSIGNED NOT NULL COMMENT 'FK account.id (smaller ID)',
+  `account_id_2`      INT UNSIGNED NOT NULL COMMENT 'FK account.id (larger ID)',
+  `tenant_id`         INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+  `link_type`         ENUM('BIDIRECTIONAL', 'UNIDIRECTIONAL') NOT NULL DEFAULT 'BIDIRECTIONAL',
+  `source_account_id` INT UNSIGNED DEFAULT NULL COMMENT 'For unidirectional, defines the link source',
+  `created_at`        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_account_link_pair` (`account_id_1`, `account_id_2`, `tenant_id`),
+  KEY `idx_al_tenant_id` (`tenant_id`),
+  KEY `idx_al_account_1` (`account_id_1`),
+  KEY `idx_al_account_2` (`account_id_2`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Linking between member accounts';
 
 CREATE TABLE `password_reset_tac` (
   `email`      VARCHAR(255) NOT NULL COMMENT 'Admin user email (FK user.email logically)',

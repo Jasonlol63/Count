@@ -169,7 +169,7 @@ export function useMemberWinLoss({ showNotification, lang }) {
     if (!accountId || !compId) return [];
     const res = await fetch(
       buildApiUrl(
-        `api/accounts/account_link_api.php?action=get_all_linked_accounts&account_id=${accountId}&company_id=${compId}`,
+        `api/account/link/all?account_id=${accountId}&tenant_id=${compId}`,
       ),
       { credentials: "include", cache: "no-store" },
     );

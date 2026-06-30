@@ -1722,18 +1722,15 @@ export default function UserListPage() {
       } catch { setModalAccounts([]); setModalProcesses([]); return { accounts: [], processes: [] }; }
     }
     try {
-      const accountQuery = useGroupScopedAccounts
-        ? `group_id=${encodeURIComponent(normalizedGroupId)}`
-        : `company_id=${cid}`;
+      const tenantId = useGroupScopedAccounts ? normalizedGroupId : cid;
       const request = Promise.all([
-        fetch(buildApiUrl(`api/accounts/accountlistapi.php?${accountQuery}`), { credentials: "include" }),
-        fetch(buildApiUrl(`api/processes/processlist_api.php?company_id=${cid}&showAll=1`), { credentials: "include" }),
-      ]).then(async ([accRes, procRes]) => {
-        const accJ = await accRes.json(); const procJ = await procRes.json();
-        const accs = (accJ?.data?.accounts || []).filter((a) => String(a.status || "").toLowerCase() === "active").map((a) => ({ id: a.id, account_id: a.account_id, name: String(a.name || "").trim() }));
-        const procs = (Array.isArray(procJ?.data) ? procJ.data : []).filter((p) => String(p.status || "").toLowerCase() === "active").map((p) => ({ id: p.id, process_id: p.process_name || p.process_id || "", description: p.description_name || p.description || "" }));
-        return { accounts: accs, processes: procs };
-      });
+        fetch(buildApiUrl(`api/account/list?tenant_id=${tenantId}`), { method: "POST", credentials: "include" })
+          .then(async (r) => { const j = await r.json(); return (j?.data || []).filter((a) => String(a.status || "").toLowerCase() === "active").map((a) => ({ id: a.id, account_id: a.accountId, name: String(a.name || "").trim() })); })
+          .catch(() => []),
+        fetch(buildApiUrl(`api/processes/processlist_api.php?company_id=${cid}&showAll=1`), { credentials: "include" })
+          .then(async (r) => { const j = await r.json(); return (Array.isArray(j?.data) ? j.data : []).filter((p) => String(p.status || "").toLowerCase() === "active").map((p) => ({ id: p.id, process_id: p.process_name || p.process_id || "", description: p.description_name || p.description || "" })); })
+          .catch(() => []),
+      ]).then(([accs, procs]) => ({ accounts: accs, processes: procs }));
       modalAccessPendingRef.current.set(cacheKey, request);
       const next = await request;
       modalAccessCacheRef.current.set(cacheKey, next);

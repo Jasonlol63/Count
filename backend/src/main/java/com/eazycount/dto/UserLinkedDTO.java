@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import java.util.List;
+import java.util.Map;
 
 @Getter
 @Setter
@@ -28,5 +29,17 @@ public class UserLinkedDTO {
 
     @JsonProperty("linked_accounts")
     private List<UserLinkedDTO> linkedAccounts;
+
+    @JsonProperty("link_type")
+    private String linkType;
+
+    @JsonProperty("source_account_id")
+    private Integer sourceAccountId;
+
+    @JsonProperty("link_types_map")
+    private Map<Integer, String> linkTypesMap;
+
+    @JsonProperty("has_unidirectional")
+    private Boolean hasUnidirectional;
 
 }

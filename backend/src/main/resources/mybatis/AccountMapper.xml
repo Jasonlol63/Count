@@ -19,6 +19,15 @@
         <result property="remark" column="accountRemark" jdbcType="LONGVARCHAR"/>
     </resultMap>
 
+    <resultMap id="AccountLinkMap" type="com.eazycount.entity.UserLink">
+        <result property="id" column="id" jdbcType="INTEGER"/>
+        <result property="accountId1" column="account_id_1" jdbcType="INTEGER"/>
+        <result property="accountId2" column="account_id_2" jdbcType="INTEGER"/>
+        <result property="tenantId" column="tenant_id" jdbcType="INTEGER"/>
+        <result property="linkType" column="link_type" jdbcType="VARCHAR"/>
+        <result property="sourceAccountId" column="source_account_id" jdbcType="INTEGER"/>
+    </resultMap>
+
     <select id="findUserByTenantId" resultMap="UserListDTOMap">
         SELECT
         a.id                    AS accountPkId,
@@ -135,5 +144,43 @@
         WHERE account_id = #{accountId}
           AND tenant_id = #{tenantId}
     </delete>
+
+    <!-- Account Link Side -->
+    <insert id="insertAccountLink" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO account_link (account_id_1, account_id_2, tenant_id, link_type, source_account_id)
+        VALUES (#{accountId1}, #{accountId2}, #{tenantId}, #{linkType}, #{sourceAccountId})
+    </insert>
+
+    <delete id="deleteById">
+        DELETE FROM account_link
+        WHERE id = #{id}
+          AND tenant_id = #{tenantId}
+    </delete>
+
+    <delete id="deleteByAccountId">
+        DELETE FROM account_link
+        WHERE tenant_id = #{tenantId}
+          AND (account_id_1 = #{accountId} OR account_id_2 = #{accountId})
+    </delete>
+
+    <delete id="deleteByPair">
+        DELETE FROM account_link
+        WHERE tenant_id = #{tenantId}
+          AND account_id_1 = #{accountId1}
+          AND account_id_2 = #{accountId2}
+    </delete>
+
+    <select id="findByAccountId" resultType="com.eazycount.entity.UserLink">
+        SELECT * FROM account_link
+        WHERE tenant_id = #{tenantId}
+          AND (account_id_1 = #{accountId} OR account_id_2 = #{accountId})
+    </select>
+
+    <select id="findByPair" resultType="com.eazycount.entity.UserLink">
+        SELECT * FROM account_link
+        WHERE tenant_id = #{tenantId}
+          AND account_id_1 = #{accountId1}
+          AND account_id_2 = #{accountId2}
+    </select>
 
 </mapper>

@@ -66,17 +66,19 @@ export default function UserAccessPage() {
         const usersJson = await usersRes.json();
         const list = Array.isArray(usersJson?.data) ? usersJson.data : [];
 
-        const [accRes, procRes] = await Promise.all([
-          fetch(buildApiUrl(`api/accounts/accountlistapi.php?company_id=${companyId}&showAll=1`), { credentials: "include" }),
-          fetch(buildApiUrl(`api/processes/processlist_api.php?company_id=${companyId}&showAll=1`), { credentials: "include" }),
+        const [accData, procData] = await Promise.all([
+          fetch(buildApiUrl(`api/account/list?tenant_id=${companyId}`), { method: "POST", credentials: "include" })
+            .then(async (r) => { const j = await r.json(); return Array.isArray(j?.data) ? j.data : []; })
+            .catch(() => []),
+          fetch(buildApiUrl(`api/processes/processlist_api.php?company_id=${companyId}&showAll=1`), { credentials: "include" })
+            .then(async (r) => { const j = await r.json(); return Array.isArray(j?.data) ? j.data : []; })
+            .catch(() => []),
         ]);
-        const accJson = await accRes.json();
-        const procJson = await procRes.json();
 
         if (!cancelled) {
           setUsers(list);
-          setAccounts(Array.isArray(accJson?.data?.accounts) ? accJson.data.accounts : []);
-          setProcesses(Array.isArray(procJson?.data) ? procJson.data : []);
+          setAccounts(accData);
+          setProcesses(procData);
         }
       } catch {
         if (!cancelled) setNotice("Failed to load user access data");
@@ -119,7 +121,7 @@ export default function UserAccessPage() {
   const visibleAccounts = useMemo(() => {
     const s = accountSearch.trim().toLowerCase();
     if (!s) return accounts;
-    return accounts.filter((a) => String(a.account_id || "").toLowerCase().includes(s));
+    return accounts.filter((a) => String(a.accountId || "").toLowerCase().includes(s));
   }, [accounts, accountSearch]);
 
   const visibleProcesses = useMemo(() => {
@@ -167,7 +169,7 @@ export default function UserAccessPage() {
     try {
       const accountPermissions = Array.from(selectedAccountIds).map((id) => {
         const row = accounts.find((a) => Number(a.id) === Number(id));
-        return { id: Number(id), account_id: row?.account_id || "" };
+        return { id: Number(id), account_id: row?.accountId || "" };
       });
       const processPermissions = Array.from(selectedProcessIds).map((id) => {
         const row = processes.find((p) => Number(p.id) === Number(id));
@@ -328,7 +330,7 @@ export default function UserAccessPage() {
               {visibleAccounts.map((a) => (
                 <label key={a.id} style={{ display: "inline-block", width: "20%" }}>
                   <input type="checkbox" checked={selectedAccountIds.has(Number(a.id))} onChange={() => toggleSet(setSelectedAccountIds, Number(a.id))} />
-                  {a.account_id}
+                  {a.accountId}
                 </label>
               ))}
             </div>
