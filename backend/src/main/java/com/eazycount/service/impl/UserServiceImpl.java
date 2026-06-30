@@ -1,7 +1,6 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
-import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.UserDao;
 import com.eazycount.dto.UserListDTO;
 import com.eazycount.entity.User;
@@ -24,8 +23,7 @@ public class UserServiceImpl implements UserService {
 
     private static final Set<String> ALLOWED_ACCOUNT_LEDGER_ROLES = Set.of(
             "CAPITAL", "BANK", "CASH", "PROFIT", "EXPENSES", "COMPANY",
-            "PARTNER", "STAFF", "SUPPLIER", "UPLINE", "AGENT", "MEMBER", "DEBTOR"
-    );
+            "PARTNER", "STAFF", "SUPPLIER", "UPLINE", "AGENT", "MEMBER", "DEBTOR");
 
     @Autowired
     private UserDao userDao;
@@ -37,8 +35,8 @@ public class UserServiceImpl implements UserService {
     private PasswordEncoder passwordEncoder;
 
     @Override
-    public List<UserListDTO> findUserByTenantId(Integer tenantId){
-        if(tenantId == null){
+    public List<UserListDTO> findUserByTenantId(Integer tenantId) {
+        if (tenantId == null) {
             throw new BusinessException("Tenant ID not found!");
         }
         return userDao.findUserByTenantId(tenantId);
@@ -85,7 +83,7 @@ public class UserServiceImpl implements UserService {
         user.setAlertSpecificDate(userListDTO.getAlertSpecificDate());
         user.setRemark(userListDTO.getRemark());
         user.setStatus(userListDTO.getStatus());
-        if(userListDTO.getStatus() == null){
+        if (userListDTO.getStatus() == null) {
             user.setStatus(User.AccountStatus.ACTIVE);
         }
 
@@ -93,9 +91,9 @@ public class UserServiceImpl implements UserService {
             user.setPaymentAlert(0);
         }
 
-        try{
+        try {
             userDao.addUserDetails(user);
-        }catch (Exception e){
+        } catch (Exception e) {
             throw new BusinessException("Create user failed!");
         }
 
@@ -107,7 +105,7 @@ public class UserServiceImpl implements UserService {
         userTenantAccess.setAccountId(user.getId());
         userTenantAccess.setTenantId(userListDTO.getScopeTenantId());
 
-        try{
+        try {
             userDao.insertAccountTenantAccess(userTenantAccess);
         } catch (Exception e) {
             throw new BusinessException("Create user tenant access failed!");
@@ -116,8 +114,7 @@ public class UserServiceImpl implements UserService {
         currencyService.insertAccountCurrency(
                 user.getId(),
                 tenantId,
-                userListDTO.getCurrencyIds()
-        );
+                userListDTO.getCurrencyIds());
 
         userListDTO.setId(user.getId());
         userListDTO.setTenantAccessId(userTenantAccess.getId());
@@ -140,7 +137,7 @@ public class UserServiceImpl implements UserService {
         }
 
         UserListDTO existing = userDao.findUserByIdAndTenantId(userListDTO.getId(), userListDTO.getScopeTenantId());
-        if(existing == null){
+        if (existing == null) {
             throw new BusinessException("User not found!");
         }
 
@@ -169,12 +166,12 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException("Update User failed!");
         }
 
-        try{
+        try {
             UserTenantAccess userTenantAccess = new UserTenantAccess();
             userTenantAccess.setAccountId(userListDTO.getId());
             userTenantAccess.setTenantId(userListDTO.getScopeTenantId());
             userDao.updateAccountTenantAccess(userTenantAccess);
-        }catch (Exception e){
+        } catch (Exception e) {
             throw new BusinessException("Update UserTenantAccess failed!");
         }
         UserListDTO updated = userDao.findUserByIdAndTenantId(userListDTO.getId(), userListDTO.getScopeTenantId());
@@ -184,13 +181,11 @@ public class UserServiceImpl implements UserService {
 
         currencyService.deleteByAccountIdAndTenantId(
                 userListDTO.getId(),
-                userListDTO.getScopeTenantId()
-        );
+                userListDTO.getScopeTenantId());
         currencyService.insertAccountCurrency(
                 userListDTO.getId(),
                 userListDTO.getScopeTenantId(),
-                userListDTO.getCurrencyIds()
-        );
+                userListDTO.getCurrencyIds());
 
         return updated;
     }
@@ -209,7 +204,7 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException("You cannot toggle your own status");
         }
 
-        try{
+        try {
             UserListDTO user = userDao.findUserByIdAndTenantId(userId, scopeTenantId);
             if (user == null) {
                 throw new BusinessException("User not found!");
@@ -239,7 +234,8 @@ public class UserServiceImpl implements UserService {
 
         UserListDTO result = userDao.findUserByIdAndTenantId(userId, scopeTenantId);
         if (result == null) {
-            throw new com.eazycount.common.BusinessException("Status updated, but user is no longer visible in this tenant");
+            throw new com.eazycount.common.BusinessException(
+                    "Status updated, but user is no longer visible in this tenant");
         }
 
         return result;
@@ -265,15 +261,15 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException("User is not inactive, cannot be deleted!");
         }
 
-        try{
+        try {
             userDao.deleteUserTenantAccessByAccountIdAndTenantId(id, scopeTenantId);
-        }catch (Exception e){
+        } catch (Exception e) {
             throw new BusinessException("Delete UserTenantAccess failed!");
         }
 
-        try{
+        try {
             userDao.deleteUserByIdAndStatus(id, User.AccountStatus.INACTIVE);
-        }catch (Exception e){
+        } catch (Exception e) {
             throw new BusinessException("Delete User failed!");
         }
     }

@@ -1,6 +1,5 @@
 package com.eazycount.controller;
 
-import com.eazycount.dto.AdminRequest;
 import com.eazycount.dto.UserListDTO;
 import com.eazycount.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,8 +24,7 @@ public class UserController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "User retrieved successfully",
-                    "data", data
-            ));
+                    "data", data));
         } catch (com.eazycount.common.BusinessException e) {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", false);
@@ -36,7 +34,6 @@ public class UserController {
         }
     }
 
-
     @PostMapping("/add")
     public ResponseEntity<Map<String, Object>> add(@RequestBody UserListDTO userListDTO) {
         try {
@@ -44,8 +41,7 @@ public class UserController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "User created successfully",
-                    "data", data
-            ));
+                    "data", data));
         } catch (com.eazycount.common.BusinessException e) {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", false);
@@ -62,8 +58,7 @@ public class UserController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "User updated successfully",
-                    "data", data
-            ));
+                    "data", data));
         } catch (com.eazycount.common.BusinessException e) {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", false);
@@ -74,14 +69,14 @@ public class UserController {
     }
 
     @PostMapping("/updateStatus")
-    public ResponseEntity<Map<String, Object>> updateStatus(@RequestBody UserListDTO userListDTO){
+    public ResponseEntity<Map<String, Object>> updateStatus(@RequestBody UserListDTO userListDTO) {
         try {
-            final UserListDTO data = userService.updateStatusByUserId(userListDTO.getId(), userListDTO.getScopeTenantId());
+            final UserListDTO data = userService.updateStatusByUserId(userListDTO.getId(),
+                    userListDTO.getScopeTenantId());
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "User Status updated successfully",
-                    "data", data
-            ));
+                    "data", data));
         } catch (com.eazycount.common.BusinessException e) {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", false);

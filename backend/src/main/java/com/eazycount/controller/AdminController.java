@@ -3,7 +3,6 @@ package com.eazycount.controller;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dto.AdminListDTO;
 import com.eazycount.dto.AdminRequest;
-import com.eazycount.entity.Admin;
 import com.eazycount.service.AdminService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -28,8 +27,7 @@ public class AdminController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Admin retrieved successfully",
-                    "data", data
-            ));
+                    "data", data));
         } catch (BusinessException e) {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", false);
@@ -48,8 +46,7 @@ public class AdminController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "User found",
-                    "data", data
-            ));
+                    "data", data));
         } catch (BusinessException e) {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", false);
@@ -66,8 +63,7 @@ public class AdminController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "User created successfully",
-                    "data", data
-            ));
+                    "data", data));
         } catch (BusinessException e) {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", false);
@@ -84,8 +80,7 @@ public class AdminController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "User updated successfully",
-                    "data", data
-            ));
+                    "data", data));
         } catch (BusinessException e) {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", false);
@@ -96,14 +91,13 @@ public class AdminController {
     }
 
     @PostMapping("/updateStatus")
-    public ResponseEntity<Map<String, Object>> updateStatus(@RequestBody AdminRequest admin){
+    public ResponseEntity<Map<String, Object>> updateStatus(@RequestBody AdminRequest admin) {
         try {
             final AdminListDTO data = adminService.updateStatusByAdminId(admin.getId(), admin.getScopeTenantId());
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Admin Status updated successfully",
-                    "data", data
-            ));
+                    "data", data));
         } catch (BusinessException e) {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", false);
