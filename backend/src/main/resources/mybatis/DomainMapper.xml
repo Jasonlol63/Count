@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.DomainDao">
+    <resultMap id="OwnerMap" type="com.eazycount.entity.Owner">
+        <result property="id" column="id"/>
+        <result property="ownerCode" column="owner_code"/>
+        <result property="name" column="name"/>
+        <result property="email" column="email"/>
+        <result property="password" column="password"/>
+        <result property="secondaryPassword" column="secondary_password"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <resultMap id="TenantMap" type="com.eazycount.entity.Tenant">
+        <result property="id" column="id"/>
+        <result property="tenantType" column="tenant_type"/>
+        <result property="code" column="code"/>
+        <result property="name" column="name"/>
+        <result property="ownerId" column="owner_id"/>
+        <result property="parentId" column="parent_id"/>
+        <result property="expirationDate" column="expiration_date"/>
+        <result property="feeShareAllocate" column="fee_share_allocations"/>
+        <result property="categoryCode" column="category_code" typeHandler="com.eazycount.handler.JsonStringListTypeHandler"/>
+        <result property="status" column="status"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <resultMap id="OwnerTenantDTOMap" type="com.eazycount.dto.OwnerTenantDTO">
+        <association property="owner" javaType="com.eazycount.entity.Owner">
+            <id property="id" column="ownerId"/>
+            <result property="ownerCode" column="ownerCode"/>
+            <result property="name" column="ownerName"/>
+            <result property="email" column="ownerEmail"/>
+            <result property="password" column="ownerPassword"/>
+            <result property="secondaryPassword" column="ownerSecondaryPassword"/>
+            <result property="createdBy" column="ownerCreatedBy"/>
+            <result property="createdAt" column="ownerCreatedAt"/>
+        </association>
+
+        <association property="tenant" javaType="com.eazycount.entity.Tenant">
+            <id property="id" column="tenantId"/>
+            <result property="tenantType" column="tenantType"/>
+            <result property="code" column="tenantCode"/>
+            <result property="name" column="tenantName"/>
+            <result property="parentId" column="tenantParentId"/>
+            <result property="expirationDate" column="tenantExpirationDate"/>
+            <result property="feeShareAllocate" column="tenantFeeShareAllocations"/>
+            <result property="categoryCode" column="tenantCategoryCode" typeHandler="com.eazycount.handler.JsonStringListTypeHandler"/>
+            <result property="status" column="tenantStatus"/>
+        </association>
+    </resultMap>
+
+    <!-- check duplicate use -->
+    <select id="findOwnerById" resultMap="OwnerMap">
+        select * from owner where id = #{id}
+    </select>
+
+    <select id="findTenantById" resultMap="TenantMap">
+        select * from tenant where id = #{id}
+    </select>
+
+    <select id="findTenantByCode" resultMap="TenantMap">
+        select * from tenant where code = #{code}
+    </select>
+
+    <!-- check tenant in this owner use when update/delete -->
+    <select id="findOwnerTenantByIdAndOwnerId" resultMap="TenantMap">
+        select * from tenant where id = #{id} and owner_id = #{ownerId}
+    </select>
+
+    <!-- List Domain Details use -->
+    <select id="findAllTenantsByOwner" resultMap="OwnerTenantDTOMap">
+        select
+        o.id                 as ownerId,
+        o.owner_code         as ownerCode,
+        o.name               as ownerName,
+        o.email              as ownerEmail,
+        o.password           as ownerPassword,
+        o.secondary_password as ownerSecondaryPassword,
+        o.created_by         as ownerCreatedBy,
+        o.created_at         as ownerCreatedAt,
+        t.id                 as tenantId,
+        t.tenant_type        as tenantType,
+        t.code               as tenantCode,
+        t.name               as tenantName,
+        t.parent_id          as tenantParentId,
+        t.expiration_date    as tenantExpirationDate,
+        t.fee_share_allocations as tenantFeeShareAllocations,
+        t.category_code      as tenantCategoryCode,
+        t.status             as tenantStatus
+        from owner o
+        left join tenant t on t.owner_id = o.id
+        <where>
+            <if test="ownerId != null">
+                o.id = #{ownerId}
+            </if>
+        </where>
+    </select>
+
+    <select id="findOwnerByCode" resultMap="OwnerMap">
+        select * from owner where owner_code = #{ownerCode}
+    </select>
+
+
+    <!-- insert details use -->
+    <insert id="insertOwnerDetails" useGeneratedKeys="true" keyProperty="id">
+        insert into owner (owner_code, name, email, password, secondary_password, created_by, created_at, updated_at)
+        values (#{ownerCode}, #{name}, #{email}, #{password}, #{secondaryPassword}, #{createdBy}, NOW())
+    </insert>
+
+    <insert id="insertTenantDetails" useGeneratedKeys="true" keyProperty="id">
+        insert into tenant (tenant_type, code, name, owner_id, parent_id, expiration_date, fee_share_allocations, category_code, status, created_by, created_at, updated_at)
+        values (#{tenantType}, #{code}, #{name}, #{ownerId}, #{parentId}, #{expirationDate}, #{feeShareAllocations}, #{categoryCode, typeHandler=com.eazycount.handler.JsonStringListTypeHandler} , #{status}, #{createdBy}, NOW(), NOW())
+    </insert>
+
+    <!-- update details use -->
+    <update id="updateOwnerDetails">
+        update owner
+        set name = #{name}, email = #{email}, password = #{password}, secondary_password = #{secondaryPassword}
+        where id = #{id}
+    </update>
+
+    <update id="updateTenantDetails">
+        update tenant
+        set tenant_type = #{tenantType}, code = #{code}, name = #{name}, parent_id = #{parentId}, expiration_date = #{expirationDate}, fee_share_allocations = #{feeShareAllocations},  category_code = #{categoryCode, typeHandler=com.eazycount.handler.JsonStringListTypeHandler}, status = #{status}
+        where id = #{id} and owner_id = #{ownerId}
+    </update>
+    
+</mapper>

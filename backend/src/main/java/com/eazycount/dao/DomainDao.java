@@ -1,4 +1,32 @@
 package com.eazycount.dao;
 
+import com.eazycount.dto.OwnerTenantDTO;
+import com.eazycount.entity.Owner;
+import com.eazycount.entity.Tenant;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+
+import java.util.List;
+
+@Mapper
 public interface DomainDao {
+    List<OwnerTenantDTO> findAllTenantsByOwner(@Param("ownerId") Integer ownerId);
+
+    Owner findOwnerById(@Param("id") Integer ownerId);
+
+    Owner findOwnerByCode(@Param("ownerCode") String ownerCode);
+
+    Tenant findTenantById(@Param("id") Integer id);
+
+    Tenant findTenantByCode(@Param("code") String code);
+
+    Tenant findOwnerTenantByIdAndOwnerId(@Param("id") Integer id, @Param("ownerId") Integer ownerId);
+
+    void insertOwnerDetails(Owner owner);
+
+    void insertTenantDetails(Tenant tenant);
+
+    void updateOwnerDetails(Owner owner);
+
+    void updateTenantDetails(Tenant tenant);
 }

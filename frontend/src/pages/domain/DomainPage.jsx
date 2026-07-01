@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { assetUrl, buildApiUrl } from "../../utils/core/apiUrl.js";
+import { fetchDomainList } from "./domainApi.js";
 import "../../../public/css/domain.css";
 import "../../../public/css/date-range-picker.css";
 import "../../../public/css/accountCSS.css";
@@ -91,20 +92,11 @@ export default function DomainPage() {
     let cancelled = false;
     (async () => {
       try {
-        const r2 = await fetch(buildApiUrl("api/domain/list"), {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-        });
-        const j2 = await r2.json();
-        if (!r2.ok || !j2?.success) {
-          if (!cancelled) setLoadError(j2?.message || t("failedToLoadDomainData"));
-          return;
-        }
-        if (!cancelled) setDomains(Array.isArray(j2?.data?.domains) ? j2.data.domains : []);
+        const data = await fetchDomainList();
+        if (!cancelled) setDomains(data);
         refreshFeeSummary();
-      } catch {
-        if (!cancelled) setLoadError(t("failedToLoadDomainData"));
+      } catch (err) {
+        if (!cancelled) setLoadError(err?.message || t("failedToLoadDomainData"));
       }
     })();
     return () => {
@@ -482,6 +474,7 @@ export default function DomainPage() {
           sessionCompanyId={me?.company_id ?? null}
           sessionCompanyCode={String(me?.company_code || "")}
           domainPeriodPrices={domainPeriodPrices}
+          domains={domains}
           onClose={() => setShowDomainForm(false)}
           onSaved={handleDomainSaved}
         />

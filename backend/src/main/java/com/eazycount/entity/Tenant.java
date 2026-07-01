@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -22,6 +23,7 @@ public class Tenant {
 
     private Integer id;
 
+    @JsonProperty("tenant_type")
     private TenantType tenantType;
 
     /** Login / business code e.g. AP, 95, C168 */
@@ -29,18 +31,24 @@ public class Tenant {
 
     private String name;
 
+    @JsonProperty("owner_id")
     private Integer ownerId;
 
     /** Subsidiary company → parent group tenant.id */
+    @JsonProperty("parent_id")
     private Integer parentId;
 
     /** Payload only (e.g. frontend group_id); resolved to parentId on save. */
+    @JsonProperty("parent_code")
     private String parentGroupCode;
 
+    @JsonProperty("expiration_date")
     private LocalDate expirationDate;
 
+    @JsonProperty("fee_share_allocate")
     private String feeShareAllocate;
 
+    @JsonProperty("category_code")
     private List<String> categoryCode;
 
     private TenantStatus status;
