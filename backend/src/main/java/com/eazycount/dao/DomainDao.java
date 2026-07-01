@@ -18,8 +18,6 @@ public interface DomainDao {
 
     Tenant findTenantById(@Param("id") Integer id);
 
-    Tenant findTenantByCode(@Param("code") String code);
-
     Tenant findOwnerTenantByIdAndOwnerId(@Param("id") Integer id, @Param("ownerId") Integer ownerId);
 
     void insertOwnerDetails(Owner owner);

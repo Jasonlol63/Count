@@ -16,6 +16,4 @@ public interface DomainService {
 
     DomainDTO createDomain(DomainDTO domainDTO);
 
-    void validateDomainCode(String code, Integer excludeOwnerId);
-
 }

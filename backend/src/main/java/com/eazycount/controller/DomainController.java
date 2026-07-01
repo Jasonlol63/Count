@@ -24,8 +24,7 @@ public class DomainController {
     private DomainService domainService;
 
     @PostMapping("/list")
-    public ResponseEntity<Map<String, Object>> list(
-            @RequestParam(value = "ownerId", required = false) Integer ownerId) {
+    public ResponseEntity<Map<String, Object>> list(@RequestParam(value = "ownerId", required = false) Integer ownerId) {
         try {
             final List<OwnerTenantDTO> data = domainService.findAllTenantsByOwner(ownerId);
             return ResponseEntity.ok(Map.of(

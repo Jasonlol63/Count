@@ -116,21 +116,26 @@ export default function DomainFormModal({
     showDomainAlert(message, "danger");
   }
 
-  /** 与库中任一 owner 的 company_id / group_id 冲突则失败；编辑时可排除当前 owner 已有行 */
+  /** Local duplicate check against all other owners in memory */
   function validateCodeGlobally(code) {
     const trimmed = String(code ?? "").trim().toUpperCase();
     if (!trimmed) return false;
 
-    // Direct in-memory search in domains prop
-    const isTaken = (domains || []).some((d) => {
-      // Exclude current owner when editing
+    const isTaken = domains.some((d) => {
+      // If editing, skip the owner currently being edited
       if (isEditMode && d.id === editingOwnerId) {
         return false;
       }
-      
-      const groupConflict = (d.groups || []).some(g => String(g.code || "").toUpperCase() === trimmed);
-      const companyConflict = (d.companies || []).some(c => String(c.code || "").toUpperCase() === trimmed);
-      
+
+      // Check for conflict in groups
+      const groupConflict = (d.groups || []).some(
+        (g) => String(g.code || "").toUpperCase() === trimmed
+      );
+      // Check for conflict in companies
+      const companyConflict = (d.companies || []).some(
+        (c) => String(c.code || "").toUpperCase() === trimmed
+      );
+
       return groupConflict || companyConflict;
     });
 
@@ -198,7 +203,7 @@ export default function DomainFormModal({
       toastDanger(t("companyIdAlreadyAdded"));
       return;
     }
-    if (!(await validateCodeGlobally(cid))) return;
+    if (!validateCodeGlobally(cid)) return;
     const isC168 = cid === "C168";
     const today = new Date().toISOString().split("T")[0];
     const newExpDate = isC168 ? null : calculateExpirationDate("1month", today);
@@ -244,7 +249,7 @@ export default function DomainFormModal({
       toastDanger(t("groupIdAlreadyExists"));
       return;
     }
-    if (!(await validateCodeGlobally(gid))) return;
+    if (!validateCodeGlobally(gid)) return;
     setTempGroups((prev) => [...prev, createEmptyGroup(gid)]);
     setGroupInput("");
     showDomainAlert(t("groupAdded", { gid }));
