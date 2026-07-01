@@ -78,7 +78,7 @@ public class DomainServiceImpl implements DomainService {
         if (session == null) {
             throw new BusinessException("Not logged in");
         }
-        if (tenant == null || tenant.getId() == null) {
+        if (tenant == null) {
             throw new BusinessException("Invalid Tenant");
         }
 
@@ -120,7 +120,7 @@ public class DomainServiceImpl implements DomainService {
 
         Map<String, Integer> groupCodeToIdMap = new HashMap<>();
         if (domainDTO.getGroups() != null && !domainDTO.getGroups().isEmpty()) {
-            for(Tenant group : domainDTO.getGroups()) {
+            for (Tenant group : domainDTO.getGroups()) {
                 group.setOwnerId(ownerId);
                 group.setTenantType(Tenant.TenantType.GROUP);
                 this.insertTenantDetails(group);
@@ -130,7 +130,7 @@ public class DomainServiceImpl implements DomainService {
         }
 
         if (domainDTO.getCompanies() != null && !domainDTO.getCompanies().isEmpty()) {
-            for(Tenant company : domainDTO.getCompanies()) {
+            for (Tenant company : domainDTO.getCompanies()) {
                 company.setOwnerId(ownerId);
                 company.setTenantType(Tenant.TenantType.COMPANY);
                 String parentGroupCode = company.getParentGroupCode();
@@ -140,26 +140,12 @@ public class DomainServiceImpl implements DomainService {
                         company.setParentId(parentId);
                     }
                 }
-                
+
                 this.insertTenantDetails(company);
             }
         }
 
         return domainDTO;
-    }
-
-    @Override
-    public void validateDomainCode(String code, Integer excludeOwnerId) {
-        if (code == null || code.isBlank()) {
-            throw new BusinessException("Code is required");
-        }
-        String cleanCode = code.trim().toUpperCase();
-        Tenant tenant = domainDao.findTenantByCode(cleanCode);
-        if (tenant != null) {
-            if (excludeOwnerId == null || !tenant.getOwnerId().equals(excludeOwnerId)) {
-                throw new BusinessException("ID already exists!");
-            }
-        }
     }
 
 }

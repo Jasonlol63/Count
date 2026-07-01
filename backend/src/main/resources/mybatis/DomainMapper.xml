@@ -62,10 +62,6 @@
         select * from tenant where id = #{id}
     </select>
 
-    <select id="findTenantByCode" resultMap="TenantMap">
-        select * from tenant where code = #{code}
-    </select>
-
     <!-- check tenant in this owner use when update/delete -->
     <select id="findOwnerTenantByIdAndOwnerId" resultMap="TenantMap">
         select * from tenant where id = #{id} and owner_id = #{ownerId}
@@ -107,13 +103,13 @@
 
     <!-- insert details use -->
     <insert id="insertOwnerDetails" useGeneratedKeys="true" keyProperty="id">
-        insert into owner (owner_code, name, email, password, secondary_password, created_by, created_at, updated_at)
-        values (#{ownerCode}, #{name}, #{email}, #{password}, #{secondaryPassword}, #{createdBy}, NOW())
+        insert into owner (owner_code, name, email, password, secondary_password, created_by, created_at)
+        values (#{ownerCode}, #{name}, #{email}, #{password}, #{secondaryPassword}, #{createdBy}, NOW())    
     </insert>
 
     <insert id="insertTenantDetails" useGeneratedKeys="true" keyProperty="id">
-        insert into tenant (tenant_type, code, name, owner_id, parent_id, expiration_date, fee_share_allocations, category_code, status, created_by, created_at, updated_at)
-        values (#{tenantType}, #{code}, #{name}, #{ownerId}, #{parentId}, #{expirationDate}, #{feeShareAllocations}, #{categoryCode, typeHandler=com.eazycount.handler.JsonStringListTypeHandler} , #{status}, #{createdBy}, NOW(), NOW())
+        insert into tenant (tenant_type, code, name, owner_id, parent_id, expiration_date, fee_share_allocations, category_code, status, created_by, created_at)
+        values (#{tenantType}, #{code}, #{name}, #{ownerId}, #{parentId}, #{expirationDate}, #{feeShareAllocate}, #{categoryCode, typeHandler=com.eazycount.handler.JsonStringListTypeHandler} , #{status}, #{createdBy}, NOW())
     </insert>
 
     <!-- update details use -->
