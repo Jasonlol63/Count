@@ -84,6 +84,7 @@ export default function DomainFormModal({
   lang = "en",
   isEditMode, editingDomain, hasC168Context, isOwnerOrAdmin,
   sessionCompanyId, sessionCompanyCode, domainPeriodPrices,
+  domains = [],
   onClose, onSaved,
 }) {
   const isZh = lang === "zh";
@@ -115,34 +116,29 @@ export default function DomainFormModal({
     showDomainAlert(message, "danger");
   }
 
-  /** 与库中任一 owner 的 company_id / group_id 冲突则失败；编辑时可排除当前 owner 已有行（见 domain_api validate_domain_code） */
-  async function validateCodeGlobally(code) {
-    const trimmed = String(code ?? "").trim();
+  /** 与库中任一 owner 的 company_id / group_id 冲突则失败；编辑时可排除当前 owner 已有行 */
+  function validateCodeGlobally(code) {
+    const trimmed = String(code ?? "").trim().toUpperCase();
     if (!trimmed) return false;
-    try {
-      const payload = {
-        action: "validate_domain_code",
-        code: trimmed,
-      };
-      if (isEditMode && editingOwnerId != null && editingOwnerId > 0) {
-        payload.exclude_owner_id = editingOwnerId;
-      }
-      const res = await fetch(buildApiUrl("api/domain/validate-code"), {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        toastDanger(json.message || t("operationFailed"));
+
+    // Direct in-memory search in domains prop
+    const isTaken = (domains || []).some((d) => {
+      // Exclude current owner when editing
+      if (isEditMode && d.id === editingOwnerId) {
         return false;
       }
-      return true;
-    } catch {
-      toastDanger(t("validateDomainCodeUnavailable"));
+      
+      const groupConflict = (d.groups || []).some(g => String(g.code || "").toUpperCase() === trimmed);
+      const companyConflict = (d.companies || []).some(c => String(c.code || "").toUpperCase() === trimmed);
+      
+      return groupConflict || companyConflict;
+    });
+
+    if (isTaken) {
+      toastDanger(t("groupIdAlreadyExists") || "ID already exists!");
       return false;
     }
+    return true;
   }
 
   const showSecondaryPwd =

@@ -11,41 +11,78 @@ async function postJson(path, body) {
   return { res, json };
 }
 
-/** Map Spring Boot DomainListItemDto → legacy Domain page row shape. */
-export function mapDomainListItemFromApi(item) {
-  const groups = Array.isArray(item?.groups) ? item.groups : [];
-  const companies = Array.isArray(item?.companies) ? item.companies : [];
-  const groupCodes = groups
-    .map((g) => String(g?.code ?? "").trim().toUpperCase())
-    .filter(Boolean)
-    .sort();
-  const companiesFull = companies
-    .map((c) => {
-      const companyId = String(c?.code ?? "").trim().toUpperCase();
-      if (!companyId) return null;
-      const parent = c?.parent_code ?? c?.parentCode ?? null;
-      return {
-        company_id: companyId,
-        expiration_date: c?.expiration_date ?? c?.expirationDate ?? null,
-        group_id: parent ? String(parent).trim().toUpperCase() : null,
-      };
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.company_id.localeCompare(b.company_id));
+/**
+ * Aggregate a flat List<OwnerTenantDTO> from Spring Boot
+ * (each row = { owner:{...}, tenant:{...} }) into the shape the UI expects:
+ * one entry per owner with groups[] and companies[].
+ */
+function aggregateOwnerTenantRows(rows) {
+  const ownerMap = new Map();
 
-  return {
-    id: item?.id,
-    owner_code: item?.owner_code ?? item?.ownerCode,
-    name: item?.name,
-    email: item?.email,
-    created_by: item?.created_by ?? item?.createdBy,
-    created_at: item?.created_at ?? item?.createdAt,
-    group_ids: groupCodes.length ? groupCodes.join(", ") : null,
-    companies_full: companiesFull,
-    companies: companiesFull.map((c) => c.company_id).join(", "),
-    _api_groups: groups,
-    _api_companies: companies,
-  };
+  for (const row of rows) {
+    const o = row?.owner;
+    const t = row?.tenant;
+    if (!o?.id) continue;
+
+    if (!ownerMap.has(o.id)) {
+      ownerMap.set(o.id, {
+        id: o.id,
+        owner_code: o.ownerCode ?? o.owner_code ?? "",
+        name: o.name ?? "",
+        email: o.email ?? "",
+        created_by: o.createdBy ?? o.created_by ?? "",
+        created_at: o.createdAt ?? o.created_at ?? null,
+        groups: [],
+        companies: [],
+      });
+    }
+
+    const entry = ownerMap.get(o.id);
+
+    if (t?.id) {
+      const type = String(t.tenantType ?? t.tenant_type ?? "").toUpperCase();
+      const code = String(t.code ?? "").trim().toUpperCase();
+      const expDate = t.expirationDate ?? t.expiration_date ?? null;
+
+      if (type === "GROUP") {
+        entry.groups.push({ code, expiration_date: expDate });
+      } else if (type === "COMPANY") {
+        // resolve parent code: look up parentId among the groups already known
+        // parent_code will be patched in a second pass below
+        entry.companies.push({
+          code,
+          expiration_date: expDate,
+          _parentId: t.parentId ?? t.parent_id ?? null,
+        });
+      }
+    }
+  }
+
+  // Build a tenantId → code lookup from all groups for parent resolution
+  const tenantIdToCode = new Map();
+  for (const row of rows) {
+    const t = row?.tenant;
+    if (t?.id && t?.code) {
+      tenantIdToCode.set(t.id, String(t.code).trim().toUpperCase());
+    }
+  }
+
+  // Patch parent_code on companies and clean up internal field
+  for (const entry of ownerMap.values()) {
+    entry.companies = entry.companies.map((c) => {
+      const parentCode = c._parentId ? (tenantIdToCode.get(c._parentId) ?? null) : null;
+      return {
+        code: c.code,
+        expiration_date: c.expiration_date,
+        parent_code: parentCode,
+      };
+    });
+    // Sort for stable display
+    entry.groups.sort((a, b) => a.code.localeCompare(b.code));
+    entry.companies.sort((a, b) => a.code.localeCompare(b.code));
+  }
+
+  return Array.from(ownerMap.values());
 }
 
 export async function fetchDomainList() {
@@ -53,8 +90,8 @@ export async function fetchDomainList() {
   if (!res.ok || !json?.success) {
     throw new Error(json?.message || "Failed to load domains");
   }
-  const rows = Array.isArray(json?.data?.domains) ? json.data.domains : [];
-  return rows.map(mapDomainListItemFromApi);
+  const rawRows = Array.isArray(json?.data) ? json.data : [];
+  return aggregateOwnerTenantRows(rawRows);
 }
 
 export async function validateDomainCode(code, excludeOwnerId) {
