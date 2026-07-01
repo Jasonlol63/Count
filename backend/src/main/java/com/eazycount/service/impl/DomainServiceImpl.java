@@ -4,6 +4,7 @@ import com.eazycount.common.BusinessException;
 import com.eazycount.dao.DomainDao;
 import com.eazycount.dto.DomainDTO;
 import com.eazycount.dto.OwnerTenantDTO;
+import com.eazycount.entity.DomainFee;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
 import com.eazycount.security.SecurityUtils;
@@ -57,6 +58,10 @@ public class DomainServiceImpl implements DomainService {
             Owner existing = domainDao.findOwnerByCode(owner.getOwnerCode().trim().toUpperCase());
             if (existing != null) {
                 throw new BusinessException("Owner Code already exists!");
+            }
+
+            if (session.login_id != null) {
+                owner.setCreatedBy(session.login_id);
             }
             owner.setOwnerCode(owner.getOwnerCode().trim().toUpperCase());
             owner.setName(owner.getName());
@@ -148,4 +153,44 @@ public class DomainServiceImpl implements DomainService {
         return domainDTO;
     }
 
+    @Override
+    public List<DomainFee> findAllDomainFee() {
+        List<DomainFee> list = domainDao.findAllDomainFee();
+
+        if (list == null || list.isEmpty()) {
+            DomainFee defaultFee = new DomainFee();
+            defaultFee.setId(1);
+            defaultFee.setCompanyPrice(new DomainFee.PriceMap());
+            defaultFee.setGroupPrice(new DomainFee.PriceMap());
+            domainDao.insertDomainFee(defaultFee);
+            return List.of(defaultFee);
+        }
+
+        return list;
+    }
+
+    @Override
+    public DomainFee updateDomainFee(DomainFee domainFee) {
+        if (domainFee == null) {
+            throw new BusinessException("Invalid Domain Fee");
+        }
+
+        domainFee.setId(1);
+
+        if (domainFee.getCompanyPrice() == null) {
+            domainFee.setCompanyPrice(new DomainFee.PriceMap());
+        }
+
+        if (domainFee.getGroupPrice() == null) {
+            domainFee.setGroupPrice(new DomainFee.PriceMap());
+        }
+
+        List<DomainFee> existing = domainDao.findAllDomainFee();
+        if (existing == null || existing.isEmpty()) {
+            domainDao.insertDomainFee(domainFee);
+        } else {
+            domainDao.updateDomainFee(domainFee);
+        }
+        return domainFee;
+    }
 }

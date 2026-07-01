@@ -28,6 +28,14 @@
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
 
+    <!-- Domain Fee Setting -->
+    <resultMap id="DomainFeeMap" type="com.eazycount.entity.DomainFee">
+        <result property="id" column="id"/>
+        <result property="companyPrice" column="company_price" typeHandler="com.eazycount.config.mybatis.PriceMapTypeHandler"/>
+        <result property="groupPrice" column="group_price" typeHandler="com.eazycount.config.mybatis.PriceMapTypeHandler"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
     <resultMap id="OwnerTenantDTOMap" type="com.eazycount.dto.OwnerTenantDTO">
         <association property="owner" javaType="com.eazycount.entity.Owner">
             <id property="id" column="ownerId"/>
@@ -124,5 +132,20 @@
         set tenant_type = #{tenantType}, code = #{code}, name = #{name}, parent_id = #{parentId}, expiration_date = #{expirationDate}, fee_share_allocations = #{feeShareAllocations},  category_code = #{categoryCode, typeHandler=com.eazycount.handler.JsonStringListTypeHandler}, status = #{status}
         where id = #{id} and owner_id = #{ownerId}
     </update>
-    
+
+    <!-- Domain Fee Setting -->
+    <select id="findAllDomainFee" resultMap="DomainFeeMap">
+        select * from domain_list_fee_settings
+    </select>
+
+    <insert id="insertDomainFee">
+        insert into domain_list_fee_settings (id, company_price, group_price, updated_at)
+        values (#{id}, #{companyPrice, typeHandler=com.eazycount.config.mybatis.PriceMapTypeHandler}, #{groupPrice, typeHandler=com.eazycount.config.mybatis.PriceMapTypeHandler}, NOW())
+    </insert>
+
+    <update id="updateDomainFee">
+        update domain_list_fee_settings
+        set company_price = #{companyPrice, typeHandler=com.eazycount.config.mybatis.PriceMapTypeHandler}, group_price = #{groupPrice, typeHandler=com.eazycount.config.mybatis.PriceMapTypeHandler}, updated_at = NOW()
+        where id = #{id}
+    </update>
 </mapper>

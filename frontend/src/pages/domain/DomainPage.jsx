@@ -106,15 +106,14 @@ export default function DomainPage() {
 
   // ── Fee summary ────────────────────────────────────────────────────────────
   function refreshFeeSummary() {
-    fetch(buildApiUrl("api/domain/domain_api.php"), {
+    fetch(buildApiUrl("api/domain/list-fee"), {
       cache: "no-cache", method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "get_domain_fee_settings" }),
     })
       .then((r) => r.json())
       .then((res) => {
-        if (res.success && res.data) {
-          setDomainPeriodPrices(normalizeDomainFeeSettingsFromApi(res.data));
+        if (res.success && res.data && res.data.length > 0) {
+          setDomainPeriodPrices(normalizeDomainFeeSettingsFromApi(res.data[0]));
         }
       })
       .catch(() => {});
