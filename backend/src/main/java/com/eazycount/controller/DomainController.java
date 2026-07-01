@@ -2,6 +2,7 @@ package com.eazycount.controller;
 
 import com.eazycount.common.BusinessException;
 import com.eazycount.dto.OwnerTenantDTO;
+import com.eazycount.entity.DomainFee;
 import com.eazycount.service.DomainService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -48,6 +49,40 @@ public class DomainController {
                     "success", true,
                     "message", "Owner created successfully",
                     "data", data));
+        } catch (BusinessException e) {
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", false);
+            body.put("message", e.getMessage());
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        }
+    }
+
+    @PostMapping("/list-fee")
+    public ResponseEntity<Map<String, Object>> listFee() {
+        try{
+            List<DomainFee> domainFees = domainService.findAllDomainFee();
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Domain Fee retrieved successfully",
+                    "data", domainFees));
+        } catch (BusinessException e) {
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", false);
+            body.put("message", e.getMessage());
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        }
+    }
+
+    @PostMapping("/add-fee")
+    public ResponseEntity<Map<String, Object>> Insertfee(@RequestBody DomainFee domainFee) {
+        try{
+            DomainFee fee = domainService.updateDomainFee(domainFee);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Domain Fee updated successfully",
+                    "data", fee));
         } catch (BusinessException e) {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", false);

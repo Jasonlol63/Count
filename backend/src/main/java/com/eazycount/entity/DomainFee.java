@@ -14,9 +14,11 @@ import java.time.LocalDateTime;
 public class DomainFee {
 
     private Integer id;
+    @JsonProperty("company_period_prices")
     private PriceMap companyPrice;
+    @JsonProperty("group_period_prices")
     private PriceMap groupPrice;
-    private LocalDateTime updatedTime;
+    private LocalDateTime updatedAt;
 
     @Getter
     @Setter
