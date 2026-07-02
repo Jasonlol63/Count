@@ -22,6 +22,8 @@ public interface DomainDao {
 
     Tenant findOwnerTenantByIdAndOwnerId(@Param("id") Integer id, @Param("ownerId") Integer ownerId);
 
+    Tenant findTenantByCodeAndOwnerId(@Param("code") String code, @Param("ownerId") Integer ownerId);
+
     /*Create and Update Owner and Tenant*/
     void insertOwnerDetails(Owner owner);
 

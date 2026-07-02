@@ -16,7 +16,15 @@ public interface DomainService {
 
     void insertTenantDetails(Tenant tenant);
 
+    void updateOwnerDetails(Owner owner);
+
+    void updateTenantDetails(Tenant tenant);
+
+    void updateTenantDetailsSetting(Tenant tenant);
+
     DomainDTO createDomain(DomainDTO domainDTO);
+
+    DomainDTO updateDomain(DomainDTO domainDTO);
 
     /*List and Update Domain Fee*/
     List<DomainFee> findAllDomainFee();

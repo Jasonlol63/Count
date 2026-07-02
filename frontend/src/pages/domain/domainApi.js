@@ -11,6 +11,17 @@ async function postJson(path, body) {
   return { res, json };
 }
 
+async function putJson(path, body) {
+  const res = await fetch(buildApiUrl(path), {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: body != null ? JSON.stringify(body) : undefined,
+  });
+  const json = await res.json().catch(() => ({}));
+  return { res, json };
+}
+
 /**
  * Aggregate a flat List<OwnerTenantDTO> from Spring Boot
  * (each row = { owner:{...}, tenant:{...} }) into the shape the UI expects:
@@ -43,15 +54,23 @@ function aggregateOwnerTenantRows(rows) {
       const type = String(t.tenantType ?? t.tenant_type ?? "").toUpperCase();
       const code = String(t.code ?? "").trim().toUpperCase();
       const expDate = t.expirationDate ?? t.expiration_date ?? null;
+      const catCode = t.categoryCode ?? t.category_code ?? [];
 
       if (type === "GROUP") {
-        entry.groups.push({ code, expiration_date: expDate });
+        entry.groups.push({
+          id: t.id,
+          code,
+          expiration_date: expDate,
+          category_code: catCode,
+        });
       } else if (type === "COMPANY") {
         // resolve parent code: look up parentId among the groups already known
         // parent_code will be patched in a second pass below
         entry.companies.push({
+          id: t.id,
           code,
           expiration_date: expDate,
+          category_code: catCode,
           _parentId: t.parentId ?? t.parent_id ?? null,
         });
       }
@@ -72,9 +91,11 @@ function aggregateOwnerTenantRows(rows) {
     entry.companies = entry.companies.map((c) => {
       const parentCode = c._parentId ? (tenantIdToCode.get(c._parentId) ?? null) : null;
       return {
+        id: c.id,
         code: c.code,
         expiration_date: c.expiration_date,
         parent_code: parentCode,
+        category_code: c.category_code || [],
       };
     });
     // Sort for stable display
@@ -135,6 +156,47 @@ export async function createDomain({
     secondary_password: secondaryPassword,
     groups: (groups || []).map(toGroupSaveDto),
     companies: (companies || []).map(toCompanySaveDto),
+  });
+  return json;
+}
+
+export async function updateDomain({
+  id,
+  ownerCode,
+  name,
+  email,
+  password,
+  secondaryPassword,
+  groups,
+  companies,
+}) {
+  const body = {
+    id,
+    owner_code: ownerCode,
+    name,
+    email,
+    groups: (groups || []).map(toGroupSaveDto),
+    companies: (companies || []).map(toCompanySaveDto),
+  };
+  if (password) body.password = password;
+  if (secondaryPassword) body.secondary_password = secondaryPassword;
+  const { json } = await putJson("api/domain/update", body);
+  return json;
+}
+
+export async function updateTenantSetting({
+  id,
+  code,
+  ownerId,
+  expirationDate,
+  categoryCode,
+}) {
+  const { json } = await putJson("api/domain/update-setting", {
+    id,
+    code,
+    owner_id: ownerId,
+    expiration_date: expirationDate,
+    category_code: categoryCode,
   });
   return json;
 }

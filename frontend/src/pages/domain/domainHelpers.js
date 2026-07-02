@@ -288,6 +288,7 @@ export function groupFromApiRow(row) {
 export function groupFromListItem(row) {
   const code = String(row?.code ?? "").trim().toUpperCase();
   const g = {
+    id: row?.id || null,
     group_code: code,
     expiration_date: row?.expiration_date || null,
     permissions: [],
@@ -307,9 +308,10 @@ export function companyFromListItem(row) {
   const code = String(row?.code ?? "").trim().toUpperCase();
   const parentCode = String(row?.parent_code ?? "").trim().toUpperCase();
   const co = {
+    id: row?.id || null,
     company_id: code,
     expiration_date: row?.expiration_date || null,
-    permissions: [],
+    permissions: row?.category_code || [],
     group_id: parentCode || null,
     fee_share_allocations: defaultFeeShareAllocations(),
   };

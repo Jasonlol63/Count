@@ -3,14 +3,11 @@ package com.eazycount.controller;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dto.OwnerTenantDTO;
 import com.eazycount.entity.DomainFee;
+import com.eazycount.entity.Tenant;
 import com.eazycount.service.DomainService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import com.eazycount.dto.DomainDTO;
 
 import java.util.LinkedHashMap;
@@ -49,6 +46,43 @@ public class DomainController {
                     "success", true,
                     "message", "Owner created successfully",
                     "data", data));
+        } catch (BusinessException e) {
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", false);
+            body.put("message", e.getMessage());
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        }
+    }
+
+    @PutMapping("/update-setting")
+    public ResponseEntity<Map<String, Object>> updateSetting(@RequestBody Tenant tenant) {
+        try{
+            domainService.updateTenantDetailsSetting(tenant);
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "Domain setting updated successfully");
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", false);
+            body.put("message", e.getMessage());
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        }
+    }
+
+
+    @PutMapping("/update")
+    public ResponseEntity<Map<String, Object>> update(@RequestBody DomainDTO domainDTO) {
+        try {
+            DomainDTO data = domainService.updateDomain(domainDTO);
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "Domain updated successfully");
+            body.put("data", data);
+            return ResponseEntity.ok(body);
         } catch (BusinessException e) {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", false);
