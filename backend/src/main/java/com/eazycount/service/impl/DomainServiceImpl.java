@@ -1,12 +1,13 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
+import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.DomainDao;
+import com.eazycount.dao.UserDao;
 import com.eazycount.dto.DomainDTO;
 import com.eazycount.dto.OwnerTenantDTO;
-import com.eazycount.entity.DomainFee;
-import com.eazycount.entity.Owner;
-import com.eazycount.entity.Tenant;
+import com.eazycount.dto.UserListDTO;
+import com.eazycount.entity.*;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.DomainService;
@@ -18,14 +19,22 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class DomainServiceImpl implements DomainService {
 
     @Autowired
     private DomainDao domainDao;
+
+    @Autowired
+    private UserDao userDao;
+
+    @Autowired
+    private CurrencyDao currencyDao;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -222,6 +231,62 @@ public class DomainServiceImpl implements DomainService {
         }
     }
 
+    @Override
+    @Transactional
+    public void deleteOwnerDetails(Owner owner) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (owner == null) {
+            throw new BusinessException("Invalid Owner");
+        }
+
+        List<OwnerTenantDTO> tenants = domainDao.findAllTenantsByOwner(owner.getId());
+        if (tenants != null && !tenants.isEmpty()) {
+            for (OwnerTenantDTO dto : tenants) {
+                Tenant tenant = dto.getTenant();
+                if (tenant != null && tenant.getId() != null) {
+                    tenant.setOwnerId(owner.getId());
+                    this.deleteTenantDetails(tenant);
+                }
+            }
+        }
+
+        try {
+            domainDao.deleteOwnerDetails(owner);
+        } catch (Exception e) {
+            throw new BusinessException("Delete Owner Failed!");
+        }
+    }
+
+    @Override
+    @Transactional
+    public void deleteTenantDetails(Tenant tenant) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (tenant == null) {
+            throw new BusinessException("Invalid Tenant");
+        }
+        Tenant findTenantOwner = domainDao.findOwnerTenantByIdAndOwnerId(tenant.getId(), tenant.getOwnerId());
+        if (findTenantOwner == null) {
+            throw new BusinessException("Invalid Tenant ID or Owner ID!");
+        }
+
+        if (findTenantOwner.getCode().equals("C168")
+                && findTenantOwner.getTenantType().equals(Tenant.TenantType.COMPANY)) {
+            throw new BusinessException("C168 Company cannot be deleted!");
+        }
+
+        try {
+            domainDao.deleteTenantDetails(tenant);
+        } catch (Exception e) {
+            throw new BusinessException("Delete Tenant Failed!");
+        }
+    }
+
     @Transactional
     @Override
     public DomainDTO createDomain(DomainDTO domainDTO) {
@@ -232,6 +297,8 @@ public class DomainServiceImpl implements DomainService {
         Integer ownerId = owner.getId();
         domainDTO.setId(ownerId);
 
+        Tenant c168Tenant = domainDao.findTenantByCodeAndOwnerId("C168", 1);
+
         Map<String, Integer> groupCodeToIdMap = new HashMap<>();
         if (domainDTO.getGroups() != null && !domainDTO.getGroups().isEmpty()) {
             for (Tenant group : domainDTO.getGroups()) {
@@ -241,6 +308,8 @@ public class DomainServiceImpl implements DomainService {
                 group.setName(group.getCode());
                 this.insertTenantDetails(group);
                 groupCodeToIdMap.put(group.getCode(), group.getId());
+
+                this.createAccountTenantInC168(group, c168Tenant.getId());
             }
 
         }
@@ -259,6 +328,8 @@ public class DomainServiceImpl implements DomainService {
 
                 company.setName(company.getCode());
                 this.insertTenantDetails(company);
+
+                this.createAccountTenantInC168(company, c168Tenant.getId());
             }
         }
 
@@ -281,6 +352,50 @@ public class DomainServiceImpl implements DomainService {
         this.updateOwnerDetails(owner);
 
         Integer ownerId = owner.getId();
+
+        Set<String> incomingCodes = new HashSet<>();
+        if (domainDTO.getGroups() != null) {
+            for (Tenant g : domainDTO.getGroups()) {
+                if (g.getCode() != null) {
+                    incomingCodes.add(g.getCode().trim().toUpperCase());
+                }
+            }
+        }
+        if (domainDTO.getCompanies() != null) {
+            for (Tenant c : domainDTO.getCompanies()) {
+                if (c.getCode() != null) {
+                    incomingCodes.add(c.getCode().trim().toUpperCase());
+                }
+            }
+        }
+
+        List<OwnerTenantDTO> existingTenants = domainDao.findAllTenantsByOwner(ownerId);
+        if (existingTenants != null && !existingTenants.isEmpty()) {
+            for (OwnerTenantDTO dto : existingTenants) {
+                Tenant tenant = dto.getTenant();
+                if (tenant != null && tenant.getId() != null && tenant.getCode() != null) {
+                    String dbCode = tenant.getCode().trim().toUpperCase();
+                    if (!incomingCodes.contains(dbCode)) {
+                        tenant.setOwnerId(ownerId);
+                        this.deleteTenantDetails(tenant);
+                    }
+                }
+            }
+        }
+
+        Tenant c168Tenant = domainDao.findTenantByCodeAndOwnerId("C168", 1);
+        Integer c168TenantId = (c168Tenant != null) ? c168Tenant.getId() : 2;
+
+        // 1. 批量查出 C168 下所有已拥有的账号名（Code），避免在循环中重复查询数据库
+        Set<String> existingAccountCodes = new HashSet<>();
+        List<UserListDTO> c168Users = userDao.findUserByTenantId(c168TenantId);
+        if (c168Users != null) {
+            for (UserListDTO u : c168Users) {
+                if (u.getAccountId() != null) {
+                    existingAccountCodes.add(u.getAccountId().trim().toUpperCase());
+                }
+            }
+        }
 
         Map<String, Integer> groupCodeToIdMap = new HashMap<>();
         if (domainDTO.getGroups() != null && !domainDTO.getGroups().isEmpty()) {
@@ -309,6 +424,11 @@ public class DomainServiceImpl implements DomainService {
                     if (group.getId() != null) {
                         groupCodeToIdMap.put(groupCode, group.getId());
                     }
+                }
+
+                if (groupCode != null && !existingAccountCodes.contains(groupCode)) {
+                    this.createAccountTenantInC168(group, c168TenantId);
+                    existingAccountCodes.add(groupCode);
                 }
             }
         }
@@ -342,6 +462,11 @@ public class DomainServiceImpl implements DomainService {
                 } else {
                     company.setName(company.getCode());
                     this.insertTenantDetails(company);
+                }
+
+                if (companyCode != null && !existingAccountCodes.contains(companyCode)) {
+                    this.createAccountTenantInC168(company, c168TenantId);
+                    existingAccountCodes.add(companyCode);
                 }
             }
         }
@@ -388,5 +513,54 @@ public class DomainServiceImpl implements DomainService {
             domainDao.updateDomainFee(domainFee);
         }
         return domainFee;
+    }
+
+    private void createAccountTenantInC168(Tenant tenant, Integer c168TenantId) {
+        if (tenant == null || tenant.getId() == null || tenant.getCode() == null) {
+            return;
+        }
+
+        String code = tenant.getCode().trim().toUpperCase();
+
+        try {
+            User user = new User();
+            user.setAccountId(code);
+            user.setName(code);
+            user.setRole("MEMBER");
+            user.setPassword(passwordEncoder.encode("111"));
+            user.setStatus(User.AccountStatus.ACTIVE);
+            user.setPaymentAlert(0);
+            userDao.addUserDetails(user);
+
+            if (user.getId() != null) {
+                UserTenantAccess userTenantAccess = new UserTenantAccess();
+                userTenantAccess.setAccountId(user.getId());
+                userTenantAccess.setTenantId(c168TenantId);
+                userDao.insertAccountTenantAccess(userTenantAccess);
+
+                Integer myrCurrencyId = null;
+                List<Currency> currencyList = currencyDao.findCurrencyByTenantId(c168TenantId);
+                if (currencyList != null) {
+                    for (Currency curr : currencyList) {
+                        if ("MYR".equalsIgnoreCase(curr.getCode())) {
+                            myrCurrencyId = curr.getId();
+                            break;
+                        }
+                    }
+                }
+                if (myrCurrencyId == null) {
+                    myrCurrencyId = 6;
+                }
+
+                UserCurrency userCurrency = new UserCurrency();
+                userCurrency.setAccountId(user.getId());
+                userCurrency.setTenantId(c168TenantId);
+                userCurrency.setCurrencyId(myrCurrencyId);
+                userCurrency.setSortOrder(0);
+                currencyDao.insertAccountCurrency(userCurrency);
+            }
+        } catch (Exception e) {
+            System.err.println("Auto Create Account Failed for code: " + code + ", error: " + e.getMessage());
+        }
     }
 }

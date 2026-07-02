@@ -12,6 +12,7 @@ public interface DomainService {
     /*List Owner and Tenant Details*/
     List<OwnerTenantDTO> findAllTenantsByOwner(Integer ownerId);
 
+    /*Insert, Update and Delete Owner and Tenant Details*/
     void insertOwnerDetails(Owner owner);
 
     void insertTenantDetails(Tenant tenant);
@@ -22,6 +23,11 @@ public interface DomainService {
 
     void updateTenantDetailsSetting(Tenant tenant);
 
+    void deleteOwnerDetails(Owner owner);
+
+    void deleteTenantDetails(Tenant tenant);
+
+    /*Main Domain CRUD*/
     DomainDTO createDomain(DomainDTO domainDTO);
 
     DomainDTO updateDomain(DomainDTO domainDTO);
