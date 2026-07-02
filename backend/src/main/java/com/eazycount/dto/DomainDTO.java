@@ -40,6 +40,11 @@ public class DomainDTO {
     @JsonProperty("created_at")
     private LocalDateTime createdAt;
 
+    @JsonProperty("tenant_type")
+    private Tenant.TenantType tenantType;
+
+    private Integer parentId;
+
     private List<Tenant> groups;
 
     private List<Tenant> companies;

@@ -75,6 +75,11 @@
         select * from tenant where id = #{id} and owner_id = #{ownerId}
     </select>
 
+    <!-- check/find tenant by code + owner for updateDomain upsert -->
+    <select id="findTenantByCodeAndOwnerId" resultMap="TenantMap">
+        select * from tenant where code = #{code} and owner_id = #{ownerId}
+    </select>
+
     <!-- List Domain Details use -->
     <select id="findAllTenantsByOwner" resultMap="OwnerTenantDTOMap">
         select
@@ -129,7 +134,15 @@
 
     <update id="updateTenantDetails">
         update tenant
-        set tenant_type = #{tenantType}, code = #{code}, name = #{name}, parent_id = #{parentId}, expiration_date = #{expirationDate}, fee_share_allocations = #{feeShareAllocations},  category_code = #{categoryCode, typeHandler=com.eazycount.handler.JsonStringListTypeHandler}, status = #{status}
+        set tenant_type = #{tenantType},
+            code = #{code},
+            name = #{name},
+            parent_id = #{parentId},
+            expiration_date = #{expirationDate},
+            fee_share_allocations = #{feeShareAllocate},
+            category_code = #{categoryCode, typeHandler=com.eazycount.handler.JsonStringListTypeHandler},
+            status = #{status},
+            updated_at = NOW()
         where id = #{id} and owner_id = #{ownerId}
     </update>
 

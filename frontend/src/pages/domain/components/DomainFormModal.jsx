@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { buildApiUrl } from "../../../utils/core/apiUrl.js";
+import { updateDomain } from "../domainApi.js";
 import { notifySessionRefreshRequested } from "../../../utils/company/companySessionEvents.js";
 import { showDomainAlert } from "./DomainNotification.jsx";
 import { useSubmitGuard } from "../../../hooks/useSubmitGuard.js";
@@ -379,47 +380,43 @@ export default function DomainFormModal({
       return;
     }
 
-    const saveUrl = isEditMode
-      ? buildApiUrl("api/domain/update")
-      : buildApiUrl("api/domain/add");
-
     if (isEditMode && (editingOwnerId == null || editingOwnerId <= 0)) {
       toastDanger(t("operationFailed"));
       return;
     }
 
-    const data = isEditMode
-      ? {
-          id: editingOwnerId,
-          owner_code: ownerCode,
-          name,
-          email: emailCheck.normalized,
-          groups: buildGroupsPayload().map(groupToTenantSaveEntry),
-          companies: buildCompaniesPayload().map(companyToTenantSaveEntry),
-        }
-      : {
-          owner_code: ownerCode,
-          name,
-          email: emailCheck.normalized,
-          password,
-          secondary_password: secondaryPassword,
-          groups: buildGroupsPayload().map(groupToTenantSaveEntry),
-          companies: buildCompaniesPayload().map(companyToTenantSaveEntry),
-        };
-
-    if (isEditMode) {
-      if (password) data.password = password;
-      if (secondaryPassword) data.secondary_password = secondaryPassword;
-    }
-
     try {
-      const res = await fetch(saveUrl, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      const json = await res.json();
+      let json;
+
+      if (isEditMode) {
+        json = await updateDomain({
+          id: editingOwnerId,
+          ownerCode,
+          name,
+          email: emailCheck.normalized,
+          password: password || undefined,
+          secondaryPassword: secondaryPassword || undefined,
+          groups: buildGroupsPayload().map(groupToTenantSaveEntry),
+          companies: buildCompaniesPayload().map(companyToTenantSaveEntry),
+        });
+      } else {
+        const res = await fetch(buildApiUrl("api/domain/add"), {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            owner_code: ownerCode,
+            name,
+            email: emailCheck.normalized,
+            password,
+            secondary_password: secondaryPassword,
+            groups: buildGroupsPayload().map(groupToTenantSaveEntry),
+            companies: buildCompaniesPayload().map(companyToTenantSaveEntry),
+          }),
+        });
+        json = await res.json();
+      }
+
       if (json.success) {
         showDomainAlert(isEditMode ? t("ownerUpdated") : t("ownerCreated"));
         onSaved(json.data);
@@ -867,6 +864,7 @@ export default function DomainFormModal({
           siblingCompanyCodes={tempCompanies
             .filter((c) => normalizeDomainCode(c.company_id) !== normalizeDomainCode(csModalCompanyId))
             .map((c) => normalizeDomainCode(c.company_id))}
+          persistImmediately={isEditMode}
           onSave={handleCompanySettingsSaved}
           onClose={() => setCsModalCompanyId(null)}
         />
@@ -883,6 +881,7 @@ export default function DomainFormModal({
             .filter((g) => tempGroupCode(g) !== gsModalGroupCode)
             .map(tempGroupCode)}
           siblingCompanyCodes={tempCompanies.map((c) => normalizeDomainCode(c.company_id))}
+          persistImmediately={isEditMode}
           onSave={handleGroupSettingsSaved}
           onClose={() => setGsModalGroupCode(null)}
         />
