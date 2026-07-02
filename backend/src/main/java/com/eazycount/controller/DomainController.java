@@ -3,6 +3,7 @@ package com.eazycount.controller;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dto.OwnerTenantDTO;
 import com.eazycount.entity.DomainFee;
+import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
 import com.eazycount.service.DomainService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -82,6 +83,24 @@ public class DomainController {
             body.put("success", true);
             body.put("message", "Domain updated successfully");
             body.put("data", data);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", false);
+            body.put("message", e.getMessage());
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        }
+    }
+
+    @PostMapping("/delete")
+    public ResponseEntity<Map<String, Object>> delete(@RequestBody Owner owner) {
+        try {
+            domainService.deleteOwnerDetails(owner);
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "Domain Deleted successfully");
+            body.put("data", null);
             return ResponseEntity.ok(body);
         } catch (BusinessException e) {
             final Map<String, Object> body = new LinkedHashMap<>();

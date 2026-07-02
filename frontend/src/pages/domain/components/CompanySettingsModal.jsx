@@ -353,7 +353,7 @@ export default function CompanySettingsModal({
         apply_commission_payments_on_domain_save: chargeOnSave,
       };
 
-      if (persistImmediately) {
+      if (persistImmediately && company.id) {
         try {
           const json = await updateTenantSetting({
             id: company.id,
@@ -395,7 +395,7 @@ export default function CompanySettingsModal({
       apply_commission_payments_on_domain_save: chargeOnSave,
     };
 
-    if (persistImmediately) {
+    if (persistImmediately && company.id) {
       try {
         const json = await updateTenantSetting({
           id: company.id,

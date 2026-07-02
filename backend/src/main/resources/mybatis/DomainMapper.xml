@@ -80,6 +80,11 @@
         select * from tenant where code = #{code} and owner_id = #{ownerId}
     </select>
 
+    <!-- check/find tenant by code for updateDomain upsert -->
+    <select id="findOwnerByCode" resultMap="OwnerMap">
+        select * from owner where owner_code = #{ownerCode}
+    </select>
+
     <!-- List Domain Details use -->
     <select id="findAllTenantsByOwner" resultMap="OwnerTenantDTOMap">
         select
@@ -108,11 +113,6 @@
             </if>
         </where>
     </select>
-
-    <select id="findOwnerByCode" resultMap="OwnerMap">
-        select * from owner where owner_code = #{ownerCode}
-    </select>
-
 
     <!-- insert details use -->
     <insert id="insertOwnerDetails" useGeneratedKeys="true" keyProperty="id">
@@ -145,6 +145,15 @@
             updated_at = NOW()
         where id = #{id} and owner_id = #{ownerId}
     </update>
+
+    <!-- delete details use -->
+    <delete id="deleteTenantDetails">
+        delete from tenant where id = #{id} and owner_id = #{ownerId}
+    </delete>
+
+    <delete id="deleteOwnerDetails">
+        delete from owner where id = #{id}
+    </delete>
 
     <!-- Domain Fee Setting -->
     <select id="findAllDomainFee" resultMap="DomainFeeMap">

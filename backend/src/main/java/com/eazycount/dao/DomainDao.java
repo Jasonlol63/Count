@@ -24,7 +24,7 @@ public interface DomainDao {
 
     Tenant findTenantByCodeAndOwnerId(@Param("code") String code, @Param("ownerId") Integer ownerId);
 
-    /*Create and Update Owner and Tenant*/
+    /*Create, Update and Delete Owner and Tenant*/
     void insertOwnerDetails(Owner owner);
 
     void insertTenantDetails(Tenant tenant);
@@ -32,6 +32,10 @@ public interface DomainDao {
     void updateOwnerDetails(Owner owner);
 
     void updateTenantDetails(Tenant tenant);
+
+    void deleteOwnerDetails(Owner owner);
+
+    void deleteTenantDetails(Tenant tenant);
 
     /*List and Update Domain*/
     List<DomainFee> findAllDomainFee();
