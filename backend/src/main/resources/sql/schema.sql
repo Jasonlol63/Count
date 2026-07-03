@@ -2,7 +2,7 @@
 -- Tenant-model login DB schema (testcount).
 -- Apply AFTER backend/src/main/resources/schema.sql on dev DB, or standalone
 -- when bootstrapping the login module only.
--- =============================================================================
+DROP TABLE IF EXISTS `tenant_auto_renew_request`;
 DROP TABLE IF EXISTS `account_currency`;
 DROP TABLE IF EXISTS `currency`;
 DROP TABLE IF EXISTS `maintenance_marquee`;
@@ -273,3 +273,20 @@ CREATE TABLE `account_currency` (
   KEY `idx_ac_tenant_id` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Account enabled currencies per tenant';
+
+CREATE TABLE `tenant_auto_renew_request` (
+      `id`                  INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      `tenant_id`           INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+      `expiration_snapshot` DATE         NOT NULL COMMENT '发起申请时的到期时间快照',
+      `status`              ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending' COMMENT '审批状态',
+      `period`              VARCHAR(20)  DEFAULT NULL COMMENT '续费周期 (e.g. 7days, 1month, 3months, 6months, 1year)',
+      `price`               DECIMAL(25, 8) DEFAULT NULL COMMENT '应付价格',
+      `new_expiration_date` DATE         DEFAULT NULL COMMENT '审批通过后的新到期时间',
+      `processed_by`        VARCHAR(50)  DEFAULT NULL COMMENT '执行审批的管理员账号/ID',
+      `processed_at`        DATETIME     DEFAULT NULL COMMENT '审批处理的具体时间',
+      `created_at`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+      `updated_at`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP() ON UPDATE CURRENT_TIMESTAMP(),
+      UNIQUE KEY `uk_tenant_expiration` (`tenant_id`, `expiration_snapshot`),
+      CONSTRAINT `fk_tar_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+      KEY `idx_tar_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='租户自动续期审批申请表';

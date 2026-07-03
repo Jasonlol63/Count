@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.AutoRenewDao">
+
+    <resultMap id="AutoRenewMap" type="com.eazycount.entity.AutoRenew">
+        <id property="id" column="id"/>
+        <result property="tenantId" column="tenant_id"/>
+        <result property="period" column="period"/>
+        <result property="price" column="price"/>
+        <result property="expirationSnapshot" column="expiration_snapshot"/>
+        <result property="newExpirationDate" column="new_expiration_date"/>
+        <result property="processBy" column="processed_by"/>
+        <result property="processAt" column="processed_at"/>
+    </resultMap>
+
+    <!-- 扫描临期租户，自动生成待审批申请 -->
+    <insert id="syncWindowRequests">
+        INSERT IGNORE INTO tenant_auto_renew_request 
+            (tenant_id, expiration_snapshot, status, created_at, updated_at)
+        SELECT 
+            t.id, 
+            t.expiration_date, 
+            'pending', 
+            NOW(), 
+            NOW()
+        FROM tenant t
+        WHERE t.expiration_date IS NOT NULL
+          AND t.status = 'ACTIVE'
+          AND DATEDIFF(t.expiration_date, CURDATE()) &lt;= #{windowDays}
+          AND NOT EXISTS (
+              SELECT 1 
+              FROM tenant_auto_renew_request r 
+              WHERE r.tenant_id = t.id 
+                AND r.expiration_snapshot = t.expiration_date
+          )
+    </insert>
+
+    <!-- 获取续费审批主列表 -->
+    <select id="selectAutoRenewList" resultType="com.eazycount.dto.AutoRenewDTO">
+        SELECT
+            r.id                  AS requestId,
+            r.status              AS status,
+            r.period              AS period,
+            r.price               AS price,
+            r.new_expiration_date AS newExpirationDate,
+            r.processed_by        AS processedBy,
+            r.processed_at        AS processedAt,
+            t.id                  AS tenantId,
+            t.tenant_type         AS tenantType,
+            t.owner_id            AS ownerId,
+            parent_t.code         AS groupId,
+            t.code                AS companyCode,
+            t.expiration_date     AS expirationDate,
+            DATEDIFF(t.expiration_date, CURDATE()) AS daysUntilExpiration,
+            COALESCE(o.name, '')  AS ownerName
+        FROM tenant_auto_renew_request r
+        INNER JOIN tenant t ON t.id = r.tenant_id
+        LEFT JOIN tenant parent_t ON parent_t.id = t.parent_id
+        LEFT JOIN owner o ON o.id = t.owner_id
+        <where>
+            <if test="status != null and status != ''">
+                AND r.status = #{status}
+            </if>
+            <if test="tenantType != null and tenantType != ''">
+                AND t.tenant_type = #{tenantType}
+            </if>
+            <if test="status != 'pending'">
+                <if test="dateFrom != null">
+                    AND DATE(r.processed_at) &gt;= #{dateFrom}
+                </if>
+                <if test="dateTo != null">
+                    AND DATE(r.processed_at) &lt;= #{dateTo}
+                </if>
+            </if>
+            <if test="status == 'pending'">
+                AND DATEDIFF(t.expiration_date, CURDATE()) &lt;= #{windowDays}
+            </if>
+        </where>
+        ORDER BY r.created_at DESC
+    </select>
+
+    <!--根据 ID 获取审批详情-->
+    <select id="selectRequestById" resultType="com.eazycount.dto.AutoRenewDTO">
+        SELECT
+            r.id                  AS requestId,
+            r.status              AS status,
+            r.period              AS period,
+            r.price               AS price,
+            r.new_expiration_date AS newExpirationDate,
+            r.processed_by        AS processedBy,
+            r.processed_at        AS processedAt,
+            r.expiration_snapshot AS expirationDate,
+            t.id                  AS tenantId,
+            t.tenant_type         AS tenantType,
+            t.code                AS companyCode
+        FROM tenant_auto_renew_request r
+        INNER JOIN tenant t ON t.id = r.tenant_id
+        WHERE r.id = #{requestId}
+    </select>
+
+    <!-- 根据状态统计数量 -->
+    <select id="countRequestsByStatus" resultType="int">
+        SELECT COUNT(*)
+        FROM tenant_auto_renew_request r
+        INNER JOIN tenant t ON t.id = r.tenant_id
+        <where>
+            <if test="status != null and status != ''">
+                AND r.status = #{status}
+            </if>
+            <if test="status == 'pending'">
+                AND DATEDIFF(t.expiration_date, CURDATE()) &lt;= #{windowDays}
+            </if>
+            <if test="tenantType != null and tenantType != ''">
+                AND t.tenant_type = #{tenantType}
+            </if>
+        </where>
+    </select>
+
+    <!-- 根据租户类型统计待处理数量 -->
+    <select id="countPendingByTenantType" resultType="int">
+        SELECT COUNT(*)
+        FROM tenant_auto_renew_request r
+        INNER JOIN tenant t ON t.id = r.tenant_id
+        WHERE r.status = 'pending'
+          AND t.tenant_type = #{tenantType}
+          AND DATEDIFF(t.expiration_date, CURDATE()) &lt;= #{windowDays}
+    </select>
+
+    <!-- 审批同意状态变更 -->
+    <update id="approveRequest">
+        UPDATE tenant_auto_renew_request
+        SET status = 'approved',
+            new_expiration_date = #{newExpirationDate},
+            processed_by = #{processedBy},
+            processed_at = NOW(),
+            updated_at = NOW()
+        WHERE id = #{requestId}
+    </update>
+
+    <!-- 同步将到期时间写入 tenant 租户表 -->
+    <update id="updateTenantExpiration">
+        UPDATE tenant
+        SET expiration_date = #{newExpirationDate},
+            updated_at = NOW()
+        WHERE id = #{tenantId}
+    </update>
+
+    <update id="rejectRequest">
+        UPDATE tenant_auto_renew_request
+        SET status = 'rejected',
+            processed_by = #{processedBy},
+            processed_at = NOW(),
+            updated_at = NOW()
+        WHERE id = #{requestId}
+    </update>
+
+    <update id="saveDraft">
+        UPDATE tenant_auto_renew_request
+        SET period = #{period},
+            updated_at = NOW()
+        WHERE id = #{requestId}
+    </update>
+
+    <!-- 删除申请 -->
+    <delete id="deleteRequest">
+        DELETE FROM tenant_auto_renew_request WHERE id = #{requestId}
+    </delete>
+
+</mapper>

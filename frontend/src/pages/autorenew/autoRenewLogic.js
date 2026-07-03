@@ -33,7 +33,7 @@ export async function fetchAutoRenewApprovals(
   status = "pending",
   { dateFrom, dateTo, entityType = "company", signal } = {},
 ) {
-  const body = { action: "list", status, entity_type: entityType === "group" ? "group" : "company" };
+  const body = { status, entity_type: entityType };
   if (dateFrom) body.date_from = dateFrom;
   if (dateTo) body.date_to = dateTo;
   return postAutoRenew(body, { signal });
@@ -64,18 +64,24 @@ export async function approveAutoRenew({ requestId, period, fromAccountId, toAcc
 }
 
 export async function rejectAutoRenew({ requestId }) {
-  return postAutoRenew({
-    action: "reject",
-    request_id: requestId,
+  const res = await fetch(buildApiUrl("api/auto-renew/reject"), {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ request_id: requestId }),
   });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.message || "Reject request failed");
+  }
+  return json.data;
 }
 
-export async function deleteAutoRenew({ requestId, transactionId, entityType }) {
+export async function deleteAutoRenew({ requestId, transactionId }) {
   return postAutoRenew({
     action: "delete",
     request_id: requestId,
     transaction_id: transactionId || null,
-    entity_type: entityType === "group" ? "group" : "company",
   });
 }
 

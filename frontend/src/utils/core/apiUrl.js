@@ -38,6 +38,9 @@ export function buildApiUrl(pathAndQuery) {
     }
     if (raw.startsWith("api/users/send_reset_tac_api.php")) return "auth/send-reset-tac";
     if (raw.startsWith("api/users/reset_password_api.php")) return "auth/reset-password";
+    if (raw.startsWith("api/subscription/auto_renew_api.php")) {
+      return "api/auto-renew/list";
+    }
     // Announcement page — fully migrated to Spring Boot.
     if (raw.startsWith("api/announcements/announcement_list_api.php")) {
       return "api/announcement/listAnnouncement";
