@@ -25,11 +25,6 @@ public class PermissionServiceImpl implements PermissionService {
 
     /** Internal module keys (uppercase); order matches frontend {@code PERMISSION_KEYS}. */
     private static final List<String> LIST_FULL_PERMISSIONS = List.of(
-            "HOME", "ADMIN", "ACCOUNT", "OWNERSHIP", "PROCESS",
-            "DATACAPTURE", "PAYMENT", "REPORT", "MAINTENANCE"
-    );
-
-    private static final List<String> C168_FULL_PERMISSIONS = List.of(
             "HOME", "DOMAIN", "ANNOUNCEMENTS", "AUTORENEW", "ADMIN", "ACCOUNT", "OWNERSHIP", "PROCESS",
             "DATACAPTURE", "PAYMENT", "REPORT", "MAINTENANCE"
     );
@@ -72,7 +67,7 @@ public class PermissionServiceImpl implements PermissionService {
         }
 
         if (isC168Account(tenant)) {
-            return C168_FULL_PERMISSIONS;
+            return LIST_FULL_PERMISSIONS;
         }
 
         if (isGroupTenant(tenant)) {
@@ -100,7 +95,7 @@ public class PermissionServiceImpl implements PermissionService {
             return List.of();
         }
         if (isC168Account(tenant)) {
-            return C168_FULL_PERMISSIONS;
+            return LIST_FULL_PERMISSIONS;
         }
         return LIST_FULL_PERMISSIONS;
     }

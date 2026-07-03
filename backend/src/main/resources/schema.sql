@@ -1,78 +1,3 @@
-DROP TABLE IF EXISTS `account`;
-
-CREATE TABLE `account` (
-   `id`                  int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-   `account_id`          varchar(255) NOT NULL,
-   `name`                varchar(255) NOT NULL,
-   `status`              enum('active','inactive') NOT NULL,
-   `created_source`      varchar(50)    DEFAULT NULL COMMENT 'Account source, e.g. domain_auto/manual',
-   `last_login`          datetime       DEFAULT NULL,
-   `role`                varchar(50)  NOT NULL,
-   `password`            varchar(255) NOT NULL,
-   `payment_alert`       tinyint(1) DEFAULT 0,
-   `alert_day`           varchar(255)   DEFAULT NULL COMMENT 'Alert type: weekly, monthly, or number 1-31',
-   `alert_specific_date` date           DEFAULT NULL COMMENT 'Alert start date (YYYY-MM-DD)',
-   `alert_amount`        decimal(25, 8) DEFAULT NULL,
-   `remark`              text           DEFAULT NULL
-);
-
-DROP TABLE IF EXISTS `account_company`;
-
-CREATE TABLE `account_company` (
-   `id`         int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-   `account_id` int(255) NOT NULL COMMENT 'Account ID',
-   `company_id` int(255) UNSIGNED NOT NULL COMMENT 'Company ID',
-   `scope_type` enum('company','group') NOT NULL DEFAULT 'company' COMMENT 'Tenant scope: company or group ledger',
-   `scope_id`   bigint UNSIGNED DEFAULT NULL COMMENT 'Numeric scope: company.id or groups.id',
-   `created_at` timestamp NOT NULL DEFAULT current_timestamp() COMMENT 'Created Time',
-   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp() COMMENT 'Updated Time'
-);
-
-DROP TABLE IF EXISTS `account_currency`;
-
-CREATE TABLE `account_currency` (
-    `id`          int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    `account_id`  int(255) NOT NULL COMMENT 'Account ID',
-    `currency_id` int(255) NOT NULL COMMENT 'Currency ID',
-    `created_at`  timestamp NULL DEFAULT current_timestamp() COMMENT 'Created Time',
-    `updated_at`  timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp() COMMENT 'Updated Time'
-);
-
-DROP TABLE IF EXISTS `account_currency_display_order`;
-
-CREATE TABLE `account_currency_display_order`(
-    `id`             int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    `account_id`     int(255) NOT NULL COMMENT 'Account ID(Connect account.id)',
-    `currency_order` text DEFAULT NULL COMMENT 'Currency code Desc,JSON Add ["JPY","MYR"]',
-    `updated_at`     timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp() COMMENT 'Updated Time'
-);
-
-DROP TABLE IF EXISTS `account_link`;
-
-CREATE TABLE `account_link` (
-    `id`                int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    `account_id_1`      int(11) NOT NULL COMMENT 'Acc 1 ID(Small ID)',
-    `account_id_2`      int(11) NOT NULL COMMENT 'Acc 2 ID(Big ID)',
-    `company_id`        int(10) UNSIGNED NOT NULL COMMENT 'Comp ID(Restrict in one)',
-    `link_type`         enum('bidirectional','unidirectional') NOT NULL DEFAULT 'bidirectional' COMMENT 'Link type: bidirectional=Both, unidirectional=One-way',
-    `source_account_id` int(11) DEFAULT NULL COMMENT 'unidirectional connect new Acc Id, bidirectional connect be null',
-    `created_at`        timestamp NOT NULL DEFAULT current_timestamp() COMMENT 'Created Time',
-    `updated_at`        timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp() COMMENT 'Updated Time'
-);
-
-DROP TABLE IF EXISTS `announcements`;
-
-CREATE TABLE `announcements` (
-     `id`           int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-     `title`        varchar(500) NOT NULL COMMENT 'Announce Title',
-     `content`      text         NOT NULL COMMENT 'Announce Content',
-     `company_code` varchar(50)  NOT NULL DEFAULT 'C168' COMMENT 'Company Code,Just C168 Can View',
-     `status`       enum('active','inactive') NOT NULL DEFAULT 'active' COMMENT 'Announce Status',
-     `created_by`   int(11) NOT NULL COMMENT 'Created Acc ID',
-     `user_type`    enum('user','owner') NOT NULL DEFAULT 'user',
-     `created_at`   timestamp NULL DEFAULT current_timestamp() COMMENT 'Created Time',
-     `updated_at`   timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp() COMMENT 'Updated Time'
-);
 
 DROP TABLE IF EXISTS `auto_login_credentials`;
 
@@ -103,35 +28,6 @@ CREATE TABLE `auto_login_credentials` (
       `created_by`           int(11) DEFAULT NULL COMMENT '创建人ID（关联user表）'
 );
 
-DROP TABLE IF EXISTS `company`;
-
-CREATE TABLE company (
-   `id`                      int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-   `company_id`              varchar(50) NOT NULL COMMENT 'External/business identifier for the company',
-   `owner_id`                int(10) UNSIGNED DEFAULT NULL COMMENT 'FK to owner.id; NULL = detached from domain, ledger retained',
-   `created_by`              varchar(50)          DEFAULT NULL,
-   `created_at`              timestamp   NOT NULL DEFAULT current_timestamp(),
-   `expiration_date`         date                 DEFAULT NULL COMMENT 'Company expiration date',
-   `permissions`             longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'Company permissions, not inherited from parent groups, e.g. ["Gambling", "Bank", "Loan", "Rate", "Money"]' CHECK (json_valid(`permissions`)),
-   `fee_share_allocations`   longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'Sales/CS/IT fee share % by account' CHECK (json_valid(`fee_share_allocations`)),
-   `group_id`                varchar(50)          DEFAULT NULL COMMENT 'Parent group code for subsidiary companies only (not group definition)',
-   `auto_renew_enabled`      tinyint(1) NOT NULL  DEFAULT 0 COMMENT 'Whether subscription auto-renew is enabled',
-   `auto_renew_period`       varchar(20)          DEFAULT NULL COMMENT '7days|1month|3months|6months|1year',
-   `payment_customer_id`     varchar(255)         DEFAULT NULL,
-   `payment_subscription_id` varchar(255)         DEFAULT NULL,
-   `auto_renew_updated_at`   datetime             DEFAULT NULL COMMENT 'Last auto-renew update time',
-   `auto_renew_updated_by`   varchar(50)          DEFAULT NULL COMMENT 'Last auto-renew update by'
-);
-
-DROP TABLE IF EXISTS `company_countries`;
-
-CREATE TABLE `company_countries` (
-     `id`                  int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-     `company_id` int(10) UNSIGNED NOT NULL,
-     `country`    varchar(100) NOT NULL,
-     `created_at` datetime     NOT NULL DEFAULT current_timestamp()
-);
-
 DROP TABLE IF EXISTS `company_ownership`;
 
 CREATE TABLE `company_ownership` (
@@ -147,44 +43,6 @@ CREATE TABLE `company_ownership` (
      `partner_group_id` varchar(50)            DEFAULT NULL,
      `read_only`        tinyint(1) NOT NULL DEFAULT 1,
      `sort_order`       int(11) NOT NULL DEFAULT 0 COMMENT 'Display order on Ownership page'
-);
-
-DROP TABLE IF EXISTS `company_selected_banks`;
-
-CREATE TABLE `company_selected_banks` (
-    `company_id` int(10) UNSIGNED NOT NULL,
-    `country`    varchar(100) NOT NULL,
-    `bank`       varchar(200) NOT NULL,
-    `sort_order` int(10) UNSIGNED NOT NULL DEFAULT 0
-);
-
-DROP TABLE IF EXISTS `company_selected_countries`;
-
-CREATE TABLE `company_selected_countries` (
-    `company_id` int(10) UNSIGNED NOT NULL,
-    `country`    varchar(100) NOT NULL,
-    `sort_order` int(10) UNSIGNED NOT NULL DEFAULT 0
-);
-
-DROP TABLE IF EXISTS `country_bank`;
-
-CREATE TABLE `country_bank` (
-    `id`         int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    `company_id` int(10) UNSIGNED NOT NULL COMMENT 'FK company.id',
-    `country`    varchar(100) NOT NULL COMMENT 'Country code (e.g. AA)',
-    `bank`       varchar(100) NOT NULL COMMENT 'Bank code (e.g. CC)',
-    `created_at` datetime     NOT NULL DEFAULT current_timestamp() COMMENT 'Created at'
-);
-
-DROP TABLE IF EXISTS `currency`;
-
-CREATE TABLE `currency` (
-    `id`          int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    `code`        varchar(10) NOT NULL,
-    `company_id`  int(10) UNSIGNED NOT NULL COMMENT 'FK company.id',
-    `scope_type`  enum('company','group') NOT NULL DEFAULT 'company' COMMENT 'Tenant scope: company or group ledger',
-    `scope_id`    bigint UNSIGNED DEFAULT NULL COMMENT 'Numeric scope: company.id or groups.id',
-    `sync_source` enum('manual','subsidiary') NOT NULL DEFAULT 'manual' COMMENT 'Whether group-ledger currency was auto-synced from subsidiaries'
 );
 
 DROP TABLE IF EXISTS `data_captures`;
@@ -383,70 +241,6 @@ CREATE TABLE `deleted_logs` (
     `created_at`   datetime     NOT NULL DEFAULT current_timestamp()
 );
 
-DROP TABLE IF EXISTS `description`;
-
-CREATE TABLE `description` (
-   `id`         int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-   `name`       varchar(255) NOT NULL,
-   `company_id` int(10) UNSIGNED NOT NULL COMMENT 'FK company.id',
-   `scope_type` enum('company','group') NOT NULL DEFAULT 'company' COMMENT 'Tenant scope: company or group ledger',
-   `scope_id`   bigint UNSIGNED DEFAULT NULL COMMENT 'Numeric scope: company.id or groups.id'
-);
-
-DROP TABLE IF EXISTS `domain_list_fee_settings`;
-
-CREATE TABLE `domain_list_fee_settings` (
-    `id`            TINYINT UNSIGNED NOT NULL PRIMARY KEY DEFAULT 1,
-    `company_price` JSON NOT NULL COMMENT 'Company prices by period',
-    `group_price`   JSON NOT NULL COMMENT 'Group prices by period',
-    `updated_at`    TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-    CONSTRAINT `chk_domain_fee_singleton` CHECK (`id` = 1),
-    CONSTRAINT `chk_company_prices_shape` CHECK (json_valid(`company_price`)),
-    CONSTRAINT `chk_group_prices_shape` CHECK (json_valid(`group_price`))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='C168 global domain list fee / auto-renew price config (singleton)';
-
-DROP TABLE IF EXISTS `groups`;
-
-CREATE TABLE `groups` (
-      `id`                    int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-      `group_code`            varchar(50) NOT NULL COMMENT 'Business group code e.g. AP, IG',
-      `group_name`            varchar(100)         DEFAULT NULL,
-      `status`                enum('active','inactive') NOT NULL DEFAULT 'active',
-      `owner_id`              int UNSIGNED DEFAULT NULL COMMENT 'FK owner.id (domain owner)',
-      `expiration_date`       date                 DEFAULT NULL COMMENT 'Group subscription expiry',
-      `permissions`           longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'Group permissions JSON' CHECK (json_valid(`permissions`) OR `permissions` IS NULL),
-      `fee_share_allocations` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'Fee share JSON' CHECK (json_valid(`fee_share_allocations`) OR `fee_share_allocations` IS NULL),
-      `created_by`            varchar(50)          DEFAULT NULL,
-      `created_at`            timestamp   NOT NULL DEFAULT current_timestamp(),
-      `updated_at`            timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-      UNIQUE KEY              `uk_groups_group_code` (`group_code`),
-      KEY                     `idx_groups_owner_id` (`owner_id`),
-      KEY                     `idx_groups_status` (`status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Group tenants (login scope group)';
-
-DROP TABLE IF EXISTS `group_company_map`;
-
-CREATE TABLE `group_company_map` (
-     `id`         int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-     `group_id`   bigint UNSIGNED NOT NULL COMMENT 'FK groups.id',
-     `company_id` int UNSIGNED NOT NULL COMMENT 'FK company.id (subsidiary)',
-     `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-     UNIQUE KEY   `uk_group_company` (`group_id`,`company_id`),
-     KEY          `idx_gcm_company_id` (`company_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Group to subsidiary company mapping';
-
-DROP TABLE IF EXISTS `account_group_map`;
-
-CREATE TABLE `account_group_map` (
-     `id`         int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-     `account_id` int UNSIGNED NOT NULL COMMENT 'FK account.id (member)',
-     `group_id`   bigint UNSIGNED NOT NULL COMMENT 'FK groups.id',
-     `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-     UNIQUE KEY   `uk_account_group` (`account_id`,`group_id`),
-     KEY          `idx_agm_group_id` (`group_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Member account access for group login';
-
 DROP TABLE IF EXISTS `tenant_module_policy`;
 
 CREATE TABLE `tenant_module_policy` (
@@ -460,32 +254,6 @@ CREATE TABLE `tenant_module_policy` (
     UNIQUE KEY   `uk_tenant_module` (`scope_type`,`scope_id`,`module_key`),
     KEY          `idx_tenant_module_scope` (`scope_type`,`scope_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Per-tenant module enablement';
-
-DROP TABLE IF EXISTS `company_auto_renew_request`;
-
-CREATE TABLE `company_auto_renew_request` (
-      `id`                  int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-      `entity_type`         enum('company','group') NOT NULL DEFAULT 'company' COMMENT 'Tenant type',
-      `company_id`          int UNSIGNED DEFAULT NULL COMMENT 'FK company.id when entity_type=company',
-      `group_id`            bigint UNSIGNED DEFAULT NULL COMMENT 'FK groups.id when entity_type=group',
-      `expiration_snapshot` date     NOT NULL,
-      `status`              enum('pending','approved','rejected') NOT NULL DEFAULT 'pending',
-      `period`              varchar(20)       DEFAULT NULL,
-      `price`               decimal(25, 8)    DEFAULT NULL,
-      `from_account_id`     int               DEFAULT NULL,
-      `to_account_id`       int               DEFAULT NULL,
-      `transaction_id`      int               DEFAULT NULL,
-      `new_expiration_date` date              DEFAULT NULL,
-      `processed_by`        varchar(50)       DEFAULT NULL,
-      `processed_at`        datetime          DEFAULT NULL,
-      `reject_reason`       varchar(255)      DEFAULT NULL,
-      `created_at`          datetime NOT NULL DEFAULT current_timestamp(),
-      `updated_at`          datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-      UNIQUE KEY `uq_auto_renew_company_exp` (`company_id`,`expiration_snapshot`),
-      UNIQUE KEY `uq_auto_renew_group_exp` (`group_id`,`expiration_snapshot`),
-      KEY                   `idx_auto_renew_status` (`status`),
-      KEY                   `idx_auto_renew_group` (`group_id`)
-);
 
 DROP TABLE IF EXISTS `company_ownership_history`;
 
@@ -537,121 +305,6 @@ CREATE TABLE `group_ownership` (
     `created_at`       timestamp NULL DEFAULT current_timestamp(),
     `updated_at`       timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 );
-
-DROP TABLE IF EXISTS `maintenance_marquee`;
-
-CREATE TABLE `maintenance_marquee` (
-  `id` int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  `prefix` varchar(100) NOT NULL COMMENT 'Marquee label shown before content',
-  `content` text NOT NULL COMMENT 'Maintenance content text',
-  `company_code` varchar(50) NOT NULL DEFAULT 'C168' COMMENT 'Company code, only C168 visible',
-  `status` enum('active','inactive') NOT NULL DEFAULT 'active' COMMENT 'Maintenance content status',
-  `created_by` int(11) NOT NULL COMMENT 'Created by user ID',
-  `user_type` enum('user','owner') NOT NULL DEFAULT 'user' COMMENT 'Created by type: user or owner',
-  `created_at` timestamp NULL DEFAULT current_timestamp() COMMENT 'Created at',
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp() COMMENT 'Updated at'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Maintenance marquee (related to company)';
-
-DROP TABLE IF EXISTS `owner`;
-
-CREATE TABLE `owner` (
-     `id`                 int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-     `owner_code`         varchar(50)  NOT NULL COMMENT 'Business identifier for the owner',
-     `name`               varchar(150) NOT NULL,
-     `email`              varchar(150)          DEFAULT NULL,
-     `password`           varchar(255) NOT NULL COMMENT 'Hashed password',
-     `secondary_password` varchar(255)          DEFAULT NULL COMMENT 'Hashed secondary password (6 digits)',
-     `status`             enum('active','inactive') NOT NULL DEFAULT 'active',
-     `created_by`         varchar(50)           DEFAULT NULL,
-     `created_at`         timestamp    NOT NULL DEFAULT current_timestamp()
-);
-
-DROP TABLE IF EXISTS `password_reset_tac`;
-
-CREATE TABLE `password_reset_tac` (
-    `email`      varchar(255) NOT NULL,
-    `company_id` int(11) NOT NULL,
-    `code`       varchar(10)  NOT NULL,
-    `expires_at` datetime     NOT NULL,
-    `created_at` datetime     NOT NULL DEFAULT current_timestamp()
-);
-
-DROP TABLE IF EXISTS `password_reset_tac_owner`;
-
-CREATE TABLE `password_reset_tac_owner` (
-    `email`      varchar(255) NOT NULL,
-    `owner_id`   int(10) UNSIGNED NOT NULL,
-    `code`       varchar(10)  NOT NULL,
-    `expires_at` datetime     NOT NULL,
-    `created_at` datetime     NOT NULL DEFAULT current_timestamp()
-);
-
-DROP TABLE IF EXISTS `user`;
-
-CREATE TABLE `user` (
-    `id`                     int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    `login_id`               varchar(50)  NOT NULL,
-    `name`                   varchar(100) NOT NULL,
-    `password`               varchar(255) NOT NULL,
-    `secondary_password`     varchar(255) DEFAULT NULL COMMENT 'Hashed secondary password (6 digits)',
-    `email`                  varchar(100) NOT NULL,
-    `role`                   enum('admin','manager','supervisor','accountant','audit','customer service','partnership') NOT NULL,
-    `permissions`            longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`permissions`)),
-    `status`                 enum('active','inactive') NOT NULL DEFAULT 'active',
-    `created_by`             varchar(50)  DEFAULT NULL,
-    `created_at`             datetime     DEFAULT current_timestamp(),
-    `last_login`             datetime     DEFAULT NULL,
-    `remember_token`         varchar(64)  DEFAULT NULL,
-    `remember_token_expires` datetime     DEFAULT NULL,
-    `read_only`              tinyint(1) NOT NULL DEFAULT 1,
-    UNIQUE KEY `email` (`email`)
-);
-
-DROP TABLE IF EXISTS `user_company_map`;
-
-CREATE TABLE `user_company_map` (
-    `id`         int(10) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    `user_id`    int(11) NOT NULL,
-    `company_id` int(10) UNSIGNED NOT NULL,
-    `scope_type` enum('company','group') NOT NULL DEFAULT 'company' COMMENT 'Tenant scope: company or group ledger',
-    `scope_id`   bigint UNSIGNED DEFAULT NULL COMMENT 'Numeric scope: company.id or groups.id',
-    UNIQUE KEY `uniq_user_company` (`user_id`,`company_id`),
-    KEY `fk_uc_company` (`company_id`),
-    KEY `idx_ucm_scope` (`user_id`,`scope_type`,`scope_id`),
-    CONSTRAINT `fk_uc_company` FOREIGN KEY (`company_id`) REFERENCES `company` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT `fk_uc_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-DROP TABLE IF EXISTS `user_company_permissions`;
-
-CREATE TABLE `user_company_permissions` (
-    `id`                  int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    `user_id`             int(11) NOT NULL COMMENT 'FK user.id',
-    `company_id`          int(10) UNSIGNED NOT NULL COMMENT 'FK company.id',
-    `account_permissions` text               DEFAULT NULL COMMENT 'Account permissions (JSON array), null means no permissions (empty array), [] means all permissions, there may be additional permissions',
-    `process_permissions` text               DEFAULT NULL COMMENT 'Process permissions (JSON array), null means no permissions (empty array), [] means all permissions, there may be additional permissions',
-    `created_at`          timestamp NOT NULL DEFAULT current_timestamp() COMMENT 'Created at',
-    `updated_at`          timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp() COMMENT 'Updated at',
-    UNIQUE KEY `unique_user_company` (`user_id`,`company_id`),
-    KEY `idx_user_id` (`user_id`),
-    KEY `idx_company_id` (`company_id`),
-    CONSTRAINT `fk_user_company_permissions_company` FOREIGN KEY (`company_id`) REFERENCES `company` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT `fk_user_company_permissions_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='User-company permissions (related to user, company)';
-
-DROP TABLE IF EXISTS `user_group_map`;
-
-CREATE TABLE `user_group_map` (
-    `id`         bigint UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    `user_id`    int(11) NOT NULL COMMENT 'FK user.id',
-    `group_id`   bigint UNSIGNED NOT NULL COMMENT 'FK groups.id',
-    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-    UNIQUE KEY `uk_user_group` (`user_id`,`group_id`),
-    KEY `idx_ugm_group_id` (`group_id`),
-    KEY `idx_ugm_user_id` (`user_id`),
-    CONSTRAINT `fk_ugm_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT `fk_ugm_group` FOREIGN KEY (`group_id`) REFERENCES `groups` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='User access for group login';
 
 DROP TABLE IF EXISTS `bank_process`;
 
