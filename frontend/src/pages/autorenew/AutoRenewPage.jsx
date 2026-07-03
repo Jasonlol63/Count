@@ -169,7 +169,6 @@ export default function AutoRenewPage() {
   const [approveConfirmRow, setApproveConfirmRow] = useState(null);
   const [settingsModal, setSettingsModal] = useState(null);
   const [commLoadingKey, setCommLoadingKey] = useState(null);
-  const [domainPeriodPrices, setDomainPeriodPrices] = useState(null);
 
   const notify = useCallback((message, type = "success") => {
     const id = Date.now();
@@ -186,12 +185,7 @@ export default function AutoRenewPage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!sessionReady || !me || !canAccessC168AutoRenew(me)) return;
-    fetchDomainFeeSettingsForAutoRenew()
-      .then((data) => setDomainPeriodPrices(normalizeDomainFeeSettingsFromApi(data)))
-      .catch(() => {});
-  }, [sessionReady, me]);
+
 
   const showAll = statusFilter === "all";
 
@@ -519,7 +513,6 @@ export default function AutoRenewPage() {
       await deleteAutoRenew({
         requestId: row.request_id,
         transactionId: row.transaction_id,
-        entityType: row.entity_type,
       });
       invalidateTransactionListCache("auto_renew_delete");
       notify(t("deletedSuccess"), "success");
@@ -963,7 +956,7 @@ export default function AutoRenewPage() {
         <CompanySettingsModal
           lang={lang}
           company={settingsModal.tenant}
-          domainPeriodPrices={domainPeriodPrices}
+          domainPeriodPrices={feeSettings}
           sessionCompanyId={me?.company_id ?? null}
           sessionCompanyCode={me?.company_code ?? null}
           excludeOwnerId={settingsModal.ownerId}
@@ -978,7 +971,7 @@ export default function AutoRenewPage() {
         <GroupSettingsModal
           lang={lang}
           group={settingsModal.tenant}
-          domainPeriodPrices={domainPeriodPrices}
+          domainPeriodPrices={feeSettings}
           sessionCompanyId={me?.company_id ?? null}
           sessionCompanyCode={me?.company_code ?? null}
           excludeOwnerId={settingsModal.ownerId}
