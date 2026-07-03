@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.TenantOwnershipDao">
+
+    <select id="getActiveOwnershipList" resultType="com.eazycount.dto.TenantOwnershipDTO">
+        SELECT
+            co.id AS ownershipId,
+            co.tenant_id AS tenantId,
+            co.percentage AS percentage,
+            co.owner_type AS ownerType,
+            co.read_only AS readOnly,
+            co.partner_tenant_id AS partnerTenantId,
+            
+            CASE
+                WHEN co.owner_type = 'group' THEN CONCAT('G_', co.partner_tenant_id)
+                WHEN co.owner_type = 'user'  THEN CONCAT('U_', co.account_id)
+                ELSE CONCAT('O_', co.account_id)
+            END AS accountId,
+            
+            CASE
+                WHEN co.owner_type = 'group' THEN t_partner.code
+                WHEN co.owner_type = 'user'  THEN u.login_id
+                ELSE o.owner_code
+            END AS accountName,
+            
+            CASE
+                WHEN co.owner_type = 'group' THEN 'Group Equity'
+                WHEN co.owner_type = 'user'  THEN u.name
+                ELSE o.name
+            END AS name,
+            
+            CASE
+                WHEN co.owner_type = 'group' THEN 'GROUP'
+                WHEN co.owner_type = 'user'  THEN u.role
+                ELSE 'OWNER'
+            END AS role,
+            
+            CASE
+                WHEN co.owner_type = 'owner' AND t.owner_id != co.account_id THEN 1
+                ELSE 0
+            END AS isExternalPartner
+        FROM tenant_ownership co
+        LEFT JOIN owner o ON co.account_id = o.id AND co.owner_type = 'owner'
+        LEFT JOIN user u ON co.account_id = u.id AND co.owner_type = 'user'
+        LEFT JOIN tenant t ON co.tenant_id = t.id
+        LEFT JOIN tenant t_partner ON co.partner_tenant_id = t_partner.id AND co.owner_type = 'group'
+        WHERE co.tenant_id = #{tenantId}
+        ORDER BY co.sort_order ASC, co.id ASC
+    </select>
+
+    <select id="getHistoricalOwnershipList" resultType="com.eazycount.dto.TenantOwnershipDTO">
+        SELECT
+            coh.id AS ownershipId,
+            coh.tenant_id AS tenantId,
+            coh.percentage AS percentage,
+            coh.owner_type AS ownerType,
+            coh.read_only AS readOnly,
+            coh.partner_tenant_id AS partnerTenantId,
+            
+            CASE
+                WHEN coh.owner_type = 'group' THEN CONCAT('G_', coh.partner_tenant_id)
+                WHEN coh.owner_type = 'user'  THEN CONCAT('U_', coh.account_id)
+                ELSE CONCAT('O_', coh.account_id)
+            END AS accountId,
+            
+            CASE
+                WHEN coh.owner_type = 'group' THEN t_partner.code
+                WHEN coh.owner_type = 'user'  THEN u.login_id
+                ELSE o.owner_code
+            END AS accountName,
+            
+            CASE
+                WHEN coh.owner_type = 'group' THEN 'Group Equity'
+                WHEN coh.owner_type = 'user'  THEN u.name
+                ELSE o.name
+            END AS name,
+            
+            CASE
+                WHEN coh.owner_type = 'group' THEN 'GROUP'
+                WHEN coh.owner_type = 'user'  THEN u.role
+                ELSE 'OWNER'
+            END AS role,
+            
+            CASE
+                WHEN coh.owner_type = 'owner' AND t.owner_id != coh.account_id THEN 1
+                ELSE 0
+            END AS isExternalPartner
+        FROM tenant_ownership_history coh
+        LEFT JOIN owner o ON coh.account_id = o.id AND coh.owner_type = 'owner'
+        LEFT JOIN user u ON coh.account_id = u.id AND coh.owner_type = 'user'
+        LEFT JOIN tenant t ON coh.tenant_id = t.id
+        LEFT JOIN tenant t_partner ON coh.partner_tenant_id = t_partner.id AND coh.owner_type = 'group'
+        WHERE coh.tenant_id = #{tenantId} AND coh.effective_month = #{effectiveMonth}
+        ORDER BY coh.id ASC
+    </select>
+
+    <!-- 获取候选股东下拉列表 -->
+    <select id="getShareholderCandidates" resultType="com.eazycount.dto.TenantOwnershipDTO">
+        SELECT * FROM (
+          -- ① 公司的直属主要 Owner --
+          SELECT DISTINCT
+              NULL AS ownershipId,
+              t.id AS tenantId,
+              NULL AS percentage,
+              'owner' AS ownerType,
+              NULL AS partnerTenantId,
+              CONCAT('O_', o.id) AS accountId,
+              o.owner_code AS accountName,
+              o.name AS name,
+              'OWNER' AS role,
+              0 AS isExternalPartner
+          FROM owner o
+                   JOIN tenant t ON o.id = t.owner_id
+          WHERE t.id = #{tenantId} AND o.status = 'ACTIVE'
+          UNION ALL
+          -- ② 关联了该公司的合伙人 User (PARTNERSHIP 角色) --
+          SELECT DISTINCT
+              NULL AS ownershipId,
+              uta.tenant_id AS tenantId,
+              NULL AS percentage,
+              'user' AS ownerType,
+              NULL AS partnerTenantId,
+              CONCAT('U_', u.id) AS accountId,
+              u.login_id AS accountName,
+              u.name AS name,
+              'PARTNERSHIP' AS role,
+              0 AS isExternalPartner
+          FROM user u
+                   JOIN user_tenant_access uta ON u.id = uta.user_id
+          WHERE uta.tenant_id = #{tenantId}
+            AND u.role = 'PARTNERSHIP'
+            AND u.status = 'ACTIVE'
+          UNION ALL
+          -- ③ 系统中所有的活跃集团 (作为 GROUP 股东选项) --
+          SELECT DISTINCT
+              NULL AS ownershipId,
+              #{tenantId} AS tenantId,
+              NULL AS percentage,
+              'group' AS ownerType,
+              g.id AS partnerTenantId,
+              CONCAT('G_', g.id) AS accountId,
+              CONCAT('Group: ', g.code) AS accountName,
+              'Group Equity' AS name,
+              'GROUP' AS role,
+              0 AS isExternalPartner
+          FROM tenant g
+          WHERE g.tenant_type = 'GROUP' AND g.status = 'ACTIVE'
+        ) AS candidates
+        ORDER BY accountName ASC
+    </select>
+
+    <select id="findTenantByCode" resultType="com.eazycount.entity.Tenant">
+        SELECT
+            id,
+            tenant_type AS tenantType,
+            code,
+            name,
+            owner_id AS ownerId,
+            parent_id AS parentId,
+            expiration_date AS expirationDate,
+            category_code AS categoryCode,
+            fee_share_allocations AS feeShareAllocations,
+            status,
+            created_by AS createdBy,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+        FROM tenant
+        WHERE code = #{code}
+        LIMIT 1
+    </select>
+
+</mapper>

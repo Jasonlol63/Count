@@ -40,6 +40,7 @@ export default defineConfig(({ mode }) => {
         "/api/currency": { target: springTarget, changeOrigin: true },
         "/api/domain": { target: springTarget, changeOrigin: true },
         "/api/auto-renew": { target: springTarget, changeOrigin: true },
+        "/api/ownership": { target: springTarget, changeOrigin: true },
         "/api": { target: phpTarget, changeOrigin: true },
         "/reset-password.php": { target: phpTarget, changeOrigin: true },
         "/js": { target: phpTarget, changeOrigin: true },

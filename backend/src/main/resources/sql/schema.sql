@@ -2,6 +2,8 @@
 -- Tenant-model login DB schema (testcount).
 -- Apply AFTER backend/src/main/resources/schema.sql on dev DB, or standalone
 -- when bootstrapping the login module only.
+DROP TABLE IF EXISTS `tenant_ownership_history`;
+DROP TABLE IF EXISTS `tenant_ownership`;
 DROP TABLE IF EXISTS `tenant_auto_renew_request`;
 DROP TABLE IF EXISTS `account_currency`;
 DROP TABLE IF EXISTS `currency`;
@@ -290,3 +292,36 @@ CREATE TABLE `tenant_auto_renew_request` (
       CONSTRAINT `fk_tar_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
       KEY `idx_tar_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='租户自动续期审批申请表';
+
+CREATE TABLE `tenant_ownership` (
+    `id`                 INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `tenant_id`          INT UNSIGNED NOT NULL COMMENT '关联 tenant.id (主公司或集团)',
+    `account_id`         INT UNSIGNED DEFAULT NULL COMMENT '股东账号ID（关联 owner.id 或 user.id）。如果股东本身是另一个集团，则此列可留空',
+    `owner_type`         ENUM('owner', 'user', 'group') NOT NULL DEFAULT 'owner' COMMENT '股东类型',
+    `partner_tenant_id`  INT UNSIGNED DEFAULT NULL COMMENT '当 owner_type=''group'' 时，关联对方的 tenant.id',
+    `percentage`         DECIMAL(7, 4) NOT NULL DEFAULT 0.0000 COMMENT '占股比例（百分比，支持4位小数，如 33.3333）',
+    `read_only`          TINYINT(1) NOT NULL DEFAULT 1,
+    `sort_order`         INT NOT NULL DEFAULT 0,
+    UNIQUE KEY `uq_tenant_owner_account` (`tenant_id`, `account_id`, `owner_type`, `partner_tenant_id`),
+    CONSTRAINT `fk_to_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_to_partner_tenant` FOREIGN KEY (`partner_tenant_id`) REFERENCES `tenant` (`id`) ON DELETE SET NULL,
+    KEY `idx_to_tenant_id` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='租户股权分配表(实时)';
+
+CREATE TABLE `tenant_ownership_history` (
+    `id`               INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `tenant_id`        INT UNSIGNED NOT NULL COMMENT '关联 tenant.id',
+    `effective_month`  DATE NOT NULL COMMENT '快照月份首日 YYYY-MM-01',
+    `account_id`       INT UNSIGNED DEFAULT NULL COMMENT '股东账号ID',
+    `owner_type`       ENUM('owner', 'user', 'group') NOT NULL DEFAULT 'owner',
+    `partner_tenant_id` INT UNSIGNED DEFAULT NULL COMMENT '关联对方的 tenant.id',
+    `percentage`       DECIMAL(7, 4) NOT NULL DEFAULT 0.0000,
+    `read_only`        TINYINT(1) NOT NULL DEFAULT 1,
+    `saved_by`         INT UNSIGNED DEFAULT NULL COMMENT '保存快照的操作人(关联 user.id)',
+    `saved_at`         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+    UNIQUE KEY `uq_tenant_oh_month_account` (`tenant_id`, `effective_month`, `account_id`, `owner_type`, `partner_tenant_id`),
+    CONSTRAINT `fk_toh_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_toh_partner_tenant` FOREIGN KEY (`partner_tenant_id`) REFERENCES `tenant` (`id`) ON DELETE SET NULL,
+    CONSTRAINT `fk_toh_saved_by` FOREIGN KEY (`saved_by`) REFERENCES `user` (`id`) ON DELETE SET NULL,
+    KEY `idx_toh_tenant_month` (`tenant_id`, `effective_month`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='租户股权历史月度快照表';

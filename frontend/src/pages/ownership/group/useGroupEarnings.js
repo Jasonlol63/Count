@@ -53,8 +53,37 @@ export function useGroupEarnings(shell) {
         credentials: "include",
       });
       const json = await res.json();
-      if (isApiSuccess(json)) setGeGroups(json.data || []);
-      else showToast(getApiMessage(json, "Failed to load groups"), "error");
+      if (isApiSuccess(json)) {
+        const raw = json.data || [];
+        const groupsMap = {};
+        
+        // Find all GROUP tenants first
+        raw.forEach((t) => {
+          if (t.tenant_type === "GROUP" && t.tenant_code) {
+            groupsMap[t.tenant_code.toUpperCase()] = {
+              group_id: t.tenant_code,
+              companies: [],
+            };
+          }
+        });
+        
+        // Populate group companies
+        raw.forEach((t) => {
+          if (t.tenant_type === "COMPANY" && t.parent_tenant_code) {
+            const pCode = t.parent_tenant_code.toUpperCase();
+            if (groupsMap[pCode]) {
+              groupsMap[pCode].companies.push({
+                id: t.tenant_id,
+                name: t.tenant_code,
+              });
+            }
+          }
+        });
+        
+        setGeGroups(Object.values(groupsMap));
+      } else {
+        showToast(getApiMessage(json, "Failed to load groups"), "error");
+      }
     } catch {
       showToast("Server error", "error");
     } finally {

@@ -36,6 +36,17 @@ export async function prefetchOwnershipCompanies(monthKey = getOwnershipCurrentM
     .then((res) => res.json())
     .then((json) => {
       if (isApiSuccess(json)) {
+        // Map Spring Boot tenant-accessible output to legacy company format
+        const mapped = (json.data || [])
+          .filter((t) => t.tenant_type === "COMPANY")
+          .map((t) => ({
+            id: t.tenant_id,
+            name: t.tenant_code,
+            company_id: t.tenant_code,
+            expiration_date: t.expiration_date,
+            group_id: t.parent_tenant_code,
+          }));
+        json.data = mapped;
         cache.set(key, json);
         return json;
       }
