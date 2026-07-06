@@ -2,9 +2,16 @@ package com.eazycount.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 import java.math.BigDecimal;
 
-@Data
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class TenantOwnershipDTO {
     @JsonProperty("ownership_id")
     private Integer ownershipId;
@@ -28,6 +35,9 @@ public class TenantOwnershipDTO {
 
     @JsonProperty("partner_group_id")
     private String partnerGroupId;
+
+    @JsonProperty("partner_tenant_id")
+    private Integer partnerTenantId;
 
     @JsonProperty("read_only")
     private Integer readOnly;

@@ -226,30 +226,8 @@ export function useGroupEarnings(shell) {
   );
 
   const geRemoveRow = useCallback(
-    async (gid, idx) => {
+    (gid, idx) => {
       if (readOnlyMode) return showToast("Read-only: only owner can modify ownership", "error");
-      const st = geStates[gid];
-      if (!st) return;
-      const row = st.rows[idx];
-      if (row?.ownership_id && !isHistoricalView) {
-        try {
-          const body = new FormData();
-          body.append("ownership_id", String(row.ownership_id));
-          const res = await fetch(buildApiUrl("api/ownership/remove_owner_api.php"), {
-            method: "POST",
-            credentials: "include",
-            body,
-          });
-          const json = await res.json();
-          if (!isApiSuccess(json)) {
-            showToast(getApiMessage(json, "Remove failed"), "error");
-            return;
-          }
-        } catch {
-          showToast("Server error", "error");
-          return;
-        }
-      }
       setGeStates((prev) => {
         const cur = prev[gid];
         if (!cur) return prev;
@@ -258,7 +236,7 @@ export function useGroupEarnings(shell) {
         return { ...prev, [gid]: { ...cur, rows } };
       });
     },
-    [geStates, readOnlyMode, isHistoricalView, showToast],
+    [readOnlyMode, showToast],
   );
 
   const geConfirm = useCallback(
@@ -280,11 +258,11 @@ export function useGroupEarnings(shell) {
       setGeSavingGid(groupId);
       try {
         const payload = {
-          group_id: groupId,
+          tenant_id: groupId,
           owners: rowsToSavePayload(rows),
         };
         if (isHistoricalView) payload.month = selectedMonth;
-        const res = await fetch(buildApiUrl("api/ownership/batch_save_group_owners_api.php"), {
+        const res = await fetch(buildApiUrl("api/ownership/batch-save-ownership"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -317,11 +295,11 @@ export function useGroupEarnings(shell) {
         return false;
       }
       try {
-        const res = await fetch(buildApiUrl("api/ownership/add_group_external_partner_api.php"), {
+        const res = await fetch(buildApiUrl("api/ownership/link-partner"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ group_id: groupId, login_id: loginId, force_type: forceType }),
+          body: JSON.stringify({ tenant_id: groupId, login_id: loginId, force_type: forceType }),
         });
         const json = await res.json();
         if (isApiSuccess(json)) {

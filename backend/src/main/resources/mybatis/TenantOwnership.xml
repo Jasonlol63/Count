@@ -169,4 +169,79 @@
         LIMIT 1
     </select>
 
+    <select id="findOwnerById" resultType="com.eazycount.entity.Owner">
+        SELECT
+            id,
+            owner_code AS ownerCode,
+            name,
+            email,
+            status,
+            created_by AS createdBy,
+            created_at AS createdAt
+        FROM owner
+        WHERE id = #{id} AND status = 'ACTIVE'
+        LIMIT 1
+    </select>
+
+    <select id="findOwnerByCode" resultType="com.eazycount.entity.Owner">
+        SELECT
+            id,
+            owner_code AS ownerCode,
+            name,
+            email,
+            status,
+            created_by AS createdBy,
+            created_at AS createdAt
+        FROM owner
+        WHERE UPPER(owner_code) = UPPER(#{code}) AND status = 'ACTIVE'
+        LIMIT 1
+    </select>
+
+    <select id="findGroupByCode" resultType="com.eazycount.entity.Tenant">
+        SELECT
+            id,
+            tenant_type AS tenantType,
+            code,
+            name,
+            owner_id AS ownerId,
+            parent_id AS parentId,
+            status
+        FROM tenant
+        WHERE UPPER(code) = UPPER(#{code})
+          AND tenant_type = 'GROUP'
+          AND status = 'ACTIVE'
+        LIMIT 1
+    </select>
+
+    <insert id="insertLink" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO tenant_ownership (tenant_id, account_id, owner_type, partner_tenant_id, percentage, read_only, sort_order)
+        VALUES (#{tenantId}, #{accountId}, #{ownerType}, #{partnerTenantId}, #{percentage}, #{readOnly}, #{sortOrder})
+    </insert>
+
+    <insert id="batchInsertLiveOwnership">
+        INSERT INTO tenant_ownership (
+        tenant_id, account_id, owner_type, partner_tenant_id, percentage, read_only, sort_order
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.tenantId}, #{item.accountId}, #{item.ownerType}, #{item.partnerTenantId}, #{item.percentage}, #{item.readOnly}, #{item.sortOrder})
+        </foreach>
+    </insert>
+
+    <insert id="batchInsertHistoricalOwnership">
+        INSERT INTO tenant_ownership_history (
+        tenant_id, effective_month, account_id, owner_type, partner_tenant_id, percentage, read_only, saved_by, saved_at
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.tenantId}, #{item.effectiveMonth}, #{item.accountId}, #{item.ownerType}, #{item.partnerTenantId}, #{item.percentage}, #{item.readOnly}, #{item.savedBy}, NOW())
+        </foreach>
+    </insert>
+
+    <delete id="deleteLiveOwnership">
+        DELETE FROM tenant_ownership WHERE tenant_id = #{tenantId}
+    </delete>
+
+    <delete id="deleteHistoricalOwnership">
+        DELETE FROM tenant_ownership_history WHERE tenant_id = #{tenantId} AND effective_month = #{effectiveMonth}
+    </delete>
+
 </mapper>
