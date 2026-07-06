@@ -229,30 +229,8 @@ export function useCompanyOwnership(shell) {
   );
 
   const removeRow = useCallback(
-    async (cid, idx) => {
+    (cid, idx) => {
       if (readOnlyMode) return showToast("Read-only: only owner can modify ownership", "error");
-      const st = companyStates[cid];
-      if (!st) return;
-      const row = st.rows[idx];
-      if (row?.ownership_id && !isHistoricalView) {
-        try {
-          const body = new FormData();
-          body.append("ownership_id", String(row.ownership_id));
-          const res = await fetch(buildApiUrl("api/ownership/remove_owner_api.php"), {
-            method: "POST",
-            credentials: "include",
-            body,
-          });
-          const json = await res.json();
-          if (!isApiSuccess(json)) {
-            showToast(getApiMessage(json, "Remove failed"), "error");
-            return;
-          }
-        } catch {
-          showToast("Server error", "error");
-          return;
-        }
-      }
       setCompanyStates((prev) => {
         const cur = prev[cid];
         if (!cur) return prev;
@@ -261,7 +239,7 @@ export function useCompanyOwnership(shell) {
         return { ...prev, [cid]: { ...cur, rows } };
       });
     },
-    [companyStates, readOnlyMode, isHistoricalView, showToast],
+    [readOnlyMode, showToast],
   );
 
   const reorderRows = useCallback((cid, from, to, insertAfter) => {
@@ -279,11 +257,11 @@ export function useCompanyOwnership(shell) {
         return false;
       }
       try {
-        const res = await fetch(buildApiUrl("api/ownership/add_external_partner_api.php"), {
+        const res = await fetch(buildApiUrl("api/ownership/link-partner"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ company_id: cid, login_id: loginId, force_type: forceType }),
+          body: JSON.stringify({ tenant_id: cid, login_id: loginId, force_type: forceType }),
         });
         const json = await res.json();
         if (isApiSuccess(json)) {
@@ -324,11 +302,11 @@ export function useCompanyOwnership(shell) {
       setSavingCompanyId(cid);
       try {
         const payload = {
-          company_id: cid,
+          tenant_id: cid,
           owners: rowsToSavePayload(rows),
         };
         if (isHistoricalView) payload.month = selectedMonth;
-        const res = await fetch(buildApiUrl("api/ownership/batch_save_owners_api.php"), {
+        const res = await fetch(buildApiUrl("api/ownership/batch-save-ownership"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",

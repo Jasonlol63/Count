@@ -66,7 +66,7 @@ export function buildApiUrl(pathAndQuery) {
       const groupId = params.get("group_id");
       const month = params.get("month");
       const newParams = new URLSearchParams();
-      if (groupId) newParams.set("group_code", groupId);
+      if (groupId) newParams.set("tenant_id", groupId);
       if (month) newParams.set("month", month);
       return `api/ownership/list?${newParams.toString()}`;
     }
