@@ -92,6 +92,16 @@ function ProcessToastStack({ items }) {
   );
 }
 
+const DEFAULT_DAYS = [
+  { id: 1, day_name: "Mon" },
+  { id: 2, day_name: "Tue" },
+  { id: 3, day_name: "Wed" },
+  { id: 4, day_name: "Thu" },
+  { id: 5, day_name: "Fri" },
+  { id: 6, day_name: "Sat" },
+  { id: 7, day_name: "Sun" }
+];
+
 export default function ProcessListPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -116,7 +126,7 @@ export default function ProcessListPage() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [currencies, setCurrencies] = useState([]);
   const [descriptions, setDescriptions] = useState([]);
-  const [days, setDays] = useState([]);
+  const [days, setDays] = useState(DEFAULT_DAYS);
   const [modalOpen, setModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -210,12 +220,31 @@ export default function ProcessListPage() {
       u.searchParams.set("company_id", String(cid));
       const formRes = await fetch(u.toString(), { credentials: "include" });
       const formJson = await formRes.json();
-      setCurrencies(Array.isArray(formJson?.data?.currencies) ? formJson.data.currencies : formJson?.currencies || []);
-      setDescriptions(Array.isArray(formJson?.data?.descriptions) ? formJson.data.descriptions : formJson?.descriptions || []);
-      setDays(Array.isArray(formJson?.data?.days) ? formJson.data.days : formJson?.days || []);
       setExistingProcesses(
         Array.isArray(formJson?.data?.existingProcesses) ? formJson.data.existingProcesses : formJson?.existingProcesses || []
       );
+      const apiDays = Array.isArray(formJson?.data?.days) ? formJson.data.days : formJson?.days;
+      if (apiDays && apiDays.length > 0) {
+        setDays(apiDays);
+      }
+
+      // Fetch currencies from Spring Boot
+      const curUrl = new URL(buildApiUrl("api/currency/list"));
+      curUrl.searchParams.set("tenant_id", String(cid));
+      const curRes = await fetch(curUrl.toString(), { method: "POST", credentials: "include" });
+      const curJson = await curRes.json();
+      if (curRes.ok && curJson?.success) {
+        setCurrencies(Array.isArray(curJson.data) ? curJson.data : []);
+      }
+
+      // Fetch descriptions from Spring Boot
+      const descUrl = new URL(buildApiUrl("api/process/list-description"));
+      descUrl.searchParams.set("tenant_id", String(cid));
+      const descRes = await fetch(descUrl.toString(), { credentials: "include" });
+      const descJson = await descRes.json();
+      if (descRes.ok && descJson?.success) {
+        setDescriptions(Array.isArray(descJson.data) ? descJson.data : []);
+      }
     } catch {
       /* ignore */
     }
@@ -283,9 +312,9 @@ export default function ProcessListPage() {
           ].sort();
           const resolvedCompanyId = ungroupedBoot
             ? resolveProcessListActiveCompanyId(resolvedPrefetchId, prefetchedCompanies, {
-                groupFilterKind: "ungrouped",
-                groupIds: prefetchGroupIds,
-              })
+              groupFilterKind: "ungrouped",
+              groupIds: prefetchGroupIds,
+            })
             : resolvedPrefetchId;
           setCompanyId(resolvedCompanyId);
           setGroupFilterKind(ungroupedBoot ? "ungrouped" : "follow");
@@ -617,15 +646,14 @@ export default function ProcessListPage() {
       t,
     ],
   );
-
   const reloadDescriptions = async () => {
     if (!companyId) return;
     try {
-      const u = new URL(buildApiUrl("api/processes/addprocess_api.php"));
-      u.searchParams.set("company_id", String(companyId));
+      const u = new URL(buildApiUrl("api/process/list-description"));
+      u.searchParams.set("tenant_id", String(companyId));
       const formRes = await fetch(u.toString(), { credentials: "include" });
       const formJson = await formRes.json();
-      setDescriptions(Array.isArray(formJson?.data?.descriptions) ? formJson.data.descriptions : formJson?.descriptions || []);
+      setDescriptions(Array.isArray(formJson?.data) ? formJson.data : []);
     } catch {
       /* ignore */
     }
@@ -640,13 +668,13 @@ export default function ProcessListPage() {
     const normalizedName = String(descName || "").trim().toUpperCase();
     if (!normalizedName) return null;
     try {
-      const fd = new FormData();
-      fd.append("action", "add_description");
-      fd.append("description_name", normalizedName);
-      if (companyId) fd.append("company_id", String(companyId));
-      const res = await fetch(buildApiUrl("api/processes/addprocess_api.php"), {
+      const res = await fetch(buildApiUrl("api/process/add-description"), {
         method: "POST",
-        body: fd,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: Number(companyId),
+          name: normalizedName,
+        }),
         credentials: "include",
       });
       const json = await res.json();
@@ -660,7 +688,7 @@ export default function ProcessListPage() {
       }
       notify(t("descAdded"), "success");
       await reloadDescriptions();
-      const newId = json?.data?.description_id ?? json?.description_id;
+      const newId = json?.data?.id;
       return newId != null ? { id: newId, name: normalizedName } : null;
     } catch {
       notify(t("failedAddDescription"), "danger");
@@ -674,13 +702,13 @@ export default function ProcessListPage() {
       return;
     }
     try {
-      const fd = new FormData();
-      fd.append("action", "delete_description");
-      fd.append("description_id", String(descId));
-      if (companyId) fd.append("company_id", String(companyId));
-      const res = await fetch(buildApiUrl("api/processes/addprocess_api.php"), {
+      const res = await fetch(buildApiUrl("api/process/delete-description"), {
         method: "POST",
-        body: fd,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: Number(descId),
+          tenantId: Number(companyId),
+        }),
         credentials: "include",
       });
       const json = await res.json();
@@ -1255,26 +1283,25 @@ export default function ProcessListPage() {
       return;
     }
 
-    if (form.is_multi_process && form.selected_processes?.length > 0) {
-      fd.append("selected_processes", JSON.stringify(form.selected_processes));
-    } else {
-      fd.append("process_id", form.process_name);
-    }
-    fd.append("selected_descriptions", JSON.stringify(form.selected_descriptions.map((d) => d.name)));
-    fd.append("currency_id", form.currency_id);
-    fd.append("day_use", form.day_use.join(","));
-    fd.append("remove_word", form.remove_word || "");
-    fd.append("replace_word_from", form.replace_word_from || "");
-    fd.append("replace_word_to", form.replace_word_to || "");
-    fd.append("remark", form.remark || "");
-    if (form.copy_from) fd.append("copy_from", form.copy_from);
-    fd.append("permission", "Games");
-    if (companyId) fd.append("company_id", String(companyId));
+    const payload = {
+      tenantId: Number(companyId),
+      code: form.process_name,
+      descriptionIds: form.selected_descriptions.map((d) => Number(d.id)).filter(Boolean),
+      currencyId: Number(form.currency_id),
+      dayUse: form.day_use.join(","),
+      removeWord: form.remove_word || "",
+      replaceWordFrom: form.replace_word_from || "",
+      replaceWordTo: form.replace_word_to || "",
+      remark: form.remark || ""
+    };
 
     try {
-      const res = await fetch(buildApiUrl("api/processes/addprocess_api.php"), {
+      const res = await fetch(buildApiUrl("api/process/add"), {
         method: "POST",
-        body: fd,
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload),
         credentials: "include",
       });
       const json = await res.json();
@@ -1362,12 +1389,10 @@ export default function ProcessListPage() {
     }
     if (!row?.id) return;
     try {
-      const fd = new FormData();
-      fd.append("id", String(row.id));
-      fd.append("permission", "Games");
-      const res = await fetch(buildApiUrl("api/processes/toggle_process_status_api.php"), {
+      const res = await fetch(buildApiUrl("api/process/update-status"), {
         method: "POST",
-        body: fd,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: Number(row.id) }),
         credentials: "include",
       });
       const json = await res.json();

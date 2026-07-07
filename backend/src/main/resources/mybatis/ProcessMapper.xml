@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.ProcessDao">
+    <resultMap id="DescriptionMap" type="com.eazycount.entity.ProcessDescription">
+        <id property="id" column="id"/>
+        <result property="tenantId" column="tenant_id"/>
+        <result property="name" column="name"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+    
+    <resultMap id="ProcessDescriptionDTOMap" type="com.eazycount.dto.ProcessDescriptionDTO">
+        <association property="process" javaType="com.eazycount.entity.Process">
+            <id property="id" column="ProcessId"/>
+            <result property="tenantId" column="ProcessTenantId"/>
+            <result property="code" column="ProcessCode"/>
+            <result property="currencyId" column="ProcessCurrencyId"/>
+            <result property="currencyCode" column="ProcessCurrencyCode"/>
+            <result property="descriptionIds" column="ProcessDescriptionIds"/>
+            <result property="scheduleDays" column="ProcessScheduleDays"/>
+            <result property="settings" column="ProcessSettings"/>
+            <result property="remark" column="ProcessRemark"/>
+            <result property="status" column="ProcessStatus"/>
+            <result property="createdBy" column="ProcessCreatedBy"/>
+            <result property="updatedBy" column="ProcessUpdatedBy"/>
+            <result property="createdAt" column="ProcessCreatedAt"/>
+            <result property="updatedAt" column="ProcessUpdatedAt"/>
+        </association>
+
+        <collection property="processDescriptions" ofType="com.eazycount.entity.ProcessDescription">
+            <id property="id" column="processDescriptionId"/>
+            <result property="tenantId" column="processDescriptionTenantId"/>
+            <result property="name" column="processDescriptionName"/>
+            <result property="createdAt" column="processDescriptionCreatedAt"/>
+        </collection>
+    </resultMap>
+
+    <select id="findAllProcessByTenantId" resultMap="ProcessDescriptionDTOMap">
+        select p.id AS ProcessId,
+               p.tenant_id AS ProcessTenantId,
+               p.code AS ProcessCode,
+               p.currency_id AS ProcessCurrencyId,
+               c.code AS ProcessCurrencyCode,
+               p.description_ids AS ProcessDescriptionIds,
+               p.schedule_days AS ProcessScheduleDays,
+               p.settings AS ProcessSettings,
+               p.remark AS ProcessRemark,
+               p.status AS ProcessStatus,
+               p.created_by AS ProcessCreatedBy,
+               p.updated_by AS ProcessUpdatedBy,
+               p.created_at AS ProcessCreatedAt,
+               p.updated_at AS ProcessUpdatedAt,
+
+               d.id AS processDescriptionId,
+               d.tenant_id AS processDescriptionTenantId,
+               d.name AS processDescriptionName,
+               d.created_at AS processDescriptionCreatedAt
+        from process p
+                 left join process_description d on JSON_CONTAINS(p.description_ids, JSON_ARRAY(d.id))
+                 left join currency c on p.currency_id = c.id
+        where p.tenant_id = #{tenantId}
+    </select>
+
+    <select id="findProcessByIdAndTenantId" resultType="com.eazycount.entity.Process">
+        SELECT *
+        FROM process p
+        WHERE p.id = #{id} AND p.tenant_id = #{tenantId}
+    </select>
+
+    <insert id="insertProcessDetails" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO process (tenant_id, code, currency_id, description_ids, schedule_days, settings, remark, status, created_by, created_at)
+        VALUES (#{tenantId}, #{code}, #{currencyId}, #{descriptionIds}, #{scheduleDays}, #{settings}, #{remark}, #{status}, #{createdBy}, NOW())
+    </insert>
+
+    <update id="updateStatusById">
+        update process
+        set status = #{status}
+        where id = #{id}
+    </update>
+
+    <!-- Description CRUD use -->
+    <select id="findDescriptionById" resultMap="DescriptionMap">
+        SELECT * FROM process_description WHERE id = #{id}
+    </select>
+
+    <select id="findDescriptionsByTenantId" resultMap="DescriptionMap">
+        SELECT * FROM process_description WHERE tenant_id = #{tenantId}
+    </select>
+
+    <select id="findDescriptionByNameAndTenantId" resultMap="DescriptionMap">
+        SELECT * FROM process_description WHERE tenant_id = #{tenantId} AND name = #{name}
+    </select>
+
+    <select id="findAllDescription" resultMap="DescriptionMap">
+        SELECT * FROM process_description
+    </select>
+    
+    <insert id="insertNewDescription" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO process_description (tenant_id, name, created_at)
+        VALUES (#{tenantId}, #{name}, #{createdAt})
+    </insert>
+    
+    <delete id="deleteDescriptionById">
+        DELETE FROM process_description WHERE id = #{id}
+    </delete>
+    
+</mapper>
