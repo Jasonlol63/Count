@@ -2,6 +2,9 @@
 -- Tenant-model login DB schema (testcount).
 -- Apply AFTER backend/src/main/resources/schema.sql on dev DB, or standalone
 -- when bootstrapping the login module only.
+DROP TABLE IF EXISTS `submitted_processes`;
+DROP TABLE IF EXISTS `process`;
+DROP TABLE IF EXISTS `description`;
 DROP TABLE IF EXISTS `tenant_ownership_history`;
 DROP TABLE IF EXISTS `tenant_ownership`;
 DROP TABLE IF EXISTS `tenant_auto_renew_request`;
@@ -325,3 +328,58 @@ CREATE TABLE `tenant_ownership_history` (
     CONSTRAINT `fk_toh_saved_by` FOREIGN KEY (`saved_by`) REFERENCES `user` (`id`) ON DELETE SET NULL,
     KEY `idx_toh_tenant_month` (`tenant_id`, `effective_month`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='租户股权历史月度快照表';
+
+-- =============================================================================
+-- Core Process Tables (Optimized Tenant-Model)
+-- =============================================================================
+
+CREATE TABLE `process` (
+  `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`       INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+  `code`            VARCHAR(50) NOT NULL COMMENT '业务名称',
+  `currency_id`     INT UNSIGNED NOT NULL COMMENT '默认币别 FK currency.id',
+  `description_ids` JSON DEFAULT NULL COMMENT '关联的交易描述 ID 列表，例如 [12, 15]',
+  `schedule_days`   JSON DEFAULT NULL COMMENT '运行的星期几，例如 [1, 2, 3, 4, 5, 6, 7]',
+  `settings`        JSON DEFAULT NULL COMMENT '动态规则配置，如过滤词、替换对照表等',
+  `remark`          TEXT DEFAULT NULL COMMENT '备注',
+  `status`          ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE' COMMENT '状态：ACTIVE=启用, INACTIVE=停用',
+  `created_by`      INT UNSIGNED DEFAULT NULL COMMENT '创建人 FK user.id',
+  `updated_by`      INT UNSIGNED DEFAULT NULL COMMENT '修改人 FK user.id',
+  `created_at`      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_process_tenant_code` (`tenant_id`, `code`),
+  CONSTRAINT `fk_process_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_process_currency` FOREIGN KEY (`currency_id`) REFERENCES `currency` (`id`),
+  CONSTRAINT `fk_process_created_by` FOREIGN KEY (`created_by`) REFERENCES `user` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_process_updated_by` FOREIGN KEY (`updated_by`) REFERENCES `user` (`id`) ON DELETE SET NULL,
+  KEY `idx_process_tenant_id` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='流程配置表';
+
+CREATE TABLE `submitted_processes` (
+  `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`      INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+  `process_id`     INT UNSIGNED NOT NULL COMMENT 'FK process.id',
+  `user_id`        INT UNSIGNED NOT NULL COMMENT '操作人 FK user.id',
+  `capture_date`   DATE NOT NULL COMMENT '业务捕获日期',
+  `created_at`     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_submitted_tenant_process_date` (`tenant_id`, `process_id`, `capture_date`),
+  CONSTRAINT `fk_sp_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_sp_process` FOREIGN KEY (`process_id`) REFERENCES `process` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_sp_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`),
+  KEY `idx_sp_tenant_capture_date` (`tenant_id`, `capture_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='已提交流程记录表';
+
+-- =============================================================================
+-- Description Template Table (Optimized Tenant-Model)
+-- =============================================================================
+
+CREATE TABLE `process_description` (
+  `id`        INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `tenant_id` INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+  `name`      VARCHAR(255) NOT NULL COMMENT '描述名称/模板内容',
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_process_description_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+  KEY `idx_description_tenant_id` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='交易描述库/模板表';

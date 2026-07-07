@@ -2,6 +2,45 @@ import { excludeGroupLabelsFromCompanyPicker } from "../../utils/company/sharedC
 
 export const PAGE_SIZE = 25;
 
+/**
+ * Status visibility after toggle — aligned with processlist / account list:
+ * - default: active (paginated)
+ * - showInactive: inactive (paginated)
+ * - showAll: all active (no pagination)
+ * - showAll + showInactive: all inactive
+ */
+export function processRowVisibleAfterStatusChange(newStatus, { showInactive, showAll }) {
+  const status = String(newStatus || "").toLowerCase();
+  if (showAll && showInactive) return status === "inactive";
+  if (showAll) return status === "active";
+  if (showInactive) return status === "inactive";
+  return status === "active";
+}
+
+export function applyProcessFilters(processes, { search, showInactive, showAll }) {
+  let rows = processes.map((p) => ({ ...p }));
+  const q = search.trim().toLowerCase();
+  if (q) {
+    rows = rows.filter((p) => {
+      const code = String(p.process?.code || "").toLowerCase();
+      const descNames = (p.processDescriptions || [])
+        .map((d) => String(d.name || "").toLowerCase())
+        .join(" ");
+      return code.includes(q) || descNames.includes(q);
+    });
+  }
+  if (showAll && showInactive) {
+    rows = rows.filter((p) => String(p.process?.status || "").toLowerCase() === "inactive");
+  } else if (showAll) {
+    rows = rows.filter((p) => String(p.process?.status || "").toLowerCase() === "active");
+  } else if (showInactive) {
+    rows = rows.filter((p) => String(p.process?.status || "").toLowerCase() === "inactive");
+  } else {
+    rows = rows.filter((p) => String(p.process?.status || "").toLowerCase() === "active");
+  }
+  return rows;
+}
+
 /** Description 名称：输入与保存统一大写 */
 export function normalizeDescriptionName(raw) {
   return String(raw ?? "").trim().toUpperCase();
@@ -38,7 +77,46 @@ export const EMPTY_FORM = {
 };
 
 export function normalizeRows(data) {
-  return Array.isArray(data) ? data : [];
+  if (!Array.isArray(data)) return [];
+  return data.map(item => {
+    // If the data is already normalized (e.g. cached structure), return it directly
+    if (item && item.process_name !== undefined) return item;
+
+    const p = item.process || {};
+    const descs = item.processDescriptions || [];
+
+    // Parse schedule days and map numbers (1-7) to weekday names (MON-SUN)
+    let daysArray = [];
+    try {
+      daysArray = typeof p.scheduleDays === "string" ? JSON.parse(p.scheduleDays || "[]") : (p.scheduleDays || []);
+    } catch {
+      daysArray = [];
+    }
+    const DAY_NAMES = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+    const dayUseString = Array.isArray(daysArray)
+      ? daysArray.map(dayNum => DAY_NAMES[dayNum - 1]).filter(Boolean).join(", ")
+      : "";
+
+    return {
+      id: p.id,
+      process_name: p.code,
+      description: descs.map(d => d.name).join(", "),
+      status: String(p.status || "").toLowerCase(),
+      currency: p.currencyCode || "",
+      day_use: dayUseString,
+      // Retain additional raw fields for modal editing
+      tenant_id: p.tenantId,
+      currency_id: p.currencyId,
+      description_ids: p.descriptionIds,
+      schedule_days: p.scheduleDays,
+      settings: p.settings,
+      remark: p.remark,
+      created_by: p.createdBy,
+      updated_by: p.updatedBy,
+      created_at: p.createdAt,
+      updated_at: p.updatedAt
+    };
+  });
 }
 
 export function rowCurrencyCodesFromRows(rows) {

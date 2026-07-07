@@ -69,46 +69,34 @@ export async function fetchGamesProcessListSlice(
     return { rows: null, currencyCodes: null };
   }
 
-  const listUrl = new URL(buildApiUrl("api/processes/processlist_api.php"));
-  listUrl.searchParams.set("permission", "Games");
-  listUrl.searchParams.set("company_id", String(cid));
+  const listUrl = new URL(buildApiUrl("api/process/list"));
+  listUrl.searchParams.set("tenant_id", String(cid));
   const q = String(search || "").trim();
   if (q) listUrl.searchParams.set("search", q);
   if (showInactive) listUrl.searchParams.set("showInactive", "1");
   if (showAll) listUrl.searchParams.set("showAll", "1");
 
-  const curUrl = buildApiUrl(`api/transactions/get_company_currencies_api.php?company_id=${cid}`);
-  const ordUrl = buildApiUrl(
-    `api/transactions/user_currency_order_api.php?company_id=${cid}&_t=${Date.now()}`,
-  );
+  const curUrl = new URL(buildApiUrl("api/currency/list"));
+  curUrl.searchParams.set("tenant_id", String(cid));
 
   try {
     const fetchOpts = { credentials: "include", signal };
-    const [listRes, curRes, ordRes] = await Promise.all([
-      fetch(listUrl.toString(), fetchOpts),
-      fetch(curUrl, fetchOpts),
-      fetch(ordUrl, fetchOpts).catch(() => null),
+    const [listRes, curRes] = await Promise.all([
+      fetch(listUrl.toString(), { ...fetchOpts, method: "POST" }),
+      fetch(curUrl.toString(), { ...fetchOpts, method: "POST" }),
     ]);
     const listJson = await listRes.json();
     const curJson = await curRes.json();
-
+ 
     const rows =
       listRes.ok && listJson?.success && Array.isArray(listJson.data)
         ? normalizeGamesProcessRows(listJson.data)
         : null;
-
+ 
     let currencyCodes = null;
     if (curRes.ok && curJson?.success && Array.isArray(curJson.data)) {
       const codes = curJson.data.map((r) => String(r.code).toUpperCase());
-      let savedOrder = null;
-      if (ordRes) {
-        try {
-          const ordJson = await ordRes.json();
-          savedOrder = ordJson?.data?.order;
-        } catch {
-          /* optional order */
-        }
-      }
+      const savedOrder = null; // Fallback to default sorting order
       currencyCodes = mergeCurrencyCodesWithSavedOrder(codes, savedOrder);
     }
 
