@@ -336,11 +336,11 @@ export function useCompanyOwnership(shell) {
     async (cid, gid, companyName) => {
       if (adminLocked) return showToast("Read-only: only owner can modify ownership", "error");
       try {
-        const res = await fetch(buildApiUrl("api/ownership/update_company_group_api.php"), {
+        const res = await fetch(buildApiUrl("api/ownership/update-parent-tenant"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ company_id: cid, group_id: gid }),
+          body: JSON.stringify({ tenant_id: cid, parent_code: gid }),
         });
         const json = await res.json();
         if (isApiSuccess(json)) {
@@ -358,11 +358,11 @@ export function useCompanyOwnership(shell) {
     async (cid, companyName) => {
       if (adminLocked) return showToast("Read-only: only owner can modify ownership", "error");
       try {
-        const res = await fetch(buildApiUrl("api/ownership/update_company_group_api.php"), {
+        const res = await fetch(buildApiUrl("api/ownership/update-parent-tenant"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ company_id: cid }),
+          body: JSON.stringify({ tenant_id: cid, parent_code: null }),
         });
         const json = await res.json();
         if (isApiSuccess(json)) {
@@ -412,11 +412,11 @@ export function useCompanyOwnership(shell) {
         const ids = Array.from(selectedCompanyIds);
         const results = await Promise.all(
           ids.map((cid) =>
-            fetch(buildApiUrl("api/ownership/update_company_group_api.php"), {
+            fetch(buildApiUrl("api/ownership/update-parent-tenant"), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               credentials: "include",
-              body: JSON.stringify({ company_id: cid, group_id: gid }),
+              body: JSON.stringify({ tenant_id: cid, parent_code: gid }),
             }).then((r) => r.json()),
           ),
         );
@@ -440,11 +440,11 @@ export function useCompanyOwnership(shell) {
       const ids = Array.from(selectedCompanyIds);
       const results = await Promise.all(
         ids.map((cid) =>
-          fetch(buildApiUrl("api/ownership/update_company_group_api.php"), {
+          fetch(buildApiUrl("api/ownership/update-parent-tenant"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ company_id: cid, group_id: null }),
+            body: JSON.stringify({ tenant_id: cid, parent_code: null }),
           }).then((r) => r.json()),
         ),
       );

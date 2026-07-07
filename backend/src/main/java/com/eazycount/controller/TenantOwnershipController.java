@@ -141,4 +141,29 @@ public class TenantOwnershipController {
             return ResponseEntity.ok(body);
         }
     }
+
+    @PostMapping("/update-parent-tenant")
+    public ResponseEntity<Map<String, Object>> updateParentTenant(@RequestBody Map<String, Object> payload) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        try{
+            String tenantIdStr = payload.get("tenant_id") != null ? payload.get("tenant_id").toString() : null;
+            Integer tenantId = resolveTenantId(tenantIdStr);
+            String parentCode = payload.get("parent_code") != null ? payload.get("parent_code").toString() : null;
+            tenantOwnershipService.updateTenantParentId(tenantId, parentCode);
+
+            boolean cleared = parentCode == null || parentCode.isBlank();
+            body.put("status", "success");
+            body.put("success", true);
+            body.put("message", cleared ? "Parent Tenant cleared successfully" : "Parent Tenant updated successfully");
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        }
+        catch (Exception e) {
+            body.put("status", "error");
+            body.put("success", false);
+            body.put("message", e.getMessage());
+            body.put("data", List.of());
+            return ResponseEntity.ok(body);
+        }
+    }
 }

@@ -398,4 +398,42 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
             }
         }
     }
+
+    @Override
+    @Transactional
+    public void updateTenantParentId(Integer tenantId, String parentTenantCode) {
+        SessionUser sessionUser = SecurityUtils.currentUser();
+        if (sessionUser == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (!"owner".equalsIgnoreCase(sessionUser.role)) {
+            throw new BusinessException("Read-only: only owner can modify ownership");
+        }
+
+        Tenant company =domainDao.findTenantById(tenantId);
+        if (company == null) {
+            throw new BusinessException("Tenant not found");
+        }
+
+        Tenant owner = domainDao.findOwnerTenantByIdAndOwnerId(tenantId, company.getOwnerId());
+        if (owner == null) {
+            throw new BusinessException("Tenant or Owner not found");
+        }
+
+        Integer parentId = null;
+        String code = parentTenantCode != null ? parentTenantCode.trim() : "";
+        if (!code.isBlank()) {
+            Tenant group = tenantOwnershipDao.findTenantByCode(code);
+            if (group == null) {
+                throw new BusinessException("Parent Tenant not found");
+            }
+            parentId = group.getId();
+        }
+
+        try {
+            tenantOwnershipDao.updateTenantParentId(tenantId, parentId, sessionUser.user_id);
+        } catch (Exception e) {
+            throw new BusinessException("Error updating tenant parent id");
+        }
+    }
 }

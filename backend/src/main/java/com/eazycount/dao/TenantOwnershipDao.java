@@ -37,4 +37,6 @@ public interface TenantOwnershipDao {
     void deleteHistoricalOwnership(@Param("tenantId") Integer tenantId, @Param("effectiveMonth") String effectiveMonth);
 
     void deleteLiveOwnership(@Param("tenantId") Integer tenantId);
+
+    void updateTenantParentId(@Param("tenantId") Integer tenantId, @Param("parentId") Integer parentId, @Param("ownerId") Integer ownerId);
 }
