@@ -213,11 +213,13 @@
         LIMIT 1
     </select>
 
+    <!-- insert link partner use -->
     <insert id="insertLink" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO tenant_ownership (tenant_id, account_id, owner_type, partner_tenant_id, percentage, read_only, sort_order)
         VALUES (#{tenantId}, #{accountId}, #{ownerType}, #{partnerTenantId}, #{percentage}, #{readOnly}, #{sortOrder})
     </insert>
 
+    <!-- Batch Insert Ownership Details, include Historical Details -->
     <insert id="batchInsertLiveOwnership">
         INSERT INTO tenant_ownership (
         tenant_id, account_id, owner_type, partner_tenant_id, percentage, read_only, sort_order
@@ -236,6 +238,7 @@
         </foreach>
     </insert>
 
+    <!-- delete Ownership Details, include Historical Details -->
     <delete id="deleteLiveOwnership">
         DELETE FROM tenant_ownership WHERE tenant_id = #{tenantId}
     </delete>
@@ -243,5 +246,16 @@
     <delete id="deleteHistoricalOwnership">
         DELETE FROM tenant_ownership_history WHERE tenant_id = #{tenantId} AND effective_month = #{effectiveMonth}
     </delete>
+
+    <!-- update Tenant Parent Id -->
+    <update id="updateTenantParentId">
+        UPDATE tenant
+        SET parent_id = #{parentId},
+            updated_at = NOW()
+        WHERE id = #{tenantId}
+          AND owner_id = #{ownerId}
+          AND tenant_type = 'COMPANY'
+          AND status = 'ACTIVE'
+    </update>
 
 </mapper>

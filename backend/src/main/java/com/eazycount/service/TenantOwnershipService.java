@@ -24,4 +24,6 @@ public interface TenantOwnershipService {
     void saveHistoricalOwnership(Integer tenantId, List<Map<String, Object>> ownersPayload, String effectiveMonth, Integer savedBy);
 
     void saveOwnership(Integer tenantId, List<Map<String, Object>> ownersPayload, String month, List<String> retrofillMonths);
+
+    void updateTenantParentId(Integer tenantId, String parentTenantCode);
 }
