@@ -1,5 +1,6 @@
 package com.eazycount.entity;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -9,7 +10,9 @@ import lombok.ToString;
 import java.time.LocalDateTime;
 
 /**
- * Maps to the {@code user} table (Admin tab login).
+ * Maps to the {@code user} table — staff/admin identities (Admin tab login).
+ * Role is stored as {@code role_id} → {@code user_role.id}; sidebar permissions come from
+ * {@code user_role_permission}, not from this row.
  */
 @Getter
 @Setter
@@ -30,9 +33,13 @@ public class Admin {
 
     private String email;
 
-    private UserRole role;
+    /** FK {@code user_role.id} */
+    private Integer roleId;
 
-    private String permissions;
+    /**
+     * Populated when loaded with JOIN {@code user_role}; not a column on {@code user}.
+     */
+    private String roleCode;
 
     private UserStatus status;
 
@@ -48,103 +55,18 @@ public class Admin {
 
     private Boolean readOnly;
 
-    @Getter
-    public enum UserRole {
-        OWNER("OWNER"),
-        ADMIN("ADMIN"),
-        MANAGER("MANAGER"),
-        SUPERVISOR("SUPERVISOR"),
-        ACCOUNTANT("ACCOUNTANT"),
-        AUDIT("AUDIT"),
-        CUSTOMER_SERVICE("CUSTOMER_SERVICE"),
-        PARTNERSHIP("PARTNERSHIP");
-
-        private final String value;
-
-        UserRole(String value) {
-            this.value = value;
+    /** JSON field {@code role} for list/detail APIs (from joined {@code user_role.code}). */
+    @JsonProperty("role")
+    public String getRole() {
+        if (roleCode == null || roleCode.isBlank()) {
+            return null;
         }
-
-        public static UserRole fromValue(String value) {
-            if (value == null) {
-                return null;
-            }
-
-            final String normalized = value.trim();
-            for (UserRole role : values()) {
-                if (role.name().equalsIgnoreCase(normalized) || role.value.equalsIgnoreCase(normalized)) {
-                    return role;
-                }
-            }
-
-            if ("customer service".equalsIgnoreCase(normalized)) {
-                return CUSTOMER_SERVICE;
-            }
-
-            throw new IllegalArgumentException("Unknown role: " + value);
-        }
+        return roleCode.trim();
     }
 
     @Getter
     public enum UserStatus {
-        ACTIVE("ACTIVE"),
-        INACTIVE("INACTIVE");
-
-        private final String value;
-
-        UserStatus(String value) {
-            this.value = value;
-        }
-
-        public static UserStatus fromValue(String value) {
-            if (value == null) {
-                return null;
-            }
-
-            final String normalized = value.trim();
-            for (UserStatus status : values()) {
-                if (status.name().equalsIgnoreCase(normalized) || status.value.equalsIgnoreCase(normalized)) {
-                    return status;
-                }
-            }
-
-            throw new IllegalArgumentException("Unknown status: " + value);
-        }
-    }
-
-    public enum PermissionType{
-        HOME("HOME"),
-        DOMAIN("DOMAIN"),
-        ANNOUNCEMENTS("ANNOUNCEMENTS"),
-        AUTORENEW("AUTORENEW"),
-        OWNERSHIP("OWNERSHIP"),
-        ADMIN("ADMIN"),
-        ACCOUNT("ACCOUNT"),
-        PROCESS("PROCESS"),
-        DATACAPTURE("DATACAPTURE"),
-        TRANSACTION("TRANSACTION"),
-        REPORT("REPORT"),
-        MAINTENANCE("MAINTENANCE");
-
-        private final String value;
-
-        PermissionType(String value) {
-            this.value = value;
-        }
-
-        public static PermissionType fromValue(String value) {
-            if (value == null) {
-                return null;
-            }
-
-            final String normalized = value.trim();
-            for (PermissionType type : values()) {
-                if (type.name().equalsIgnoreCase(normalized) || type.value.equalsIgnoreCase(normalized)) {
-                    return type;
-                }
-            }
-
-            throw new IllegalArgumentException("Unknown permission type: " + value);
-        }
+        ACTIVE,
+        INACTIVE;
     }
 }

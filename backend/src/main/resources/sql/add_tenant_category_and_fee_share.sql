@@ -1,5 +1,4 @@
 -- Add tenant.category_code and tenant.fee_share_allocate (run once on existing testcount DBs).
--- Skip if the table was created from an updated testcount_schema.sql that already includes these columns.
 
 USE testcount;
 

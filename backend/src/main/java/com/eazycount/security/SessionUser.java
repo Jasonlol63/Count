@@ -118,9 +118,9 @@ public class SessionUser implements Serializable {
 
     private static SessionUser fromAdmin(Admin admin, Tenant tenant, PermissionService permissionService) {
         final String companyCode = tenantCode(tenant);
-        final boolean isC168 = "C168".equalsIgnoreCase(companyCode);
-        final boolean hasSecondary = admin.getSecondaryPassword() != null && !admin.getSecondaryPassword().isBlank();
-        final String role = admin.getRole() != null ? admin.getRole().getValue() : "";
+        final boolean isC168 = permissionService.isC168Account(tenant);
+        final boolean hasSecondary = hasConfiguredSecondaryPassword(admin.getSecondaryPassword());
+        final String role = admin.getRoleCode() != null ? admin.getRoleCode() : "";
         final List<String> moduleKeys = toFrontendModuleKeys(
                 permissionService.resolveAdminModuleKeys(admin, tenant));
         final boolean hasGame = permissionService.hasGameModule(tenant);
@@ -134,7 +134,7 @@ public class SessionUser implements Serializable {
                 tenantScope(tenant),
                 companyCode,
                 false,
-                isC168 && hasSecondary,
+                hasSecondary,
                 tenantExpiration(tenant),
                 Objects.toString(admin.getName(), ""),
                 normalizeUpper(Objects.toString(admin.getLoginId(), "")),
@@ -179,6 +179,7 @@ public class SessionUser implements Serializable {
         final String companyCode = !tenantCode(tenant).isBlank()
                 ? tenantCode(tenant)
                 : normalizeUpper(Objects.toString(owner.getOwnerCode(), ""));
+        final boolean hasSecondary = hasConfiguredSecondaryPassword(owner.getSecondaryPassword());
         final boolean hasGame = permissionService.hasGameModule(tenant);
         final boolean hasBank = permissionService.hasBankModule(tenant);
 
@@ -189,7 +190,7 @@ public class SessionUser implements Serializable {
                 blankToNull(companyCode),
                 tenant != null ? tenantScope(tenant) : "group",
                 companyCode,
-                true,
+                hasSecondary,
                 false,
                 tenantExpiration(tenant),
                 Objects.toString(owner.getName(), ""),
@@ -255,6 +256,10 @@ public class SessionUser implements Serializable {
 
     private static String normalizeLower(String s) {
         return Objects.toString(s, "").trim().toLowerCase();
+    }
+
+    private static boolean hasConfiguredSecondaryPassword(String secondaryPassword) {
+        return secondaryPassword != null && !secondaryPassword.isBlank();
     }
 
     /** Backend resolves uppercase module keys; frontend expects lowercase (e.g. {@code home}). */

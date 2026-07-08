@@ -11,8 +11,10 @@ import java.util.List;
  */
 public interface PermissionService {
 
+    /** Staff/admin sidebar keys (uppercase) from {@code user.role_id} + tenant rules. */
     List<String> resolveAdminModuleKeys(Admin admin, Tenant tenant);
 
+    /** Owner sidebar keys (uppercase) from OWNER role in {@code user_role_permission} + tenant rules. */
     List<String> resolveOwnerModuleKeys(Owner owner, Tenant tenant);
 
     boolean hasGameModule(Tenant tenant);
@@ -20,5 +22,4 @@ public interface PermissionService {
     boolean hasBankModule(Tenant tenant);
 
     boolean isC168Account(Tenant tenant);
-
 }
