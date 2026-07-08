@@ -14,15 +14,20 @@ DROP TABLE IF EXISTS `maintenance_marquee`;
 DROP TABLE IF EXISTS `announcements`;
 DROP TABLE IF EXISTS `tenant_link`;
 DROP TABLE IF EXISTS `tenant_feature_module`;
+DROP TABLE IF EXISTS `user_role_permission`;
+DROP TABLE IF EXISTS `permission`;
 DROP TABLE IF EXISTS `feature_module`;
 DROP TABLE IF EXISTS `password_reset_tac`;
 DROP TABLE IF EXISTS `password_reset_tac_owner`;
+DROP TABLE IF EXISTS `user_tenant_process_access`;
+DROP TABLE IF EXISTS `user_tenant_account_access`;
 DROP TABLE IF EXISTS `account_tenant_access`;
 DROP TABLE IF EXISTS `account_link`;
 DROP TABLE IF EXISTS `user_tenant_access`;
 DROP TABLE IF EXISTS `tenant`;
 DROP TABLE IF EXISTS `account`;
 DROP TABLE IF EXISTS `user`;
+DROP TABLE IF EXISTS `user_role`;
 DROP TABLE IF EXISTS `owner`;
 
 CREATE TABLE `owner` (
@@ -60,6 +65,137 @@ CREATE TABLE `account` (
   KEY `idx_account_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Member identity';
 
+-- =============================================================================
+-- Admin / staff role dictionary
+-- hierarchy_level: lower value = higher privilege (aligned with frontend ROLE_HIERARCHY)
+-- =============================================================================
+CREATE TABLE `user_role` (
+  `id`              TINYINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `code`            VARCHAR(50)  NOT NULL COMMENT 'Machine code e.g. ADMIN, CUSTOMER_SERVICE',
+  `name`            VARCHAR(100) NOT NULL COMMENT 'Display name',
+  `hierarchy_level` TINYINT UNSIGNED NOT NULL COMMENT 'Lower = higher privilege',
+  `status`          ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+  `created_at`      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_role_code` (`code`),
+  KEY `idx_role_status` (`status`),
+  KEY `idx_role_hierarchy` (`hierarchy_level`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Admin / staff role dictionary';
+
+INSERT INTO `user_role` (`id`, `code`, `name`, `hierarchy_level`, `status`) VALUES
+  (1, 'OWNER',            'Owner',             1, 'ACTIVE'),
+  (2, 'ADMIN',            'Admin',             2, 'ACTIVE'),
+  (3, 'MANAGER',          'Manager',           3, 'ACTIVE'),
+  (4, 'SUPERVISOR',       'Supervisor',        4, 'ACTIVE'),
+  (5, 'ACCOUNTANT',       'Accountant',        5, 'ACTIVE'),
+  (6, 'AUDIT',            'Audit',             6, 'ACTIVE'),
+  (7, 'CUSTOMER_SERVICE', 'Customer Service',  7, 'ACTIVE'),
+  (8, 'PARTNERSHIP',      'Partnership',       8, 'ACTIVE');
+
+-- Tenant business modules (GAME/BANK) — referenced by permission.requires_feature_id
+CREATE TABLE `feature_module` (
+  `id`         SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `code`       VARCHAR(50)  NOT NULL COMMENT 'Canonical module code e.g. GAME, BANK',
+  `name`       VARCHAR(255) NOT NULL COMMENT 'Display name',
+  `sort_order` SMALLINT     NOT NULL DEFAULT 0,
+  `status`     ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_feature_module_code` (`code`),
+  KEY `idx_feature_module_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Business module dictionary';
+
+INSERT INTO `feature_module` (`id`, `code`, `name`, `sort_order`, `status`) VALUES
+  (1, 'GAME', 'Game', 1, 'ACTIVE'),
+  (2, 'BANK', 'Bank', 2, 'ACTIVE');
+
+-- =============================================================================
+-- Sidebar permission dictionary
+-- DOMAIN / ANNOUNCEMENTS: injected at runtime for C168 (not bound to roles)
+-- REPORT: requires tenant GAME feature (requires_feature_id)
+-- =============================================================================
+CREATE TABLE `permission` (
+  `id`                  SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `code`                VARCHAR(50)  NOT NULL COMMENT 'HOME, DOMAIN, ADMIN ...',
+  `name`                VARCHAR(100) NOT NULL COMMENT 'Display name',
+  `sort_order`          SMALLINT     NOT NULL DEFAULT 0,
+  `requires_feature_id` SMALLINT UNSIGNED DEFAULT NULL COMMENT 'FK feature_module.id; NULL = no tenant gate',
+  `status`              ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_permission_code` (`code`),
+  KEY `idx_permission_status` (`status`),
+  KEY `idx_permission_requires_feature` (`requires_feature_id`),
+  CONSTRAINT `fk_permission_requires_feature`
+    FOREIGN KEY (`requires_feature_id`) REFERENCES `feature_module` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Sidebar permission dictionary';
+
+INSERT INTO `permission` (`id`, `code`, `name`, `sort_order`, `requires_feature_id`, `status`) VALUES
+  ( 1, 'HOME',          'Home',          1,  NULL, 'ACTIVE'),
+  ( 2, 'DOMAIN',        'Domain',        2,  NULL, 'ACTIVE'),
+  ( 3, 'ANNOUNCEMENTS', 'Announcements', 3,  NULL, 'ACTIVE'),
+  ( 4, 'ADMIN',         'Admin',         4,  NULL, 'ACTIVE'),
+  ( 5, 'ACCOUNT',       'Account',       5,  NULL, 'ACTIVE'),
+  ( 6, 'OWNERSHIP',     'Ownership',     6,  NULL, 'ACTIVE'),
+  ( 7, 'PROCESS',       'Process',       7,  NULL, 'ACTIVE'),
+  ( 8, 'DATACAPTURE',   'Data Capture',  8,  NULL, 'ACTIVE'),
+  ( 9, 'PAYMENT',       'Payment',       9,  NULL, 'ACTIVE'),
+  (10, 'REPORT',        'Report',        10, 1,    'ACTIVE'),
+  (11, 'MAINTENANCE',   'Maintenance',   11, NULL, 'ACTIVE');
+
+-- Default sidebar per role (DOMAIN / ANNOUNCEMENTS excluded — C168 runtime only)
+CREATE TABLE `user_role_permission` (
+  `role_id`       TINYINT UNSIGNED NOT NULL,
+  `permission_id` SMALLINT UNSIGNED NOT NULL,
+  PRIMARY KEY (`role_id`, `permission_id`),
+  KEY `idx_urp_permission_id` (`permission_id`),
+  CONSTRAINT `fk_urp_role` FOREIGN KEY (`role_id`) REFERENCES `user_role` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_urp_permission` FOREIGN KEY (`permission_id`) REFERENCES `permission` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Default sidebar permissions per admin role';
+
+INSERT INTO `user_role_permission` (`role_id`, `permission_id`)
+SELECT r.id, p.id
+FROM `user_role` r
+JOIN `permission` p ON p.code IN (
+  'HOME', 'ADMIN', 'ACCOUNT', 'OWNERSHIP', 'PROCESS', 'DATACAPTURE', 'PAYMENT', 'REPORT', 'MAINTENANCE'
+)
+WHERE r.code IN ('OWNER', 'PARTNERSHIP', 'ADMIN');
+
+INSERT INTO `user_role_permission` (`role_id`, `permission_id`)
+SELECT r.id, p.id
+FROM `user_role` r
+JOIN `permission` p ON p.code IN (
+  'ADMIN', 'ACCOUNT', 'PROCESS', 'DATACAPTURE', 'PAYMENT', 'REPORT', 'MAINTENANCE'
+)
+WHERE r.code = 'MANAGER';
+
+INSERT INTO `user_role_permission` (`role_id`, `permission_id`)
+SELECT r.id, p.id
+FROM `user_role` r
+JOIN `permission` p ON p.code IN (
+  'ADMIN', 'ACCOUNT', 'PROCESS', 'DATACAPTURE', 'PAYMENT', 'REPORT'
+)
+WHERE r.code = 'SUPERVISOR';
+
+INSERT INTO `user_role_permission` (`role_id`, `permission_id`)
+SELECT r.id, p.id
+FROM `user_role` r
+JOIN `permission` p ON p.code IN ('ACCOUNT', 'PROCESS', 'PAYMENT', 'REPORT')
+WHERE r.code = 'ACCOUNTANT';
+
+INSERT INTO `user_role_permission` (`role_id`, `permission_id`)
+SELECT r.id, p.id
+FROM `user_role` r
+JOIN `permission` p ON p.code IN ('PAYMENT', 'REPORT', 'MAINTENANCE')
+WHERE r.code = 'AUDIT';
+
+INSERT INTO `user_role_permission` (`role_id`, `permission_id`)
+SELECT r.id, p.id
+FROM `user_role` r
+JOIN `permission` p ON p.code IN (
+  'ACCOUNT', 'PROCESS', 'DATACAPTURE', 'PAYMENT', 'REPORT'
+)
+WHERE r.code = 'CUSTOMER_SERVICE';
+
 CREATE TABLE `user` (
   `id`                     INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `login_id`               VARCHAR(50)  NOT NULL COMMENT 'Login identifier (Admin tab)',
@@ -67,8 +203,7 @@ CREATE TABLE `user` (
   `email`                  VARCHAR(100) NOT NULL,
   `password`               VARCHAR(255) NOT NULL COMMENT 'BCrypt hash',
   `secondary_password`     VARCHAR(255)          DEFAULT NULL COMMENT 'BCrypt, C168 optional 6-digit PIN',
-  `role`                   ENUM('ADMIN', 'MANAGER', 'SUPERVISOR', 'ACCOUNTANT', 'AUDIT', 'CUSTOMER_SERVICE', 'PARTNERSHIP') NOT NULL,
-  `permissions`            LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'Global module permissions' CHECK (json_valid(`permissions`) OR `permissions` IS NULL),
+  `role_id`                TINYINT UNSIGNED NOT NULL COMMENT 'FK user_role.id',
   `status`                 ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
   `read_only`              TINYINT(1)   NOT NULL DEFAULT 1,
   `remember_token`         VARCHAR(64)           DEFAULT NULL,
@@ -79,7 +214,9 @@ CREATE TABLE `user` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_login_id` (`login_id`),
   UNIQUE KEY `uk_user_email` (`email`),
-  KEY `idx_user_status` (`status`)
+  KEY `idx_user_status` (`status`),
+  KEY `idx_user_role_id` (`role_id`),
+  CONSTRAINT `fk_user_role` FOREIGN KEY (`role_id`) REFERENCES `user_role` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Admin / staff identity';
 
 CREATE TABLE `tenant` (
@@ -103,17 +240,6 @@ CREATE TABLE `tenant` (
   KEY `idx_tenant_parent_id` (`parent_id`),
   KEY `idx_tenant_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Group and company tenants (single ID space)';
-
-CREATE TABLE `feature_module` (
-  `id`         SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `code`       VARCHAR(50)  NOT NULL COMMENT 'Canonical module code e.g. Game, Bank',
-  `name`       VARCHAR(255) NOT NULL COMMENT 'Display name',
-  `sort_order` SMALLINT     NOT NULL DEFAULT 0,
-  `status`     ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_feature_module_code` (`code`),
-  KEY `idx_feature_module_status` (`status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Business module dictionary';
 
 CREATE TABLE `tenant_feature_module` (
   `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -141,9 +267,8 @@ CREATE TABLE `user_tenant_access` (
   `id`                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id`             INT UNSIGNED NOT NULL COMMENT 'FK user.id',
   `tenant_id`           INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
-  `capabilities`        JSON                  DEFAULT NULL COMMENT 'Fine-grained grant e.g. GROUP_LEDGER_READ',
-  `account_permissions` JSON                  DEFAULT NULL COMMENT 'Subsidiary account ACL when tenant is company',
-  `process_permissions` JSON                  DEFAULT NULL COMMENT 'Subsidiary process ACL when tenant is company',
+  `account_acl_mode`    ENUM('ALL', 'CUSTOM', 'NONE') NOT NULL DEFAULT 'ALL' COMMENT 'Account visibility: ALL = full access, CUSTOM = use user_tenant_account_access, NONE = deny all',
+  `process_acl_mode`    ENUM('ALL', 'CUSTOM', 'NONE') NOT NULL DEFAULT 'ALL' COMMENT 'Process visibility: ALL = full access, CUSTOM = use user_tenant_process_access, NONE = deny all',
   `created_at`          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -151,6 +276,36 @@ CREATE TABLE `user_tenant_access` (
   KEY `idx_uta_user_id` (`user_id`),
   KEY `idx_uta_tenant_id` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Admin grants per tenant (type from tenant.tenant_type)';
+
+CREATE TABLE `user_tenant_account_access` (
+  `id`                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_tenant_access_id` BIGINT UNSIGNED NOT NULL COMMENT 'FK user_tenant_access.id',
+  `account_id`            INT UNSIGNED NOT NULL COMMENT 'FK account.id (visible account scope)',
+  `created_at`            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_utaa_access_account` (`user_tenant_access_id`, `account_id`),
+  KEY `idx_utaa_access_id` (`user_tenant_access_id`),
+  KEY `idx_utaa_account_id` (`account_id`),
+  CONSTRAINT `fk_utaa_access`
+    FOREIGN KEY (`user_tenant_access_id`) REFERENCES `user_tenant_access` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_utaa_account`
+    FOREIGN KEY (`account_id`) REFERENCES `account` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Per-user per-tenant account ACL (normalized replacement for JSON account_permissions)';
+
+CREATE TABLE `user_tenant_process_access` (
+  `id`                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_tenant_access_id` BIGINT UNSIGNED NOT NULL COMMENT 'FK user_tenant_access.id',
+  `process_id`            INT UNSIGNED NOT NULL COMMENT 'FK process.id (visible process scope)',
+  `created_at`            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_utpa_access_process` (`user_tenant_access_id`, `process_id`),
+  KEY `idx_utpa_access_id` (`user_tenant_access_id`),
+  KEY `idx_utpa_process_id` (`process_id`),
+  CONSTRAINT `fk_utpa_access`
+     FOREIGN KEY (`user_tenant_access_id`) REFERENCES `user_tenant_access` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_utpa_process`
+     FOREIGN KEY (`process_id`) REFERENCES `process` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Per-user per-tenant process ACL (normalized replacement for JSON process_permissions)';
 
 CREATE TABLE `account_tenant_access` (
   `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

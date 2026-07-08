@@ -2,30 +2,25 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.eazycount.dao.AdminDao">
 
-    <resultMap id="AdminListDTO" type="com.eazycount.dto.AdminListDTO">
+    <resultMap id="AdminListDTO" type="com.eazycount.dto.AdminDTO">
         <association property="admin" javaType="com.eazycount.entity.Admin">
             <id property="id" column="adminId"/>
             <result property="loginId" column="adminLoginId"/>
             <result property="name" column="adminName"/>
-            <result property="password" column="adminPassword"/>
-            <result property="secondaryPassword" column="adminSecondaryPassword"/>
             <result property="email" column="adminEmail"/>
-            <result property="role" column="adminRole"/>
-            <result property="permissions" column="adminPermissions"/>
+            <result property="roleId" column="adminRoleId"/>
+            <result property="roleCode" column="adminRoleCode"/>
             <result property="status" column="adminStatus"/>
             <result property="createdBy" column="adminCreatedBy"/>
-            <result property="createdAt" column="adminCreatedAt"/>
             <result property="lastLogin" column="adminLastLogin"/>
-            <result property="readOnly" column="adminReadOnly"/>
         </association>
 
         <association property="adminTenantAccess" javaType="com.eazycount.entity.AdminTenantAccess">
             <id property="id" column="adminTenantAccessId"/>
             <result property="userId" column="adminTenantAccessUserId"/>
             <result property="tenantId" column="adminTenantAccessTenantId"/>
-            <result property="capabilities" column="capabilities"/>
-            <result property="accountPermissions" column="accountPermissions"/>
-            <result property="processPermissions" column="processPermissions"/>
+            <result property="accountAclMode" column="adminTenantAccessAccountAclMode"/>
+            <result property="processAclMode" column="adminTenantAccessProcessAclMode"/>
             <result property="createdAt" column="adminTenantAccessCreatedAt"/>
             <result property="updatedAt" column="adminTenantAccessUpdatedAt"/>
         </association>
@@ -33,132 +28,104 @@
 
     <select id="findAdminsByTenantId" resultMap="AdminListDTO">
         SELECT
-        u.id                    AS adminId,
-        u.login_id              AS adminLoginId,
-        u.name                  AS adminName,
-        u.email                 AS adminEmail,
-        u.role                  AS adminRole,
-        u.permissions           AS adminPermissions,
-        u.status                AS adminStatus,
-        u.created_by            AS adminCreatedBy,
-        u.created_at            AS adminCreatedAt,
-        u.last_login            AS adminLastLogin,
-        u.read_only             AS adminReadOnly,
+            u.id                    AS adminId,
+            u.login_id              AS adminLoginId,
+            u.name                  AS adminName,
+            u.email                 AS adminEmail,
+            u.role_id               AS adminRoleId,
+            ur.code                 AS adminRoleCode,
+            u.status                AS adminStatus,
+            u.created_by            AS adminCreatedBy,
+            u.last_login            AS adminLastLogin,
 
-        uta.id                  AS adminTenantAccessId,
-        uta.user_id             AS adminTenantAccessUserId,
-        uta.tenant_id           AS adminTenantAccessTenantId,
-        uta.capabilities        AS capabilities,
-        uta.account_permissions AS accountPermissions,
-        uta.process_permissions AS processPermissions,
-        uta.created_at          AS adminTenantAccessCreatedAt,
-        uta.updated_at          AS adminTenantAccessUpdatedAt
+            uta.id                  AS adminTenantAccessId,
+            uta.user_id             AS adminTenantAccessUserId,
+            uta.tenant_id           AS adminTenantAccessTenantId,
+            uta.account_acl_mode    AS adminTenantAccessAccountAclMode,
+            uta.process_acl_mode    AS adminTenantAccessProcessAclMode,
+            uta.created_at          AS adminTenantAccessCreatedAt,
+            uta.updated_at          AS adminTenantAccessUpdatedAt
         FROM user u
+        INNER JOIN user_role ur ON ur.id = u.role_id
         INNER JOIN user_tenant_access uta ON uta.user_id = u.id
         WHERE uta.tenant_id = #{tenantId}
         ORDER BY
-        CASE
-        WHEN u.login_id REGEXP '^[0-9]' THEN 0
-        ELSE 1
-        END,
-        CASE
-        WHEN u.login_id REGEXP '^[0-9]' THEN CAST(u.login_id AS UNSIGNED)
-        ELSE ASCII(UPPER(u.login_id))
-        END,
-        u.login_id ASC
+            CASE
+                WHEN u.login_id REGEXP '^[0-9]' THEN 0
+                ELSE 1
+            END,
+            CASE
+                WHEN u.login_id REGEXP '^[0-9]' THEN CAST(u.login_id AS UNSIGNED)
+                ELSE ASCII(UPPER(u.login_id))
+            END,
+            u.login_id ASC
     </select>
 
-    <select id="findAdminByUserIdAndTenantId" resultMap="AdminListDTO">
+    <select id="findDuplicateLoginIdLoginId" resultMap="AdminListDTO">
         SELECT
             u.id                    AS adminId,
             u.login_id              AS adminLoginId,
             u.name                  AS adminName,
             u.email                 AS adminEmail,
-            u.role                  AS adminRole,
-            u.permissions           AS adminPermissions,
+            u.role_id               AS adminRoleId,
+            ur.code                 AS adminRoleCode,
             u.status                AS adminStatus,
             u.created_by            AS adminCreatedBy,
-            u.created_at            AS adminCreatedAt,
             u.last_login            AS adminLastLogin,
-            u.read_only             AS adminReadOnly,
 
             uta.id                  AS adminTenantAccessId,
             uta.user_id             AS adminTenantAccessUserId,
             uta.tenant_id           AS adminTenantAccessTenantId,
-            uta.capabilities        AS capabilities,
-            uta.account_permissions AS accountPermissions,
-            uta.process_permissions AS processPermissions,
+            uta.account_acl_mode    AS adminTenantAccessAccountAclMode,
+            uta.process_acl_mode    AS adminTenantAccessProcessAclMode,
             uta.created_at          AS adminTenantAccessCreatedAt,
             uta.updated_at          AS adminTenantAccessUpdatedAt
         FROM user u
-            INNER JOIN user_tenant_access uta ON uta.user_id = u.id
-        WHERE u.id = #{userId}
-        AND uta.tenant_id = #{tenantId}
+        INNER JOIN user_role ur ON ur.id = u.role_id
+        INNER JOIN user_tenant_access uta ON uta.user_id = u.id
+        WHERE uta.tenant_id = #{tenantId}
+          AND UPPER(TRIM(u.login_id)) = UPPER(TRIM(#{loginId}))
         LIMIT 1
     </select>
 
-    <select id="findTenantIdsByUserId" resultType="int">
-        SELECT tenant_id
-        FROM user_tenant_access
-        WHERE user_id = #{userId}
-    </select>
-
-    <select id="countEmailExceptUser" resultType="int">
-        SELECT COUNT(*)
+    <select id="findDuplicateLoginId" resultType="com.eazycount.entity.Admin">
+        SELECT id, login_id, name, email, role_id, status
         FROM user
-        WHERE email = #{email}
-          AND id != #{userId}
+        WHERE UPPER(TRIM(login_id)) = UPPER(TRIM(#{loginId}))
+            LIMIT 1
     </select>
 
-    <insert id="addAdmin" useGeneratedKeys="true" keyProperty="id">
-        insert into user (login_id, name, email, password, secondary_password, role, permissions, status, created_by, created_at, read_only)
-        values (#{loginId}, #{name}, #{email}, #{password}, #{secondaryPassword}, #{role}, #{permissions}, #{status}, #{createdBy}, NOW(), #{readOnly})
+    <select id="findDuplicateEmail" resultType="com.eazycount.entity.Admin">
+        SELECT id, login_id, name, email, role_id, status
+        FROM user
+        WHERE LOWER(TRIM(email)) = LOWER(TRIM(#{email}))
+            LIMIT 1
+    </select>
+
+    <insert id="insertAdmin" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user (login_id, name, email, password, secondary_password, role_id, status, created_by, read_only)
+        VALUES ( #{loginId}, #{name}, #{email}, #{password}, #{secondaryPassword}, #{roleId}, #{status}, #{createdBy}, #{readOnly})
     </insert>
 
-    <insert id="insertAdminTenantAccess">
-        INSERT INTO user_tenant_access (user_id, tenant_id, account_permissions, process_permissions)
-        VALUES (#{userId}, #{tenantId}, #{accountPermissions}, #{processPermissions})
+    <insert id="insertAdminTenantAccess" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user_tenant_access (user_id,tenant_id,account_acl_mode,process_acl_mode)
+        VALUES (#{userId}, #{tenantId}, #{accountAclMode}, #{processAclMode})
     </insert>
 
-    <update id="updateAdmin">
-        UPDATE user
-        <set>
-            <if test="name != null">name = #{name},</if>
-            <if test="email != null">email = #{email},</if>
-            <if test="role != null">role = #{role},</if>
-            <if test="status != null">status = #{status},</if>
-            <if test="permissions != null">permissions = #{permissions},</if>
-            <if test="readOnly != null">read_only = #{readOnly},</if>
-            <if test="password != null">password = #{password},</if>
-            <if test="secondaryPassword != null">secondary_password = #{secondaryPassword},</if>
-        </set>
-        WHERE id = #{id}
-    </update>
+    <insert id="insertAdminTenantAccountAccessBatch">
+        INSERT INTO user_tenant_account_access (user_tenant_access_id, account_id)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.userTenantAccessId}, #{item.accountId})
+        </foreach>
+    </insert>
 
-    <update id="updateAdminTenantAccess">
-        UPDATE user_tenant_access
-        <set>
-            <if test="accountPermissions != null">account_permissions = #{accountPermissions},</if>
-            <if test="processPermissions != null">process_permissions = #{processPermissions},</if>
-        </set>
-        WHERE id = #{id}
-    </update>
-
-    <update id="updateStatusByAdminId">
-        update user
-        set status = #{status}
-        where id = #{userId}
-    </update>
-
-    <delete id="deleteAdminByIdAndStatus">
-        delete from user
-        where id = #{userId} AND status = #{status}
-    </delete>
-
-    <delete id="deleteAdminTenantAccessByUserIdAndTenantId">
-        DELETE FROM user_tenant_access
-        WHERE user_id = #{userId}
-        AND tenant_id = #{tenantId}
-    </delete>
+    <insert id="insertAdminTenantProcessAccessBatch">
+        INSERT INTO user_tenant_process_access (user_tenant_access_id,process_id)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.userTenantAccessId}, #{item.processId})
+        </foreach>
+    </insert>
 
 </mapper>

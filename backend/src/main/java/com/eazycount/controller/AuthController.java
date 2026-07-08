@@ -3,7 +3,11 @@ package com.eazycount.controller;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dto.LoginResultDTO;
 import com.eazycount.jwt.JwtService;
-import com.eazycount.security.*;
+import com.eazycount.security.AuthCookieHelper;
+import com.eazycount.security.AuthTokenStore;
+import com.eazycount.security.LoginUserPrincipal;
+import com.eazycount.security.SecurityUtils;
+import com.eazycount.security.SessionUser;
 import com.eazycount.service.AuthService;
 import com.eazycount.service.LoginRole;
 import com.eazycount.service.PermissionService;
@@ -17,7 +21,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/auth")
@@ -78,9 +83,7 @@ public class AuthController {
         return authService.toLoginResponse(result);
     }
 
-    /**
-     * SPA bootstrap — replaces {@code api/session/current_user_api.php}.
-     */
+    /** SPA bootstrap — replaces legacy current_user API. */
     @GetMapping("/current-user")
     public ResponseEntity<Map<String, Object>> currentUser() {
         SessionUser user = SecurityUtils.currentUser();
@@ -99,9 +102,7 @@ public class AuthController {
         return ResponseEntity.ok(body);
     }
 
-    /**
-     * Switch active session tenant — replaces {@code api/session/update_company_session_api.php}.
-     */
+    /** Switch active session tenant. */
     @PostMapping("/switch-tenant")
     public Map<String, Object> switchTenant(@RequestParam("tenant_id") int tenantId) {
         LoginUserPrincipal principal = SecurityUtils.currentPrincipal()
@@ -116,7 +117,8 @@ public class AuthController {
 
     @GetMapping("/tenant-accessible")
     public ResponseEntity<Map<String, Object>> tenantAccessible(
-            @RequestParam(value = "all", defaultValue = "1") int all) {
+            @RequestParam(value = "all", defaultValue = "1") int all
+    ) {
         SessionUser user = SecurityUtils.currentUser();
         if (user == null) {
             Map<String, Object> body = new LinkedHashMap<>();
@@ -155,7 +157,7 @@ public class AuthController {
     @PostMapping("/verify-user-secondary-password")
     public Map<String, Object> verifyUserSecondaryPassword(
             @RequestParam("secondary_password") String secondaryPassword
-    ){
+    ) {
         LoginUserPrincipal principal = SecurityUtils.currentPrincipal()
                 .orElseThrow(() -> new BusinessException("Unauthorized"));
         authService.verifyUserSecondaryPassword(

@@ -9,8 +9,7 @@ import lombok.Setter;
 import lombok.ToString;
 
 /**
- * Maps to the {@code user_tenant_access} table (admin grants per tenant).
- * {@code capabilities} JSON e.g. GROUP_LEDGER_READ, SUBSIDIARY_WRITE (separate from login_scope).
+ * Maps to the {@code user_tenant_access} table (staff/admin grants per tenant).
  */
 @Getter
 @Setter
@@ -25,16 +24,17 @@ public class AdminTenantAccess {
 
     private Integer tenantId;
 
-    /** JSON array of capability codes */
-    private String capabilities;
+    private AclMode accountAclMode;
 
-    /** JSON array; subsidiary account ACL when tenant is company */
-    private String accountPermissions;
-
-    /** JSON array; subsidiary process ACL when tenant is company */
-    private String processPermissions;
+    private AclMode processAclMode;
 
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;
+
+    public enum AclMode {
+        ALL,
+        CUSTOM,
+        NONE
+    }
 }

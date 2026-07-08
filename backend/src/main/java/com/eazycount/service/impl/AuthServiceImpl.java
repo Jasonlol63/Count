@@ -3,7 +3,12 @@ package com.eazycount.service.impl;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.AuthDao;
 import com.eazycount.dao.PermissionDao;
-import com.eazycount.dto.*;
+import com.eazycount.dto.AdminTenantDTO;
+import com.eazycount.dto.LoginResultDTO;
+import com.eazycount.dto.OwnerTenantDTO;
+import com.eazycount.dto.TenantListDTO;
+import com.eazycount.dto.UserDTO;
+import com.eazycount.dto.UserTenantDTO;
 import com.eazycount.entity.Admin;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
@@ -27,7 +32,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class AuthServiceImpl implements AuthService {
@@ -134,70 +144,13 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("Invalid login result");
         }
 
-        Tenant sessionTenant = result.getSessionTenant();
-        Tenant loginTenant = result.getLoginTenant();
-
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", "success");
-        body.put("tenant", toTenantMap(sessionTenant));
-        body.put("login_tenant", toTenantMap(loginTenant));
+        body.put("tenant", toTenantMap(result.getSessionTenant()));
+        body.put("login_tenant", toTenantMap(result.getLoginTenant()));
         body.put("user_type", result.getUserType());
         body.put("redirect", result.getRedirect());
         return body;
-    }
-
-    private LoginResultDTO buildLoginResult(UserDTO identity, Tenant loginTenant, Tenant sessionTenant) {
-        LoginResultDTO result = new LoginResultDTO();
-        result.setIdentity(identity);
-        result.setLoginTenant(loginTenant);
-        result.setSessionTenant(sessionTenant);
-
-        if (identity.getUser() != null) {
-            result.setUserType("member");
-            result.setRedirect("/member");
-            return result;
-        }
-        if (identity.getAdmin() != null) {
-            result.setUserType("user");
-            result.setRedirect(needsUserSecondaryPassword(identity.getAdmin(), sessionTenant)
-                    ? "/user-secondary-password"
-                    : "/dashboard");
-            return result;
-        }
-        if (identity.getOwner() != null) {
-            result.setUserType("owner");
-            result.setRedirect("/owner-secondary-password");
-            return result;
-        }
-
-        throw new BusinessException("Invalid login result");
-    }
-
-    private static boolean needsUserSecondaryPassword(Admin admin, Tenant tenant) {
-        if (admin == null || tenant == null) {
-            return false;
-        }
-        boolean isC168 = "C168".equalsIgnoreCase(Objects.toString(tenant.getCode(), ""));
-        boolean hasSecondary = admin.getSecondaryPassword() != null
-                && !admin.getSecondaryPassword().isBlank();
-        return isC168 && hasSecondary;
-    }
-
-    private static Map<String, Object> toTenantMap(Tenant tenant) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        if (tenant == null) {
-            return map;
-        }
-        map.put("id", tenant.getId());
-        map.put("code", tenant.getCode());
-        map.put("type", tenant.getTenantType() != null ? tenant.getTenantType().name() : null);
-        map.put("name", tenant.getName());
-        map.put("parent_id", tenant.getParentId());
-        String parentCode = tenant.getParentGroupCode();
-        map.put("parent_code", parentCode != null && !parentCode.isBlank()
-                ? parentCode.trim().toUpperCase()
-                : null);
-        return map;
     }
 
     @Override
@@ -268,7 +221,7 @@ public class AuthServiceImpl implements AuthService {
         if (ownerId == null) {
             throw new BusinessException("Invalid Login!");
         }
-        return authDao.findAllTenantsByOwnerId(ownerId); // 空就返回 []
+        return authDao.findAllTenantsByOwnerId(ownerId);
     }
 
     @Override
@@ -276,7 +229,7 @@ public class AuthServiceImpl implements AuthService {
         if (adminId == null) {
             throw new BusinessException("Invalid Login!");
         }
-        return authDao.findAllTenantsByAdminId(adminId); // 空就返回 []
+        return authDao.findAllTenantsByAdminId(adminId);
     }
 
     @Override
@@ -284,7 +237,7 @@ public class AuthServiceImpl implements AuthService {
         if (userId == null) {
             throw new BusinessException("Invalid Login!");
         }
-        return authDao.findAllTenantsByMemberId(userId); // 空就返回 []
+        return authDao.findAllTenantsByMemberId(userId);
     }
 
     @Override
@@ -298,7 +251,7 @@ public class AuthServiceImpl implements AuthService {
         List<TenantListDTO> rows = switch (userType) {
             case "owner" -> findAllTenantsByOwnerId(user.user_id);
             case "member" -> findAllTenantsByMemberId(user.user_id);
-            default -> findAllTenantsByAdminId(user.user_id); // admin tab → user_type = "user"
+            default -> findAllTenantsByAdminId(user.user_id);
         };
 
         LocalDate today = LocalDate.now();
@@ -313,7 +266,7 @@ public class AuthServiceImpl implements AuthService {
                 continue;
             }
             if (!all) {
-                // 预留：按 session tenant_id / login_scope 过滤
+                // Reserved: filter by session tenant_id / login_scope when needed.
             }
 
             boolean isGroup = row.getTenantType() == Tenant.TenantType.GROUP;
@@ -346,74 +299,16 @@ public class AuthServiceImpl implements AuthService {
         return body;
     }
 
-    /**
-     * Resolves the tenant the user typed in the login form.
-     * Prefers a direct GROUP match, then direct COMPANY, then group context for subsidiary matches.
-     */
-    private Tenant resolveLoginTenant(List<Tenant> candidates, String tenantCodeInput) {
-        String code = normalize(tenantCodeInput);
-
-        for (Tenant tenant : candidates) {
-            if (code.equalsIgnoreCase(Objects.toString(tenant.getCode(), ""))
-                    && tenant.getTenantType() == Tenant.TenantType.GROUP) {
-                return tenant;
-            }
-        }
-
-        for (Tenant tenant : candidates) {
-            if (code.equalsIgnoreCase(Objects.toString(tenant.getCode(), ""))) {
-                return tenant;
-            }
-        }
-
-        Tenant groupContext = new Tenant();
-        groupContext.setCode(code);
-        groupContext.setName(code);
-        groupContext.setTenantType(Tenant.TenantType.GROUP);
-        return groupContext;
-    }
-
-
-    private boolean verifyPassword(String raw, String stored) {
-        if (stored == null || stored.isBlank()) {
-            return false;
-        }
-        if (stored.startsWith("$2a$") || stored.startsWith("$2b$") || stored.startsWith("$2y$")) {
-            return passwordEncoder.matches(raw, stored);
-        }
-        return raw.equals(stored);
-    }
-
-    private void assertTenantNotExpired(Tenant tenant) {
-        if (tenant == null) {
-            throw new BusinessException("Invalid tenant");
-        }
-        if (tenant.getExpirationDate() != null
-                && tenant.getExpirationDate().isBefore(LocalDate.now())) {
-            throw new BusinessException("Company or Group has expired.");
-        }
-    }
-
-    private static String normalize(String value) {
-        if (value == null || value.isBlank()) {
-            return "";
-        }
-        return value.trim().toUpperCase();
-    }
-
-
     @Override
     public SessionUser applyInitialSecondaryState(SessionUser sessionUser, LoginResultDTO result) {
         if (result.getIdentity().getOwner() != null) {
-            // owner 始终 needs_owner_secondary=true（由 SessionUser.fromOwner 保证）
-            return sessionUser;
-        }
-        if (result.getIdentity().getAdmin() != null) {
-            Admin admin = result.getIdentity().getAdmin();
-            Tenant tenant = result.getSessionTenant();
-            if (!needsUserSecondaryPassword(admin, tenant)) {
+            if (!sessionUser.needs_owner_secondary) {
                 return sessionUser.withSecondaryVerified();
             }
+            return sessionUser;
+        }
+        if (result.getIdentity().getAdmin() != null && !sessionUser.needs_user_secondary) {
+            return sessionUser.withSecondaryVerified();
         }
         return sessionUser;
     }
@@ -429,24 +324,10 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("Unauthorized");
         }
         if (!current.needs_owner_secondary) {
-            return; // Already verified
+            return;
         }
 
-        String pin = secondaryPassword == null ? "" : secondaryPassword.trim();
-        if (pin.isEmpty()) {
-            throw new BusinessException("Please enter secondary password");
-        }
-        if (!pin.matches("^\\d{6}$")) {
-            throw new BusinessException("Secondary password must be exactly 6 digits");
-        }
-
-        Owner row = authDao.findOwnerSecondaryPasswordById(current.user_id);
-        String storedHash = row != null ? row.getSecondaryPassword() : null;
-
-        if (storedHash != null && !storedHash.isBlank() && !verifyPassword(pin, storedHash)) {
-            throw new BusinessException("Secondary password is incorrect");
-        }
-
+        verifySecondaryPin(secondaryPassword, current.user_id, true);
         authTokenStore.save(jti, current.withSecondaryVerified(), ttlMillis);
     }
 
@@ -460,32 +341,11 @@ public class AuthServiceImpl implements AuthService {
         if (current == null || !"user".equalsIgnoreCase(current.user_type)) {
             throw new BusinessException("Unauthorized");
         }
-
-        // 非 C168：直接标记通过
-        if (!current.is_current_tenant_c168) {
-            authTokenStore.save(jti, current.withSecondaryVerified(), ttlMillis);
+        if (!current.needs_user_secondary) {
             return;
         }
 
-        if (!current.needs_user_secondary) {
-            return; // 已验证或本来就不需要
-        }
-
-        String pin = secondaryPassword == null ? "" : secondaryPassword.trim();
-        if (pin.isEmpty()) {
-            throw new BusinessException("Please enter secondary password");
-        }
-        if (!pin.matches("^\\d{6}$")) {
-            throw new BusinessException("Secondary password must be exactly 6 digits");
-        }
-
-        Admin row = authDao.findAdminSecondaryPasswordById(current.user_id);
-        String storedHash = row != null ? row.getSecondaryPassword() : null;
-
-        if (storedHash != null && !storedHash.isBlank() && !verifyPassword(pin, storedHash)) {
-            throw new BusinessException("Secondary password is incorrect");
-        }
-
+        verifySecondaryPin(secondaryPassword, current.user_id, false);
         authTokenStore.save(jti, current.withSecondaryVerified(), ttlMillis);
     }
 
@@ -535,6 +395,126 @@ public class AuthServiceImpl implements AuthService {
         body.put("error", null);
         body.put("data", data);
         return body;
+    }
+
+    @Override
+    public Map<String, Object> logout(HttpServletRequest request, HttpServletResponse response) {
+        String jti = resolveLogoutJti(request);
+        if (StringUtils.hasText(jti)) {
+            authTokenStore.delete(jti);
+        }
+
+        AuthCookieHelper.clearAccessTokenCookie(response, jwtService);
+        SecurityContextHolder.clearContext();
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", true);
+        body.put("message", "Logged out");
+        return body;
+    }
+
+    private LoginResultDTO buildLoginResult(UserDTO identity, Tenant loginTenant, Tenant sessionTenant) {
+        LoginResultDTO result = new LoginResultDTO();
+        result.setIdentity(identity);
+        result.setLoginTenant(loginTenant);
+        result.setSessionTenant(sessionTenant);
+
+        if (identity.getUser() != null) {
+            result.setUserType("member");
+            result.setRedirect("/member");
+            return result;
+        }
+        if (identity.getAdmin() != null) {
+            result.setUserType("user");
+            result.setRedirect(needsUserSecondaryPassword(identity.getAdmin())
+                    ? "/user-secondary-password"
+                    : "/dashboard");
+            return result;
+        }
+        if (identity.getOwner() != null) {
+            result.setUserType("owner");
+            result.setRedirect(needsOwnerSecondaryPassword(identity.getOwner())
+                    ? "/owner-secondary-password"
+                    : "/dashboard");
+            return result;
+        }
+
+        throw new BusinessException("Invalid login result");
+    }
+
+    private static boolean needsUserSecondaryPassword(Admin admin) {
+        return admin != null && hasConfiguredSecondaryPassword(admin.getSecondaryPassword());
+    }
+
+    private static boolean needsOwnerSecondaryPassword(Owner owner) {
+        return owner != null && hasConfiguredSecondaryPassword(owner.getSecondaryPassword());
+    }
+
+    private static boolean hasConfiguredSecondaryPassword(String secondaryPassword) {
+        return secondaryPassword != null && !secondaryPassword.isBlank();
+    }
+
+    private void verifySecondaryPin(String secondaryPassword, Integer userId, boolean owner) {
+        String pin = secondaryPassword == null ? "" : secondaryPassword.trim();
+        if (pin.isEmpty()) {
+            throw new BusinessException("Please enter secondary password");
+        }
+        if (!pin.matches("^\\d{6}$")) {
+            throw new BusinessException("Secondary password must be exactly 6 digits");
+        }
+
+        String storedHash;
+        if (owner) {
+            Owner row = authDao.findOwnerSecondaryPasswordById(userId);
+            storedHash = row != null ? row.getSecondaryPassword() : null;
+        } else {
+            Admin row = authDao.findAdminSecondaryPasswordById(userId);
+            storedHash = row != null ? row.getSecondaryPassword() : null;
+        }
+
+        if (storedHash != null && !storedHash.isBlank() && !verifyPassword(pin, storedHash)) {
+            throw new BusinessException("Secondary password is incorrect");
+        }
+    }
+
+    private static Map<String, Object> toTenantMap(Tenant tenant) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        if (tenant == null) {
+            return map;
+        }
+        map.put("id", tenant.getId());
+        map.put("code", tenant.getCode());
+        map.put("type", tenant.getTenantType() != null ? tenant.getTenantType().name() : null);
+        map.put("name", tenant.getName());
+        map.put("parent_id", tenant.getParentId());
+        String parentCode = tenant.getParentGroupCode();
+        map.put("parent_code", parentCode != null && !parentCode.isBlank()
+                ? parentCode.trim().toUpperCase()
+                : null);
+        return map;
+    }
+
+    private Tenant resolveLoginTenant(List<Tenant> candidates, String tenantCodeInput) {
+        String code = normalize(tenantCodeInput);
+
+        for (Tenant tenant : candidates) {
+            if (code.equalsIgnoreCase(Objects.toString(tenant.getCode(), ""))
+                    && tenant.getTenantType() == Tenant.TenantType.GROUP) {
+                return tenant;
+            }
+        }
+
+        for (Tenant tenant : candidates) {
+            if (code.equalsIgnoreCase(Objects.toString(tenant.getCode(), ""))) {
+                return tenant;
+            }
+        }
+
+        Tenant groupContext = new Tenant();
+        groupContext.setCode(code);
+        groupContext.setName(code);
+        groupContext.setTenantType(Tenant.TenantType.GROUP);
+        return groupContext;
     }
 
     private boolean userCanAccessTenantId(SessionUser user, int tenantId) {
@@ -589,20 +569,24 @@ public class AuthServiceImpl implements AuthService {
         return SessionUser.from(identity, tenant, permissionService);
     }
 
-    @Override
-    public Map<String, Object> logout(HttpServletRequest request, HttpServletResponse response) {
-        String jti = resolveLogoutJti(request);
-        if (StringUtils.hasText(jti)) {
-            authTokenStore.delete(jti);
+    private boolean verifyPassword(String raw, String stored) {
+        if (stored == null || stored.isBlank()) {
+            return false;
         }
+        if (stored.startsWith("$2a$") || stored.startsWith("$2b$") || stored.startsWith("$2y$")) {
+            return passwordEncoder.matches(raw, stored);
+        }
+        return raw.equals(stored);
+    }
 
-        AuthCookieHelper.clearAccessTokenCookie(response, jwtService);
-        SecurityContextHolder.clearContext();
-
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("success", true);
-        body.put("message", "Logged out");
-        return body;
+    private void assertTenantNotExpired(Tenant tenant) {
+        if (tenant == null) {
+            throw new BusinessException("Invalid tenant");
+        }
+        if (tenant.getExpirationDate() != null
+                && tenant.getExpirationDate().isBefore(LocalDate.now())) {
+            throw new BusinessException("Company or Group has expired.");
+        }
     }
 
     private String resolveLogoutJti(HttpServletRequest request) {
@@ -629,5 +613,12 @@ public class AuthServiceImpl implements AuthService {
             }
         }
         return null;
+    }
+
+    private static String normalize(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        return value.trim().toUpperCase();
     }
 }

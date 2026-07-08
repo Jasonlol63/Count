@@ -7,8 +7,7 @@ INSERT INTO `user` (
   `email`,
   `password`,
   `secondary_password`,
-  `role`,
-  `permissions`,
+  `role_id`,
   `status`,
   `read_only`,
   `created_by`
@@ -19,15 +18,15 @@ SELECT
   'jj@c168.local',
   '$2y$10$DwEdouw8eKv1N2zdKD8CEOQvaFTHnkRoE/i2ovfLR0LLnNp2fWP5a',
   NULL,
-  'ADMIN',
-  NULL,
+  r.id,
   'ACTIVE',
   1,
   'seed'
-FROM DUAL
-WHERE NOT EXISTS (
-  SELECT 1 FROM `user` WHERE UPPER(TRIM(login_id)) = 'JJ'
-);
+FROM `user_role` r
+WHERE r.code = 'ADMIN'
+  AND NOT EXISTS (
+    SELECT 1 FROM `user` WHERE UPPER(TRIM(login_id)) = 'JJ'
+  );
 
 INSERT INTO `user_tenant_access` (`user_id`, `tenant_id`, `account_permissions`, `process_permissions`)
 SELECT u.id, t.id, NULL, NULL

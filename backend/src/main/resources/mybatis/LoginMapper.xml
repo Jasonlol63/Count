@@ -1,6 +1,39 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.eazycount.dao.AuthDao">
+
+    <resultMap id="AdminMap" type="com.eazycount.entity.Admin">
+        <id property="id" column="id"/>
+        <result property="loginId" column="login_id"/>
+        <result property="name" column="name"/>
+        <result property="password" column="password"/>
+        <result property="secondaryPassword" column="secondary_password"/>
+        <result property="email" column="email"/>
+        <result property="roleId" column="role_id"/>
+        <result property="roleCode" column="role_code"/>
+        <result property="status" column="status"/>
+        <result property="readOnly" column="read_only"/>
+        <result property="lastLogin" column="last_login"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <sql id="AdminColumns">
+        u.id,
+        u.login_id,
+        u.name,
+        u.password,
+        u.secondary_password,
+        u.email,
+        u.role_id,
+        ur.code AS role_code,
+        u.status,
+        u.read_only,
+        u.last_login,
+        u.created_by,
+        u.created_at
+    </sql>
+
     <resultMap id="AdminTenantDTO" type="com.eazycount.dto.AdminTenantDTO">
         <association property="admin" javaType="com.eazycount.entity.Admin">
             <id property="id" column="adminId"/>
@@ -9,8 +42,8 @@
             <result property="password" column="adminPassword"/>
             <result property="secondaryPassword" column="adminSecondaryPassword"/>
             <result property="email" column="adminEmail"/>
-            <result property="role" column="adminRole"/>
-            <result property="permissions" column="adminPermissions"/>
+            <result property="roleId" column="adminRoleId"/>
+            <result property="roleCode" column="adminRoleCode"/>
             <result property="status" column="adminStatus"/>
             <result property="createdBy" column="adminCreatedBy"/>
             <result property="createdAt" column="adminCreatedAt"/>
@@ -20,7 +53,8 @@
 
         <association property="tenant" javaType="com.eazycount.entity.Tenant">
             <id property="id" column="tenantId"/>
-            <result property="tenantType" column="tenantType"/>
+            <result property="tenantType" column="tenantType"
+                    typeHandler="com.eazycount.config.mybatis.TenantTypeHandler"/>
             <result property="code" column="tenantCode"/>
             <result property="name" column="tenantName"/>
             <result property="ownerId" column="tenantOwnerId"/>
@@ -47,7 +81,8 @@
 
         <association property="tenant" javaType="com.eazycount.entity.Tenant">
             <id property="id" column="tenantId"/>
-            <result property="tenantType" column="tenantType"/>
+            <result property="tenantType" column="tenantType"
+                    typeHandler="com.eazycount.config.mybatis.TenantTypeHandler"/>
             <result property="code" column="tenantCode"/>
             <result property="name" column="tenantName"/>
             <result property="ownerId" column="tenantOwnerId"/>
@@ -61,20 +96,21 @@
 
     <resultMap id="OwnerTenantDTO" type="com.eazycount.dto.OwnerTenantDTO">
         <association property="owner" javaType="com.eazycount.entity.Owner">
-            <id property="id" column="ownerPk" jdbcType="INTEGER"/>
-            <result property="ownerCode" column="ownerCode" jdbcType="VARCHAR"/>
-            <result property="name" column="ownerName" jdbcType="VARCHAR"/>
-            <result property="password" column="ownerPassword" jdbcType="VARCHAR"/>
-            <result property="secondaryPassword" column="ownerSecondaryPassword" jdbcType="VARCHAR"/>
-            <result property="email" column="ownerEmail" jdbcType="VARCHAR"/>
+            <id property="id" column="ownerPk"/>
+            <result property="ownerCode" column="ownerCode"/>
+            <result property="name" column="ownerName"/>
+            <result property="password" column="ownerPassword"/>
+            <result property="secondaryPassword" column="ownerSecondaryPassword"/>
+            <result property="email" column="ownerEmail"/>
             <result property="status" column="ownerStatus"/>
-            <result property="createdBy" column="ownerCreatedBy" jdbcType="VARCHAR"/>
-            <result property="createdAt" column="ownerCreatedAt" jdbcType="TIMESTAMP"/>
+            <result property="createdBy" column="ownerCreatedBy"/>
+            <result property="createdAt" column="ownerCreatedAt"/>
         </association>
 
         <association property="tenant" javaType="com.eazycount.entity.Tenant">
             <id property="id" column="tenantId"/>
-            <result property="tenantType" column="tenantType"/>
+            <result property="tenantType" column="tenantType"
+                    typeHandler="com.eazycount.config.mybatis.TenantTypeHandler"/>
             <result property="code" column="tenantCode"/>
             <result property="name" column="tenantName"/>
             <result property="ownerId" column="tenantOwnerId"/>
@@ -88,7 +124,8 @@
 
     <resultMap id="TenantListMap" type="com.eazycount.dto.TenantListDTO">
         <id property="id" column="tenantId"/>
-        <result property="tenantType" column="tenantType"/>
+        <result property="tenantType" column="tenantType"
+                typeHandler="com.eazycount.config.mybatis.TenantTypeHandler"/>
         <result property="code" column="tenantCode"/>
         <result property="name" column="tenantName"/>
         <result property="ownerId" column="tenantOwnerId"/>
@@ -98,86 +135,99 @@
         <result property="status" column="tenantStatus"/>
     </resultMap>
 
+    <resultMap id="TenantMap" type="com.eazycount.entity.Tenant">
+        <id property="id" column="id"/>
+        <result property="tenantType" column="tenant_type"
+                typeHandler="com.eazycount.config.mybatis.TenantTypeHandler"/>
+        <result property="code" column="code"/>
+        <result property="name" column="name"/>
+        <result property="ownerId" column="owner_id"/>
+        <result property="parentId" column="parent_id"/>
+        <result property="expirationDate" column="expiration_date"/>
+        <result property="categoryCode" column="category_code"
+                typeHandler="com.eazycount.handler.JsonStringListTypeHandler"/>
+        <result property="status" column="status"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
     <select id="findAllTenantsByOwnerId" resultMap="TenantListMap">
         SELECT
-        t.id              AS tenantId,
-        t.tenant_type     AS tenantType,
-        t.code            AS tenantCode,
-        t.name            AS tenantName,
-        t.owner_id        AS tenantOwnerId,
-        t.parent_id       AS parentId,
-        parent_t.code     AS parentGroupCode,
-        t.expiration_date AS expirationDate,
-        t.status          AS tenantStatus
+            t.id              AS tenantId,
+            t.tenant_type     AS tenantType,
+            t.code            AS tenantCode,
+            t.name            AS tenantName,
+            t.owner_id        AS tenantOwnerId,
+            t.parent_id       AS parentId,
+            parent_t.code     AS parentGroupCode,
+            t.expiration_date AS expirationDate,
+            t.status          AS tenantStatus
         FROM tenant t
         LEFT JOIN tenant parent_t
-        ON parent_t.id = t.parent_id
-        AND parent_t.status = 'ACTIVE'
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
         WHERE t.owner_id = #{ownerId}
-        AND t.status = 'ACTIVE'
-        AND TRIM(t.code) &lt;&gt; ''
+          AND t.status = 'ACTIVE'
+          AND TRIM(t.code) &lt;&gt; ''
         ORDER BY
-        CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
-        t.code ASC,
-        t.id ASC
+            CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
+            t.code ASC,
+            t.id ASC
     </select>
 
     <select id="findAllTenantsByAdminId" resultMap="TenantListMap">
         SELECT
-        t.id              AS tenantId,
-        t.tenant_type     AS tenantType,
-        t.code            AS tenantCode,
-        t.name            AS tenantName,
-        t.owner_id        AS tenantOwnerId,
-        t.parent_id       AS parentId,
-        parent_t.code     AS parentGroupCode,
-        t.expiration_date AS expirationDate,
-        t.status          AS tenantStatus
+            t.id              AS tenantId,
+            t.tenant_type     AS tenantType,
+            t.code            AS tenantCode,
+            t.name            AS tenantName,
+            t.owner_id        AS tenantOwnerId,
+            t.parent_id       AS parentId,
+            parent_t.code     AS parentGroupCode,
+            t.expiration_date AS expirationDate,
+            t.status          AS tenantStatus
         FROM tenant t
         LEFT JOIN tenant parent_t
-        ON parent_t.id = t.parent_id
-        AND parent_t.status = 'ACTIVE'
-        INNER JOIN user_tenant_access uta
-        ON uta.tenant_id = t.id
-        INNER JOIN user u
-        ON u.id = uta.user_id
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
+        INNER JOIN user_tenant_access uta ON uta.tenant_id = t.id
+        INNER JOIN user u ON u.id = uta.user_id
         WHERE u.id = #{adminId}
-        AND u.status = 'ACTIVE'
-        AND t.status = 'ACTIVE'
-        AND TRIM(t.code) &lt;&gt; ''
+          AND u.status = 'ACTIVE'
+          AND t.status = 'ACTIVE'
+          AND TRIM(t.code) &lt;&gt; ''
         ORDER BY
-        CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
-        t.code ASC,
-        t.id ASC
+            CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
+            t.code ASC,
+            t.id ASC
     </select>
 
     <select id="findAllTenantsByMemberId" resultMap="TenantListMap">
         SELECT
-        t.id              AS tenantId,
-        t.tenant_type     AS tenantType,
-        t.code            AS tenantCode,
-        t.name            AS tenantName,
-        t.owner_id        AS tenantOwnerId,
-        t.parent_id       AS parentId,
-        parent_t.code     AS parentGroupCode,
-        t.expiration_date AS expirationDate,
-        t.status          AS tenantStatus
+            t.id              AS tenantId,
+            t.tenant_type     AS tenantType,
+            t.code            AS tenantCode,
+            t.name            AS tenantName,
+            t.owner_id        AS tenantOwnerId,
+            t.parent_id       AS parentId,
+            parent_t.code     AS parentGroupCode,
+            t.expiration_date AS expirationDate,
+            t.status          AS tenantStatus
         FROM tenant t
         LEFT JOIN tenant parent_t
-        ON parent_t.id = t.parent_id
-        AND parent_t.status = 'ACTIVE'
-        INNER JOIN account_tenant_access ata
-        ON ata.tenant_id = t.id
-        INNER JOIN account a
-        ON a.id = ata.account_id
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
+        INNER JOIN account_tenant_access ata ON ata.tenant_id = t.id
+        INNER JOIN account a ON a.id = ata.account_id
         WHERE a.id = #{userId}
-        AND a.status = 'ACTIVE'
-        AND t.status = 'ACTIVE'
-        AND TRIM(t.code) &lt;&gt; ''
+          AND a.status = 'ACTIVE'
+          AND t.status = 'ACTIVE'
+          AND TRIM(t.code) &lt;&gt; ''
         ORDER BY
-        CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
-        t.code ASC,
-        t.id ASC
+            CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
+            t.code ASC,
+            t.id ASC
     </select>
 
     <select id="findAccessibleTenantsByOwnerId" resultMap="OwnerTenantDTO">
@@ -202,25 +252,24 @@
             t.category_code        AS categoryCode,
             t.status               AS tenantStatus
         FROM owner o
-                 INNER JOIN tenant t
-                            ON t.owner_id = o.id
-                 LEFT JOIN tenant parent_t
-                           ON parent_t.id = t.parent_id
-                               AND parent_t.status = 'ACTIVE'
+        INNER JOIN tenant t ON t.owner_id = o.id
+        LEFT JOIN tenant parent_t
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
         WHERE o.id = #{ownerId}
           AND o.status = 'ACTIVE'
           AND t.status = 'ACTIVE'
           AND (
             UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode}))
-                OR UPPER(TRIM(parent_t.code)) = UPPER(TRIM(#{tenantCode}))
-            )
+            OR UPPER(TRIM(parent_t.code)) = UPPER(TRIM(#{tenantCode}))
+          )
         ORDER BY
             CASE
                 WHEN UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode}))
-                    AND t.tenant_type = 'GROUP' THEN 0
+                 AND t.tenant_type = 'GROUP' THEN 0
                 WHEN UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode})) THEN 1
                 ELSE 2
-                END,
+            END,
             t.id
     </select>
 
@@ -232,8 +281,8 @@
             u.password             AS adminPassword,
             u.secondary_password   AS adminSecondaryPassword,
             u.email                AS adminEmail,
-            u.role                 AS adminRole,
-            u.permissions          AS adminPermissions,
+            u.role_id              AS adminRoleId,
+            ur.code                AS adminRoleCode,
             u.status               AS adminStatus,
             u.created_by           AS adminCreatedBy,
             u.created_at           AS adminCreatedAt,
@@ -250,27 +299,27 @@
             t.category_code        AS categoryCode,
             t.status               AS tenantStatus
         FROM user u
-                 INNER JOIN user_tenant_access uta
-                            ON uta.user_id = u.id
-                 INNER JOIN tenant t
-                            ON t.id = uta.tenant_id
-                 LEFT JOIN tenant parent_t
-                           ON parent_t.id = t.parent_id
-                               AND parent_t.status = 'ACTIVE'
+        INNER JOIN user_role ur ON ur.id = u.role_id
+        INNER JOIN user_tenant_access uta ON uta.user_id = u.id
+        INNER JOIN tenant t ON t.id = uta.tenant_id
+        LEFT JOIN tenant parent_t
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
         WHERE u.id = #{adminId}
           AND u.status = 'ACTIVE'
+          AND ur.status = 'ACTIVE'
           AND t.status = 'ACTIVE'
           AND (
             UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode}))
-                OR UPPER(TRIM(parent_t.code)) = UPPER(TRIM(#{tenantCode}))
-            )
+            OR UPPER(TRIM(parent_t.code)) = UPPER(TRIM(#{tenantCode}))
+          )
         ORDER BY
             CASE
                 WHEN UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode}))
-                    AND t.tenant_type = 'GROUP' THEN 0
+                 AND t.tenant_type = 'GROUP' THEN 0
                 WHEN UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode})) THEN 1
                 ELSE 2
-                END,
+            END,
             t.id
     </select>
 
@@ -296,47 +345,36 @@
             t.category_code   AS categoryCode,
             t.status          AS tenantStatus
         FROM account a
-                 INNER JOIN account_tenant_access ata
-                            ON ata.account_id = a.id
-                 INNER JOIN tenant t
-                            ON t.id = ata.tenant_id
-                 LEFT JOIN tenant parent_t
-                           ON parent_t.id = t.parent_id
-                               AND parent_t.status = 'ACTIVE'
+        INNER JOIN account_tenant_access ata ON ata.account_id = a.id
+        INNER JOIN tenant t ON t.id = ata.tenant_id
+        LEFT JOIN tenant parent_t
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
         WHERE a.id = #{userId}
           AND a.status = 'ACTIVE'
           AND t.status = 'ACTIVE'
           AND (
             UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode}))
-                OR UPPER(TRIM(parent_t.code)) = UPPER(TRIM(#{tenantCode}))
-            )
+            OR UPPER(TRIM(parent_t.code)) = UPPER(TRIM(#{tenantCode}))
+          )
         ORDER BY
             CASE
                 WHEN UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode}))
-                    AND t.tenant_type = 'GROUP' THEN 0
+                 AND t.tenant_type = 'GROUP' THEN 0
                 WHEN UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode})) THEN 1
                 ELSE 2
-                END,
+            END,
             t.id
     </select>
 
-    <select id="findAdminByLoginId" resultType="com.eazycount.entity.Admin">
-        SELECT id,
-               login_id               AS loginId,
-               name,
-               password,
-               secondary_password     AS secondaryPassword,
-               email,
-               role,
-               permissions,
-               status,
-               read_only              AS readOnly,
-               last_login             AS lastLogin,
-               created_by             AS createdBy,
-               created_at             AS createdAt
-        FROM user
-        WHERE UPPER(TRIM(login_id)) = UPPER(TRIM(#{loginId}))
-          AND status = 'ACTIVE'
+    <select id="findAdminByLoginId" resultMap="AdminMap">
+        SELECT
+        <include refid="AdminColumns"/>
+        FROM user u
+        INNER JOIN user_role ur ON ur.id = u.role_id
+        WHERE UPPER(TRIM(u.login_id)) = UPPER(TRIM(#{loginId}))
+          AND u.status = 'ACTIVE'
+          AND ur.status = 'ACTIVE'
         LIMIT 1
     </select>
 
@@ -372,26 +410,40 @@
         LIMIT 1
     </select>
 
-    <select id="findActiveTenantsByLoginCode" resultType="com.eazycount.entity.Tenant">
-        SELECT t.*
+    <select id="findActiveTenantsByLoginCode" resultMap="TenantMap">
+        SELECT
+            t.id,
+            t.tenant_type,
+            t.code,
+            t.name,
+            t.owner_id,
+            t.parent_id,
+            t.expiration_date,
+            t.category_code,
+            t.status,
+            t.created_by,
+            t.created_at,
+            t.updated_at
         FROM tenant t
-                 LEFT JOIN tenant parent_t ON parent_t.id = t.parent_id AND parent_t.status = 'ACTIVE'
+        LEFT JOIN tenant parent_t
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
         WHERE t.status = 'ACTIVE'
           AND (
             UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode}))
-                OR UPPER(TRIM(parent_t.code)) = UPPER(TRIM(#{tenantCode}))
-            )
+            OR UPPER(TRIM(parent_t.code)) = UPPER(TRIM(#{tenantCode}))
+          )
     </select>
 
-    <select id="findAdminSecondaryPasswordById" resultType="com.eazycount.entity.Admin">
-        SELECT secondary_password AS secondaryPassword
+    <select id="findAdminSecondaryPasswordById" resultMap="AdminMap">
+        SELECT id, secondary_password
         FROM user
         WHERE id = #{adminId}
         LIMIT 1
     </select>
 
     <select id="findOwnerSecondaryPasswordById" resultType="com.eazycount.entity.Owner">
-        SELECT secondary_password AS secondaryPassword
+        SELECT id, secondary_password AS secondaryPassword
         FROM owner
         WHERE id = #{ownerId}
         LIMIT 1
@@ -408,4 +460,5 @@
         SET last_login = NOW()
         WHERE id = #{memberId}
     </update>
+
 </mapper>

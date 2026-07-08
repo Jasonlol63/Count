@@ -1,6 +1,9 @@
 package com.eazycount.dao;
 
-import com.eazycount.dto.*;
+import com.eazycount.dto.AdminTenantDTO;
+import com.eazycount.dto.OwnerTenantDTO;
+import com.eazycount.dto.TenantListDTO;
+import com.eazycount.dto.UserTenantDTO;
 import com.eazycount.entity.Admin;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
@@ -12,37 +15,38 @@ import java.util.List;
 
 @Mapper
 public interface AuthDao {
-        List<OwnerTenantDTO> findAccessibleTenantsByOwnerId(
-                        @Param("ownerId") Integer ownerId,
-                        @Param("tenantCode") String tenantCode);
 
-        List<AdminTenantDTO> findAccessibleTenantsByAdminId(
-                        @Param("adminId") Integer adminId,
-                        @Param("tenantCode") String tenantCode);
+    List<OwnerTenantDTO> findAccessibleTenantsByOwnerId(
+            @Param("ownerId") Integer ownerId,
+            @Param("tenantCode") String tenantCode);
 
-        List<UserTenantDTO> findAccessibleTenantsByMemberId(
-                        @Param("userId") Integer userId,
-                        @Param("tenantCode") String tenantCode);
+    List<AdminTenantDTO> findAccessibleTenantsByAdminId(
+            @Param("adminId") Integer adminId,
+            @Param("tenantCode") String tenantCode);
 
-        List<TenantListDTO> findAllTenantsByOwnerId(@Param("ownerId") Integer ownerId);
+    List<UserTenantDTO> findAccessibleTenantsByMemberId(
+            @Param("userId") Integer userId,
+            @Param("tenantCode") String tenantCode);
 
-        List<TenantListDTO> findAllTenantsByAdminId(@Param("adminId") Integer adminId);
+    List<TenantListDTO> findAllTenantsByOwnerId(@Param("ownerId") Integer ownerId);
 
-        List<TenantListDTO> findAllTenantsByMemberId(@Param("userId") Integer userId);
+    List<TenantListDTO> findAllTenantsByAdminId(@Param("adminId") Integer adminId);
 
-        Admin findAdminByLoginId(@Param("loginId") String loginId);
+    List<TenantListDTO> findAllTenantsByMemberId(@Param("userId") Integer userId);
 
-        Owner findOwnerByOwnerCode(@Param("ownerCode") String ownerCode);
+    Admin findAdminByLoginId(@Param("loginId") String loginId);
 
-        User findMemberByAccountId(@Param("accountId") String accountId);
+    Owner findOwnerByOwnerCode(@Param("ownerCode") String ownerCode);
 
-        List<Tenant> findActiveTenantsByLoginCode(@Param("tenantCode") String tenantCode);
+    User findMemberByAccountId(@Param("accountId") String accountId);
 
-        Admin findAdminSecondaryPasswordById(@Param("adminId") Integer adminId);
+    List<Tenant> findActiveTenantsByLoginCode(@Param("tenantCode") String tenantCode);
 
-        Owner findOwnerSecondaryPasswordById(@Param("ownerId") Integer ownerId);
+    Admin findAdminSecondaryPasswordById(@Param("adminId") Integer adminId);
 
-        void updateAdminLastLogin(Integer adminId);
+    Owner findOwnerSecondaryPasswordById(@Param("ownerId") Integer ownerId);
 
-        void updateMemberLastLogin(Integer memberId);
+    void updateAdminLastLogin(@Param("adminId") Integer adminId);
+
+    void updateMemberLastLogin(@Param("memberId") Integer memberId);
 }

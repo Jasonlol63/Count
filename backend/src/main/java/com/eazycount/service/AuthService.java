@@ -1,6 +1,10 @@
 package com.eazycount.service;
 
-import com.eazycount.dto.*;
+import com.eazycount.dto.AdminTenantDTO;
+import com.eazycount.dto.LoginResultDTO;
+import com.eazycount.dto.OwnerTenantDTO;
+import com.eazycount.dto.TenantListDTO;
+import com.eazycount.dto.UserTenantDTO;
 import com.eazycount.entity.Admin;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
@@ -13,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 public interface AuthService {
+
     List<OwnerTenantDTO> findAccessibleTenantsByOwnerId(Integer ownerId, String tenantCode);
 
     List<AdminTenantDTO> findAccessibleTenantsByAdminId(Integer adminId, String tenantCode);
@@ -47,6 +52,5 @@ public interface AuthService {
 
     Map<String, Object> logout(HttpServletRequest request, HttpServletResponse response);
 
-    /** Switch active session tenant (replaces legacy update_company_session_api.php). */
     Map<String, Object> switchSessionTenant(int tenantId, SessionUser current, String jti, long ttlMillis);
 }
