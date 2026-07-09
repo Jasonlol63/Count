@@ -32,10 +32,6 @@ build/
 ### VS Code ###
 .vscode/
 
-### Node / frontend build ###
-node_modules/
-frontend/dist/
-
 ### Local data dumps ###
 dump.rdb
 /eazycount_import.sql
