@@ -18,7 +18,7 @@ public class FeatureModule {
 
     private Integer id;
 
-    /** Canonical code e.g. Gambling, Bank (legacy JSON used same strings) */
+    /** Canonical code e.g. GAME, BANK (see {@code feature_module.code}) */
     private String code;
 
     private String name;

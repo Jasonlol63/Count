@@ -3,12 +3,10 @@ package com.eazycount.service;
 import com.eazycount.dto.AdminTenantDTO;
 import com.eazycount.dto.LoginResultDTO;
 import com.eazycount.dto.OwnerTenantDTO;
-import com.eazycount.dto.TenantListDTO;
+import com.eazycount.dto.TenantDTO;
+import com.eazycount.dto.UserDTO;
 import com.eazycount.dto.UserTenantDTO;
-import com.eazycount.entity.Admin;
-import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
-import com.eazycount.entity.User;
 import com.eazycount.security.SessionUser;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -24,19 +22,23 @@ public interface AuthService {
 
     List<UserTenantDTO> findAccessibleTenantsByMemberId(Integer userId, String tenantCode);
 
-    List<TenantListDTO> findAllTenantsByOwnerId(Integer ownerId);
-
-    List<TenantListDTO> findAllTenantsByAdminId(Integer adminId);
-
-    List<TenantListDTO> findAllTenantsByMemberId(Integer userId);
+    /**
+     * All tenants (with feature modules) visible to the given identity.
+     *
+     * @param userType {@code member} | {@code user} (admin) | {@code owner}
+     * @param userId   primary key of account / user / owner
+     */
+    List<TenantDTO> findAllTenantsByUserType(String userType, Integer userId);
 
     Map<String, Object> accessibleTenants(boolean all);
 
-    Admin findAdminByLoginId(String loginId);
-
-    Owner findOwnerByOwnerCode(String ownerCode);
-
-    User findMemberByAccountId(String accountId);
+    /**
+     * Resolve a login identity by session/API user type.
+     *
+     * @param userType   {@code member} | {@code user} (admin) | {@code owner}
+     * @param identifier account id, admin login id, or owner code
+     */
+    UserDTO requireIdentity(String userType, String identifier);
 
     List<Tenant> findActiveTenantsByLoginCode(String tenantCode);
 
@@ -46,9 +48,7 @@ public interface AuthService {
 
     SessionUser applyInitialSecondaryState(SessionUser sessionUser, LoginResultDTO result);
 
-    void verifyOwnerSecondaryPassword(String secondaryPassword, SessionUser current, String jti, long ttlMillis);
-
-    void verifyUserSecondaryPassword(String secondaryPassword, SessionUser current, String jti, long ttlMillis);
+    void verifySecondaryPassword(String secondaryPassword, SessionUser current, String jti, long ttlMillis);
 
     Map<String, Object> logout(HttpServletRequest request, HttpServletResponse response);
 

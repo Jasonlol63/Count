@@ -2,23 +2,6 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.eazycount.dao.PermissionDao">
 
-    <resultMap id="TenantMap" type="com.eazycount.entity.Tenant">
-        <id property="id" column="id"/>
-        <result property="tenantType" column="tenant_type"
-                typeHandler="com.eazycount.config.mybatis.TenantTypeHandler"/>
-        <result property="code" column="code"/>
-        <result property="name" column="name"/>
-        <result property="ownerId" column="owner_id"/>
-        <result property="parentId" column="parent_id"/>
-        <result property="expirationDate" column="expiration_date"/>
-        <result property="status" column="status"/>
-        <result property="createdBy" column="created_by"/>
-        <result property="createdAt" column="created_at"/>
-        <result property="updatedAt" column="updated_at"/>
-        <result property="categoryCode" column="category_code"
-                typeHandler="com.eazycount.handler.JsonStringListTypeHandler"/>
-    </resultMap>
-
     <resultMap id="StaffRoleMap" type="com.eazycount.entity.AdminRole">
         <id property="id" column="id"/>
         <result property="code" column="code"/>
@@ -38,29 +21,6 @@
         <result property="status" column="status"/>
     </resultMap>
 
-    <resultMap id="FeatureModuleMap" type="com.eazycount.entity.FeatureModule">
-        <id property="id" column="id"/>
-        <result property="code" column="code"/>
-        <result property="name" column="name"/>
-        <result property="sortOrder" column="sort_order"/>
-        <result property="status" column="status"/>
-    </resultMap>
-
-    <sql id="TenantColumns">
-        id,
-        tenant_type,
-        code,
-        name,
-        owner_id,
-        parent_id,
-        expiration_date,
-        category_code,
-        status,
-        created_by,
-        created_at,
-        updated_at
-    </sql>
-
     <sql id="StaffRoleColumns">
         id,
         code,
@@ -79,15 +39,6 @@
         p.requires_feature_id,
         p.status
     </sql>
-
-    <select id="findTenantById" resultMap="TenantMap">
-        SELECT
-        <include refid="TenantColumns"/>
-        FROM tenant
-        WHERE id = #{tenantId}
-          AND status = 'ACTIVE'
-        LIMIT 1
-    </select>
 
     <select id="findStaffRoleById" resultMap="StaffRoleMap">
         SELECT
@@ -140,31 +91,6 @@
             </foreach>
         </if>
         ORDER BY p.sort_order ASC, p.id ASC
-    </select>
-
-    <select id="findActiveFeatureModulesByTenantId" resultMap="FeatureModuleMap">
-        SELECT
-            fm.id,
-            fm.code,
-            fm.name,
-            fm.sort_order,
-            fm.status
-        FROM tenant_feature_module tfm
-        INNER JOIN feature_module fm ON fm.id = tfm.module_id
-        WHERE tfm.tenant_id = #{tenantId}
-          AND fm.status = 'ACTIVE'
-        ORDER BY fm.sort_order ASC, fm.id ASC
-    </select>
-
-    <select id="hasActiveTenantFeatureCode" resultType="boolean">
-        SELECT EXISTS (
-            SELECT 1
-            FROM tenant_feature_module tfm
-            INNER JOIN feature_module fm ON fm.id = tfm.module_id
-            WHERE tfm.tenant_id = #{tenantId}
-              AND fm.status = 'ACTIVE'
-              AND UPPER(TRIM(fm.code)) = UPPER(TRIM(#{code}))
-        )
     </select>
 
 </mapper>

@@ -1,8 +1,8 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
-import com.eazycount.dao.AuthDao;
 import com.eazycount.dao.DomainDao;
+import com.eazycount.dao.TenantDao;
 import com.eazycount.dao.TenantOwnershipDao;
 import com.eazycount.dto.TenantOwnershipDTO;
 import com.eazycount.entity.Owner;
@@ -12,6 +12,7 @@ import com.eazycount.entity.TenantOwnershipHistory;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.TenantOwnershipService;
+import com.eazycount.util.TenantDtoHelper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,7 +33,7 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
     private DomainDao domainDao;
 
     @Autowired
-    private AuthDao authDao;
+    private TenantDao tenantDao;
 
     @Override
     public List<TenantOwnershipDTO> getOwnershipList(Integer tenantId, String month) {
@@ -101,7 +102,8 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
         // 查询作为 Partner 的 Tenant (原本的 Group)
         Tenant partnerTenant = null;
         if (type.isEmpty() || "tenant".equalsIgnoreCase(type) || "group".equalsIgnoreCase(type)) {
-            List<Tenant> activeTenants = authDao.findActiveTenantsByLoginCode(searchCode);
+            List<Tenant> activeTenants = TenantDtoHelper.distinctTenants(
+                    tenantDao.findActiveTenantFeaturesByLoginCode(searchCode));
             if (activeTenants != null) {
                 partnerTenant = activeTenants.stream()
                         .filter(t -> t.getTenantType() == Tenant.TenantType.GROUP && "ACTIVE".equalsIgnoreCase(t.getStatus().name()))

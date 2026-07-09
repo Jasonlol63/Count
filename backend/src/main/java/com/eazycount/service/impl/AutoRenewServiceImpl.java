@@ -3,7 +3,7 @@ package com.eazycount.service.impl;
 import com.eazycount.dao.AutoRenewDao;
 import com.eazycount.dao.DomainDao;
 import com.eazycount.common.BusinessException;
-import com.eazycount.dao.AuthDao;
+import com.eazycount.dao.TenantDao;
 import com.eazycount.dao.UserDao;
 import com.eazycount.dto.AutoRenewDTO;
 import com.eazycount.dto.UserListDTO;
@@ -35,7 +35,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
     private DomainDao domainDao;
 
     @Autowired
-    private AuthDao authDao;
+    private TenantDao tenantDao;
 
     @Autowired
     private UserDao userDao;
@@ -97,8 +97,8 @@ public class AutoRenewServiceImpl implements AutoRenewService {
                 WINDOW_DAYS);
 
         // 获取 C168 关联账户列表与默认账户配置，以适配前端 Approve 操作
-        List<Tenant> c168Tenants = authDao.findActiveTenantsByLoginCode("C168");
-        Integer c168TenantId = (c168Tenants != null && !c168Tenants.isEmpty()) ? c168Tenants.get(0).getId() : null;
+        Tenant c168Tenant = tenantDao.findTenantByCode("C168");
+        Integer c168TenantId = c168Tenant != null ? c168Tenant.getId() : null;
         List<UserListDTO> c168Users = new ArrayList<>();
         if (c168TenantId != null) {
             c168Users = userDao.findUserByTenantId(c168TenantId);

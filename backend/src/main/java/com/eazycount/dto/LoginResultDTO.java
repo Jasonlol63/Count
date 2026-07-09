@@ -1,6 +1,9 @@
 package com.eazycount.dto;
 
+import com.eazycount.entity.FeatureModule;
 import com.eazycount.entity.Tenant;
+
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -19,6 +22,8 @@ public class LoginResultDTO {
     private Tenant loginTenant;
     /** Tenant the user is allowed to enter after access check. */
     private Tenant sessionTenant;
+    /** Active feature modules for {@link #sessionTenant} (from tenant_feature_module). */
+    private List<FeatureModule> sessionFeatureModules;
     /** API user_type: member | user | owner */
     private String userType;
     /** Post-login redirect path for the SPA. */

@@ -54,15 +54,14 @@
         <association property="tenant" javaType="com.eazycount.entity.Tenant">
             <id property="id" column="tenantId"/>
             <result property="tenantType" column="tenantType"
-                    typeHandler="com.eazycount.config.mybatis.TenantTypeHandler"/>
+                    typeHandler="com.eazycount.handler.TenantTypeHandler"/>
             <result property="code" column="tenantCode"/>
             <result property="name" column="tenantName"/>
             <result property="ownerId" column="tenantOwnerId"/>
             <result property="parentId" column="parentId"/>
             <result property="expirationDate" column="expirationDate"/>
-            <result property="categoryCode" column="categoryCode"
-                    typeHandler="com.eazycount.handler.JsonStringListTypeHandler"/>
-            <result property="status" column="tenantStatus"/>
+            <result property="status" column="tenantStatus"
+                    typeHandler="com.eazycount.handler.TenantStatusHandler"/>
         </association>
     </resultMap>
 
@@ -82,15 +81,14 @@
         <association property="tenant" javaType="com.eazycount.entity.Tenant">
             <id property="id" column="tenantId"/>
             <result property="tenantType" column="tenantType"
-                    typeHandler="com.eazycount.config.mybatis.TenantTypeHandler"/>
+                    typeHandler="com.eazycount.handler.TenantTypeHandler"/>
             <result property="code" column="tenantCode"/>
             <result property="name" column="tenantName"/>
             <result property="ownerId" column="tenantOwnerId"/>
             <result property="parentId" column="parentId"/>
             <result property="expirationDate" column="expirationDate"/>
-            <result property="categoryCode" column="categoryCode"
-                    typeHandler="com.eazycount.handler.JsonStringListTypeHandler"/>
-            <result property="status" column="tenantStatus"/>
+            <result property="status" column="tenantStatus"
+                    typeHandler="com.eazycount.handler.TenantStatusHandler"/>
         </association>
     </resultMap>
 
@@ -110,125 +108,16 @@
         <association property="tenant" javaType="com.eazycount.entity.Tenant">
             <id property="id" column="tenantId"/>
             <result property="tenantType" column="tenantType"
-                    typeHandler="com.eazycount.config.mybatis.TenantTypeHandler"/>
+                    typeHandler="com.eazycount.handler.TenantTypeHandler"/>
             <result property="code" column="tenantCode"/>
             <result property="name" column="tenantName"/>
             <result property="ownerId" column="tenantOwnerId"/>
             <result property="parentId" column="parentId"/>
             <result property="expirationDate" column="expirationDate"/>
-            <result property="categoryCode" column="categoryCode"
-                    typeHandler="com.eazycount.handler.JsonStringListTypeHandler"/>
-            <result property="status" column="tenantStatus"/>
+            <result property="status" column="tenantStatus"
+                    typeHandler="com.eazycount.handler.TenantStatusHandler"/>
         </association>
     </resultMap>
-
-    <resultMap id="TenantListMap" type="com.eazycount.dto.TenantListDTO">
-        <id property="id" column="tenantId"/>
-        <result property="tenantType" column="tenantType"
-                typeHandler="com.eazycount.config.mybatis.TenantTypeHandler"/>
-        <result property="code" column="tenantCode"/>
-        <result property="name" column="tenantName"/>
-        <result property="ownerId" column="tenantOwnerId"/>
-        <result property="parentId" column="parentId"/>
-        <result property="parentGroupCode" column="parentGroupCode"/>
-        <result property="expirationDate" column="expirationDate"/>
-        <result property="status" column="tenantStatus"/>
-    </resultMap>
-
-    <resultMap id="TenantMap" type="com.eazycount.entity.Tenant">
-        <id property="id" column="id"/>
-        <result property="tenantType" column="tenant_type"
-                typeHandler="com.eazycount.config.mybatis.TenantTypeHandler"/>
-        <result property="code" column="code"/>
-        <result property="name" column="name"/>
-        <result property="ownerId" column="owner_id"/>
-        <result property="parentId" column="parent_id"/>
-        <result property="expirationDate" column="expiration_date"/>
-        <result property="categoryCode" column="category_code"
-                typeHandler="com.eazycount.handler.JsonStringListTypeHandler"/>
-        <result property="status" column="status"/>
-        <result property="createdBy" column="created_by"/>
-        <result property="createdAt" column="created_at"/>
-        <result property="updatedAt" column="updated_at"/>
-    </resultMap>
-
-    <select id="findAllTenantsByOwnerId" resultMap="TenantListMap">
-        SELECT
-            t.id              AS tenantId,
-            t.tenant_type     AS tenantType,
-            t.code            AS tenantCode,
-            t.name            AS tenantName,
-            t.owner_id        AS tenantOwnerId,
-            t.parent_id       AS parentId,
-            parent_t.code     AS parentGroupCode,
-            t.expiration_date AS expirationDate,
-            t.status          AS tenantStatus
-        FROM tenant t
-        LEFT JOIN tenant parent_t
-            ON parent_t.id = t.parent_id
-           AND parent_t.status = 'ACTIVE'
-        WHERE t.owner_id = #{ownerId}
-          AND t.status = 'ACTIVE'
-          AND TRIM(t.code) &lt;&gt; ''
-        ORDER BY
-            CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
-            t.code ASC,
-            t.id ASC
-    </select>
-
-    <select id="findAllTenantsByAdminId" resultMap="TenantListMap">
-        SELECT
-            t.id              AS tenantId,
-            t.tenant_type     AS tenantType,
-            t.code            AS tenantCode,
-            t.name            AS tenantName,
-            t.owner_id        AS tenantOwnerId,
-            t.parent_id       AS parentId,
-            parent_t.code     AS parentGroupCode,
-            t.expiration_date AS expirationDate,
-            t.status          AS tenantStatus
-        FROM tenant t
-        LEFT JOIN tenant parent_t
-            ON parent_t.id = t.parent_id
-           AND parent_t.status = 'ACTIVE'
-        INNER JOIN user_tenant_access uta ON uta.tenant_id = t.id
-        INNER JOIN user u ON u.id = uta.user_id
-        WHERE u.id = #{adminId}
-          AND u.status = 'ACTIVE'
-          AND t.status = 'ACTIVE'
-          AND TRIM(t.code) &lt;&gt; ''
-        ORDER BY
-            CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
-            t.code ASC,
-            t.id ASC
-    </select>
-
-    <select id="findAllTenantsByMemberId" resultMap="TenantListMap">
-        SELECT
-            t.id              AS tenantId,
-            t.tenant_type     AS tenantType,
-            t.code            AS tenantCode,
-            t.name            AS tenantName,
-            t.owner_id        AS tenantOwnerId,
-            t.parent_id       AS parentId,
-            parent_t.code     AS parentGroupCode,
-            t.expiration_date AS expirationDate,
-            t.status          AS tenantStatus
-        FROM tenant t
-        LEFT JOIN tenant parent_t
-            ON parent_t.id = t.parent_id
-           AND parent_t.status = 'ACTIVE'
-        INNER JOIN account_tenant_access ata ON ata.tenant_id = t.id
-        INNER JOIN account a ON a.id = ata.account_id
-        WHERE a.id = #{userId}
-          AND a.status = 'ACTIVE'
-          AND t.status = 'ACTIVE'
-          AND TRIM(t.code) &lt;&gt; ''
-        ORDER BY
-            CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
-            t.code ASC,
-            t.id ASC
-    </select>
 
     <select id="findAccessibleTenantsByOwnerId" resultMap="OwnerTenantDTO">
         SELECT
@@ -249,7 +138,6 @@
             t.owner_id             AS tenantOwnerId,
             t.parent_id            AS parentId,
             t.expiration_date      AS expirationDate,
-            t.category_code        AS categoryCode,
             t.status               AS tenantStatus
         FROM owner o
         INNER JOIN tenant t ON t.owner_id = o.id
@@ -296,7 +184,6 @@
             t.owner_id             AS tenantOwnerId,
             t.parent_id            AS parentId,
             t.expiration_date      AS expirationDate,
-            t.category_code        AS categoryCode,
             t.status               AS tenantStatus
         FROM user u
         INNER JOIN user_role ur ON ur.id = u.role_id
@@ -342,7 +229,6 @@
             t.owner_id        AS tenantOwnerId,
             t.parent_id       AS parentId,
             t.expiration_date AS expirationDate,
-            t.category_code   AS categoryCode,
             t.status          AS tenantStatus
         FROM account a
         INNER JOIN account_tenant_access ata ON ata.account_id = a.id
@@ -408,31 +294,6 @@
         WHERE UPPER(TRIM(account_id)) = UPPER(TRIM(#{accountId}))
           AND status = 'ACTIVE'
         LIMIT 1
-    </select>
-
-    <select id="findActiveTenantsByLoginCode" resultMap="TenantMap">
-        SELECT
-            t.id,
-            t.tenant_type,
-            t.code,
-            t.name,
-            t.owner_id,
-            t.parent_id,
-            t.expiration_date,
-            t.category_code,
-            t.status,
-            t.created_by,
-            t.created_at,
-            t.updated_at
-        FROM tenant t
-        LEFT JOIN tenant parent_t
-            ON parent_t.id = t.parent_id
-           AND parent_t.status = 'ACTIVE'
-        WHERE t.status = 'ACTIVE'
-          AND (
-            UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode}))
-            OR UPPER(TRIM(parent_t.code)) = UPPER(TRIM(#{tenantCode}))
-          )
     </select>
 
     <select id="findAdminSecondaryPasswordById" resultMap="AdminMap">

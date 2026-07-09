@@ -2,10 +2,12 @@ package com.eazycount.security;
 
 import com.eazycount.dto.UserDTO;
 import com.eazycount.entity.Admin;
+import com.eazycount.entity.FeatureModule;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
 import com.eazycount.entity.User;
 import com.eazycount.service.PermissionService;
+import com.eazycount.util.SecondaryPasswordUtils;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.io.Serializable;
@@ -38,7 +40,7 @@ public class SessionUser implements Serializable {
     public boolean is_current_tenant_c168;
     public boolean tenant_has_game;
     public boolean tenant_has_bank;
-     public int read_only;
+    public int read_only;
 
     public SessionUser() {
     }
@@ -83,7 +85,12 @@ public class SessionUser implements Serializable {
         this.read_only = readOnly;
     }
 
-    public static SessionUser from(UserDTO dto, Tenant tenant, PermissionService permissionService) {
+    public static SessionUser from(
+            UserDTO dto,
+            Tenant tenant,
+            List<FeatureModule> featureModules,
+            PermissionService permissionService
+    ) {
         if (dto == null) {
             throw new IllegalArgumentException("UserDTO is required");
         }
@@ -92,39 +99,51 @@ public class SessionUser implements Serializable {
         }
 
         final Tenant effectiveTenant = dto.getTenant() != null ? dto.getTenant() : tenant;
+        final List<FeatureModule> modules = featureModules != null ? featureModules : List.of();
 
         if (dto.getAdmin() != null) {
-            return fromAdmin(dto.getAdmin(), effectiveTenant, permissionService);
+            return fromAdmin(dto.getAdmin(), effectiveTenant, modules, permissionService);
         }
         if (dto.getUser() != null) {
-            return fromMember(dto.getUser(), effectiveTenant, permissionService);
+            return fromMember(dto.getUser(), effectiveTenant, modules, permissionService);
         }
         if (dto.getOwner() != null) {
-            return fromOwner(dto.getOwner(), effectiveTenant, permissionService);
+            return fromOwner(dto.getOwner(), effectiveTenant, modules, permissionService);
         }
 
         throw new IllegalArgumentException("UserDTO has no identity");
     }
 
-    public static SessionUser from(Owner owner, Tenant tenant, PermissionService permissionService) {
+    public static SessionUser from(
+            Owner owner,
+            Tenant tenant,
+            List<FeatureModule> featureModules,
+            PermissionService permissionService
+    ) {
         if (owner == null) {
             throw new IllegalArgumentException("Owner is required");
         }
         if (permissionService == null) {
             throw new IllegalArgumentException("PermissionService is required");
         }
-        return fromOwner(owner, tenant, permissionService);
+        final List<FeatureModule> modules = featureModules != null ? featureModules : List.of();
+        return fromOwner(owner, tenant, modules, permissionService);
     }
 
-    private static SessionUser fromAdmin(Admin admin, Tenant tenant, PermissionService permissionService) {
+    private static SessionUser fromAdmin(
+            Admin admin,
+            Tenant tenant,
+            List<FeatureModule> featureModules,
+            PermissionService permissionService
+    ) {
         final String companyCode = tenantCode(tenant);
         final boolean isC168 = permissionService.isC168Account(tenant);
-        final boolean hasSecondary = hasConfiguredSecondaryPassword(admin.getSecondaryPassword());
+        final boolean hasSecondary = SecondaryPasswordUtils.isConfigured(admin.getSecondaryPassword());
         final String role = admin.getRoleCode() != null ? admin.getRoleCode() : "";
         final List<String> moduleKeys = toFrontendModuleKeys(
-                permissionService.resolveAdminModuleKeys(admin, tenant));
-        final boolean hasGame = permissionService.hasGameModule(tenant);
-        final boolean hasBank = permissionService.hasBankModule(tenant);
+                permissionService.resolveAdminModuleKeys(admin, tenant, featureModules));
+        final boolean hasGame = permissionService.hasGameModule(featureModules);
+        final boolean hasBank = permissionService.hasBankModule(featureModules);
 
         return new SessionUser(
                 "user",
@@ -148,10 +167,15 @@ public class SessionUser implements Serializable {
         );
     }
 
-    private static SessionUser fromMember(User member, Tenant tenant, PermissionService permissionService) {
+    private static SessionUser fromMember(
+            User member,
+            Tenant tenant,
+            List<FeatureModule> featureModules,
+            PermissionService permissionService
+    ) {
         final String companyCode = tenantCode(tenant);
-        final boolean hasGame = permissionService.hasGameModule(tenant);
-        final boolean hasBank = permissionService.hasBankModule(tenant);
+        final boolean hasGame = permissionService.hasGameModule(featureModules);
+        final boolean hasBank = permissionService.hasBankModule(featureModules);
 
         return new SessionUser(
                 "member",
@@ -175,13 +199,18 @@ public class SessionUser implements Serializable {
         );
     }
 
-    private static SessionUser fromOwner(Owner owner, Tenant tenant, PermissionService permissionService) {
+    private static SessionUser fromOwner(
+            Owner owner,
+            Tenant tenant,
+            List<FeatureModule> featureModules,
+            PermissionService permissionService
+    ) {
         final String companyCode = !tenantCode(tenant).isBlank()
                 ? tenantCode(tenant)
                 : normalizeUpper(Objects.toString(owner.getOwnerCode(), ""));
-        final boolean hasSecondary = hasConfiguredSecondaryPassword(owner.getSecondaryPassword());
-        final boolean hasGame = permissionService.hasGameModule(tenant);
-        final boolean hasBank = permissionService.hasBankModule(tenant);
+        final boolean hasSecondary = SecondaryPasswordUtils.isConfigured(owner.getSecondaryPassword());
+        final boolean hasGame = permissionService.hasGameModule(featureModules);
+        final boolean hasBank = permissionService.hasBankModule(featureModules);
 
         return new SessionUser(
                 "owner",
@@ -197,7 +226,8 @@ public class SessionUser implements Serializable {
                 normalizeUpper(Objects.toString(owner.getOwnerCode(), "")),
                 Objects.toString(owner.getEmail(), ""),
                 "owner",
-                toFrontendModuleKeys(permissionService.resolveOwnerModuleKeys(owner, tenant)),
+                toFrontendModuleKeys(
+                        permissionService.resolveOwnerModuleKeys(owner, tenant, featureModules)),
                 "C168".equalsIgnoreCase(companyCode),
                 hasGame,
                 hasBank,
@@ -236,7 +266,7 @@ public class SessionUser implements Serializable {
 
     private static String tenantScope(Tenant tenant) {
         return tenant != null && tenant.getTenantType() != null
-                ? normalizeLower(tenant.getTenantType().getValue())
+                ? normalizeLower(tenant.getTenantType().name())
                 : "company";
     }
 
@@ -256,10 +286,6 @@ public class SessionUser implements Serializable {
 
     private static String normalizeLower(String s) {
         return Objects.toString(s, "").trim().toLowerCase();
-    }
-
-    private static boolean hasConfiguredSecondaryPassword(String secondaryPassword) {
-        return secondaryPassword != null && !secondaryPassword.isBlank();
     }
 
     /** Backend resolves uppercase module keys; frontend expects lowercase (e.g. {@code home}). */
