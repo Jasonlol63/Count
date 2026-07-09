@@ -1,4 +1,4 @@
-package com.eazycount.config.mybatis;
+package com.eazycount.handler;
 
 import com.eazycount.entity.DomainFee.PriceMap;
 import com.fasterxml.jackson.databind.ObjectMapper;

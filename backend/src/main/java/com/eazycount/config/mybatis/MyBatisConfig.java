@@ -1,6 +1,7 @@
 package com.eazycount.config.mybatis;
 
 import com.eazycount.entity.DomainFee.PriceMap;
+import com.eazycount.handler.PriceMapTypeHandler;
 import org.apache.ibatis.session.Configuration;
 import org.mybatis.spring.boot.autoconfigure.ConfigurationCustomizer;
 import org.springframework.context.annotation.Bean;

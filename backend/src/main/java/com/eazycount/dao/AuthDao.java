@@ -2,11 +2,9 @@ package com.eazycount.dao;
 
 import com.eazycount.dto.AdminTenantDTO;
 import com.eazycount.dto.OwnerTenantDTO;
-import com.eazycount.dto.TenantListDTO;
 import com.eazycount.dto.UserTenantDTO;
 import com.eazycount.entity.Admin;
 import com.eazycount.entity.Owner;
-import com.eazycount.entity.Tenant;
 import com.eazycount.entity.User;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -28,19 +26,11 @@ public interface AuthDao {
             @Param("userId") Integer userId,
             @Param("tenantCode") String tenantCode);
 
-    List<TenantListDTO> findAllTenantsByOwnerId(@Param("ownerId") Integer ownerId);
-
-    List<TenantListDTO> findAllTenantsByAdminId(@Param("adminId") Integer adminId);
-
-    List<TenantListDTO> findAllTenantsByMemberId(@Param("userId") Integer userId);
-
     Admin findAdminByLoginId(@Param("loginId") String loginId);
 
     Owner findOwnerByOwnerCode(@Param("ownerCode") String ownerCode);
 
     User findMemberByAccountId(@Param("accountId") String accountId);
-
-    List<Tenant> findActiveTenantsByLoginCode(@Param("tenantCode") String tenantCode);
 
     Admin findAdminSecondaryPasswordById(@Param("adminId") Integer adminId);
 

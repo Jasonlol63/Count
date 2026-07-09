@@ -49,7 +49,7 @@ server:
 
 mybatis:
   mapper-locations: classpath:mybatis/*.xml
-  type-handlers-package: com.eazycount.config.mybatis
+  type-handlers-package: com.eazycount.handler
   configuration:
     map-underscore-to-camel-case: true
 

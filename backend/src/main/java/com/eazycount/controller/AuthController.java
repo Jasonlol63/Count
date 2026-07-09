@@ -68,6 +68,7 @@ public class AuthController {
                 SessionUser.from(
                         result.getIdentity(),
                         result.getSessionTenant(),
+                        result.getSessionFeatureModules(),
                         permissionService
                 ),
                 result
@@ -145,7 +146,7 @@ public class AuthController {
     ) {
         LoginUserPrincipal principal = SecurityUtils.currentPrincipal()
                 .orElseThrow(() -> new BusinessException("Unauthorized"));
-        authService.verifyOwnerSecondaryPassword(
+        authService.verifySecondaryPassword(
                 secondaryPassword,
                 principal.user(),
                 principal.jti(),
@@ -160,7 +161,7 @@ public class AuthController {
     ) {
         LoginUserPrincipal principal = SecurityUtils.currentPrincipal()
                 .orElseThrow(() -> new BusinessException("Unauthorized"));
-        authService.verifyUserSecondaryPassword(
+        authService.verifySecondaryPassword(
                 secondaryPassword,
                 principal.user(),
                 principal.jti(),

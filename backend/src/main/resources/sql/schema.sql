@@ -93,10 +93,9 @@ INSERT INTO `user_role` (`id`, `code`, `name`, `hierarchy_level`, `status`) VALU
   (7, 'CUSTOMER_SERVICE', 'Customer Service',  7, 'ACTIVE'),
   (8, 'PARTNERSHIP',      'Partnership',       8, 'ACTIVE');
 
--- Tenant business modules (GAME/BANK) — referenced by permission.requires_feature_id
 CREATE TABLE `feature_module` (
   `id`         SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `code`       VARCHAR(50)  NOT NULL COMMENT 'Canonical module code e.g. GAME, BANK',
+  `code`       VARCHAR(50)  NOT NULL COMMENT 'Canonical module code e.g. GAME, BANK, LOAN',
   `name`       VARCHAR(255) NOT NULL COMMENT 'Display name',
   `sort_order` SMALLINT     NOT NULL DEFAULT 0,
   `status`     ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
@@ -106,8 +105,11 @@ CREATE TABLE `feature_module` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Business module dictionary';
 
 INSERT INTO `feature_module` (`id`, `code`, `name`, `sort_order`, `status`) VALUES
-  (1, 'GAME', 'Game', 1, 'ACTIVE'),
-  (2, 'BANK', 'Bank', 2, 'ACTIVE');
+  (1, 'GAME',  'Games', 1, 'ACTIVE'),
+  (2, 'BANK',  'Bank',  2, 'ACTIVE'),
+  (3, 'LOAN',  'Loan',  3, 'ACTIVE'),
+  (4, 'RATE',  'Rate',  4, 'ACTIVE'),
+  (5, 'MONEY', 'Money', 5, 'ACTIVE');
 
 -- =============================================================================
 -- Sidebar permission dictionary
@@ -227,7 +229,6 @@ CREATE TABLE `tenant` (
   `owner_id`          INT UNSIGNED          DEFAULT NULL COMMENT 'FK owner.id',
   `parent_id`         INT UNSIGNED          DEFAULT NULL COMMENT 'company → parent group tenant.id',
   `expiration_date`   DATE                  DEFAULT NULL COMMENT 'Per-tenant expiry (group or company)',
-  `category_code`     JSON                  DEFAULT NULL COMMENT 'Business modules e.g. ["GAME","BANK"]',
   `fee_share_allocations` JSON DEFAULT NULL COMMENT 'Sales/CS/IT/Profit share % by account',
   `status`            ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
   `created_by`        VARCHAR(50)           DEFAULT NULL,
@@ -249,8 +250,12 @@ CREATE TABLE `tenant_feature_module` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_tenant_feature_module` (`tenant_id`, `module_id`),
   KEY `idx_tfm_tenant_id` (`tenant_id`),
-  KEY `idx_tfm_module_id` (`module_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Tenant feature flags via association table';
+  KEY `idx_tfm_module_id` (`module_id`),
+  CONSTRAINT `fk_tfm_tenant`
+    FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_tfm_module`
+    FOREIGN KEY (`module_id`) REFERENCES `feature_module` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Tenant business modules';
 
 CREATE TABLE `tenant_link` (
   `id`               INT UNSIGNED NOT NULL AUTO_INCREMENT,

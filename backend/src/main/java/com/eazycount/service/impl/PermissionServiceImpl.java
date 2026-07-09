@@ -2,11 +2,14 @@ package com.eazycount.service.impl;
 
 import com.eazycount.dao.PermissionDao;
 import com.eazycount.entity.Admin;
+import com.eazycount.entity.FeatureModule;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Permission;
 import com.eazycount.entity.AdminRole;
 import com.eazycount.entity.Tenant;
 import com.eazycount.service.PermissionService;
+import com.eazycount.util.TenantDtoHelper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
@@ -25,22 +28,19 @@ public class PermissionServiceImpl implements PermissionService {
     private static final String OWNER_ROLE_CODE = "OWNER";
     private static final List<String> C168_EXTRA_PERMISSION_CODES = List.of("DOMAIN", "ANNOUNCEMENTS");
 
-    private final PermissionDao permissionDao;
-
-    public PermissionServiceImpl(PermissionDao permissionDao) {
-        this.permissionDao = permissionDao;
-    }
+    @Autowired
+    private PermissionDao permissionDao;
 
     @Override
-    public List<String> resolveAdminModuleKeys(Admin admin, Tenant tenant) {
+    public List<String> resolveAdminModuleKeys(Admin admin, Tenant tenant, List<FeatureModule> featureModules) {
         if (admin == null || admin.getRoleId() == null) {
             return List.of();
         }
-        return resolveModuleKeysForRoleId(admin.getRoleId(), tenant);
+        return resolveModuleKeysForRoleId(admin.getRoleId(), tenant, featureModules);
     }
 
     @Override
-    public List<String> resolveOwnerModuleKeys(Owner owner, Tenant tenant) {
+    public List<String> resolveOwnerModuleKeys(Owner owner, Tenant tenant, List<FeatureModule> featureModules) {
         if (owner == null) {
             return List.of();
         }
@@ -48,17 +48,17 @@ public class PermissionServiceImpl implements PermissionService {
         if (ownerRole == null || ownerRole.getId() == null) {
             return List.of();
         }
-        return resolveModuleKeysForRoleId(ownerRole.getId(), tenant);
+        return resolveModuleKeysForRoleId(ownerRole.getId(), tenant, featureModules);
     }
 
     @Override
-    public boolean hasGameModule(Tenant tenant) {
-        return hasTenantFeatureCode(tenant, GAME_CODE);
+    public boolean hasGameModule(List<FeatureModule> featureModules) {
+        return TenantDtoHelper.hasFeatureCode(featureModules, GAME_CODE);
     }
 
     @Override
-    public boolean hasBankModule(Tenant tenant) {
-        return hasTenantFeatureCode(tenant, BANK_CODE);
+    public boolean hasBankModule(List<FeatureModule> featureModules) {
+        return TenantDtoHelper.hasFeatureCode(featureModules, BANK_CODE);
     }
 
     @Override
@@ -69,7 +69,11 @@ public class PermissionServiceImpl implements PermissionService {
         return "C168".equalsIgnoreCase(tenant.getCode().trim());
     }
 
-    private List<String> resolveModuleKeysForRoleId(int roleId, Tenant tenant) {
+    private List<String> resolveModuleKeysForRoleId(
+            int roleId,
+            Tenant tenant,
+            List<FeatureModule> featureModules
+    ) {
         Map<String, Permission> effective = new LinkedHashMap<>();
 
         for (Permission permission : permissionDao.findActivePermissionsByRoleId(roleId)) {
@@ -82,7 +86,7 @@ public class PermissionServiceImpl implements PermissionService {
             }
         }
 
-        Set<Integer> tenantFeatureIds = tenantFeatureModuleIds(tenant);
+        Set<Integer> tenantFeatureIds = tenantFeatureModuleIds(featureModules);
 
         return effective.values().stream()
                 .filter(permission -> passesFeatureGate(permission, tenantFeatureIds))
@@ -111,23 +115,14 @@ public class PermissionServiceImpl implements PermissionService {
         return tenantFeatureIds.contains(requiredFeatureId);
     }
 
-    private Set<Integer> tenantFeatureModuleIds(Tenant tenant) {
-        Integer tenantId = tenant != null ? tenant.getId() : null;
-        if (tenantId == null) {
+    private Set<Integer> tenantFeatureModuleIds(List<FeatureModule> featureModules) {
+        if (featureModules == null || featureModules.isEmpty()) {
             return Set.of();
         }
-        return permissionDao.findActiveFeatureModulesByTenantId(tenantId).stream()
-                .map(module -> module.getId())
+        return featureModules.stream()
+                .map(FeatureModule::getId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-    }
-
-    private boolean hasTenantFeatureCode(Tenant tenant, String featureCode) {
-        Integer tenantId = tenant != null ? tenant.getId() : null;
-        if (tenantId == null || featureCode == null || featureCode.isBlank()) {
-            return false;
-        }
-        return permissionDao.hasActiveTenantFeatureCode(tenantId, featureCode);
     }
 
     private String normalizeCode(String code) {

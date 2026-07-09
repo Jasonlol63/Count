@@ -1,6 +1,7 @@
 package com.eazycount.service;
 
 import com.eazycount.entity.Admin;
+import com.eazycount.entity.FeatureModule;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
 
@@ -11,15 +12,13 @@ import java.util.List;
  */
 public interface PermissionService {
 
-    /** Staff/admin sidebar keys (uppercase) from {@code user.role_id} + tenant rules. */
-    List<String> resolveAdminModuleKeys(Admin admin, Tenant tenant);
+    List<String> resolveAdminModuleKeys(Admin admin, Tenant tenant, List<FeatureModule> featureModules);
 
-    /** Owner sidebar keys (uppercase) from OWNER role in {@code user_role_permission} + tenant rules. */
-    List<String> resolveOwnerModuleKeys(Owner owner, Tenant tenant);
+    List<String> resolveOwnerModuleKeys(Owner owner, Tenant tenant, List<FeatureModule> featureModules);
 
-    boolean hasGameModule(Tenant tenant);
+    boolean hasGameModule(List<FeatureModule> featureModules);
 
-    boolean hasBankModule(Tenant tenant);
+    boolean hasBankModule(List<FeatureModule> featureModules);
 
     boolean isC168Account(Tenant tenant);
 }

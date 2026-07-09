@@ -2,14 +2,15 @@ package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.AuthDao;
-import com.eazycount.dao.PermissionDao;
+import com.eazycount.dao.TenantDao;
 import com.eazycount.dto.AdminTenantDTO;
 import com.eazycount.dto.LoginResultDTO;
 import com.eazycount.dto.OwnerTenantDTO;
-import com.eazycount.dto.TenantListDTO;
+import com.eazycount.dto.TenantDTO;
 import com.eazycount.dto.UserDTO;
 import com.eazycount.dto.UserTenantDTO;
 import com.eazycount.entity.Admin;
+import com.eazycount.entity.FeatureModule;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
 import com.eazycount.entity.User;
@@ -22,10 +23,13 @@ import com.eazycount.security.SessionUser;
 import com.eazycount.service.AuthService;
 import com.eazycount.service.LoginRole;
 import com.eazycount.service.PermissionService;
+import com.eazycount.util.TenantDtoHelper;
+import com.eazycount.util.SecondaryPasswordUtils;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -38,32 +42,23 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 
 @Service
 public class AuthServiceImpl implements AuthService {
 
-    private final AuthDao authDao;
-    private final PermissionDao permissionDao;
-    private final PermissionService permissionService;
-    private final PasswordEncoder passwordEncoder;
-    private final AuthTokenStore authTokenStore;
-    private final JwtService jwtService;
-
-    public AuthServiceImpl(
-            AuthDao authDao,
-            PermissionDao permissionDao,
-            PermissionService permissionService,
-            PasswordEncoder passwordEncoder,
-            AuthTokenStore authTokenStore,
-            JwtService jwtService
-    ) {
-        this.authDao = authDao;
-        this.permissionDao = permissionDao;
-        this.permissionService = permissionService;
-        this.passwordEncoder = passwordEncoder;
-        this.authTokenStore = authTokenStore;
-        this.jwtService = jwtService;
-    }
+    @Autowired
+    private AuthDao authDao;
+    @Autowired
+    private TenantDao tenantDao;
+    @Autowired
+    private PermissionService permissionService;
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+    @Autowired
+    private AuthTokenStore authTokenStore;
+    @Autowired
+    private JwtService jwtService;
 
     @Override
     public LoginResultDTO login(String tenantCode, String username, String password, LoginRole role) {
@@ -86,8 +81,8 @@ public class AuthServiceImpl implements AuthService {
         UserDTO identity = new UserDTO();
 
         if (role == LoginRole.MEMBER) {
-            User member = authDao.findMemberByAccountId(name);
-            if (member == null || !verifyPassword(password, member.getPassword())) {
+            User member = requireIdentity("member", name).getUser();
+            if (!verifyPassword(password, member.getPassword())) {
                 throw new BusinessException("Account ID, Company ID or password is incorrect");
             }
             List<UserTenantDTO> access = findAccessibleTenantsByMemberId(member.getId(), code);
@@ -178,30 +173,41 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public Owner findOwnerByOwnerCode(String ownerCode) {
-        Owner owner = authDao.findOwnerByOwnerCode(normalize(ownerCode));
-        if (owner == null || owner.getId() == null) {
-            throw new BusinessException("Owner Not Found!");
+    public UserDTO requireIdentity(String userType, String identifier) {
+        if (userType == null || userType.isBlank()) {
+            throw new BusinessException("Invalid identity type");
         }
-        return owner;
-    }
+        if (identifier == null || identifier.isBlank()) {
+            throw new BusinessException("Invalid identity identifier");
+        }
 
-    @Override
-    public Admin findAdminByLoginId(String loginId) {
-        Admin admin = authDao.findAdminByLoginId(normalize(loginId));
-        if (admin == null || admin.getLoginId() == null) {
-            throw new BusinessException("Admin Not Found!");
-        }
-        return admin;
-    }
+        String key = normalize(identifier);
+        UserDTO identity = new UserDTO();
 
-    @Override
-    public User findMemberByAccountId(String accountId) {
-        User member = authDao.findMemberByAccountId(normalize(accountId));
-        if (member == null || member.getAccountId() == null) {
-            throw new BusinessException("User Not Found!");
-        }
-        return member;
+        return switch (userType.trim().toLowerCase()) {
+            case "member" -> {
+                identity.setUser(requireFound(
+                        authDao.findMemberByAccountId(key),
+                        User::getAccountId,
+                        "User Not Found!"));
+                yield identity;
+            }
+            case "user" -> {
+                identity.setAdmin(requireFound(
+                        authDao.findAdminByLoginId(key),
+                        Admin::getLoginId,
+                        "Admin Not Found!"));
+                yield identity;
+            }
+            case "owner" -> {
+                identity.setOwner(requireFound(
+                        authDao.findOwnerByOwnerCode(key),
+                        Owner::getId,
+                        "Owner Not Found!"));
+                yield identity;
+            }
+            default -> throw new BusinessException("Invalid identity type");
+        };
     }
 
     @Override
@@ -209,7 +215,8 @@ public class AuthServiceImpl implements AuthService {
         if (tenantCode == null || tenantCode.isBlank()) {
             throw new BusinessException("Invalid Group/Company ID");
         }
-        List<Tenant> tenants = authDao.findActiveTenantsByLoginCode(normalize(tenantCode));
+        List<Tenant> tenants = TenantDtoHelper.distinctTenants(
+                tenantDao.findActiveTenantFeaturesByLoginCode(normalize(tenantCode)));
         if (tenants.isEmpty()) {
             throw new BusinessException("Group/Company Not Found!");
         }
@@ -217,27 +224,20 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public List<TenantListDTO> findAllTenantsByOwnerId(Integer ownerId) {
-        if (ownerId == null) {
-            throw new BusinessException("Invalid Login!");
-        }
-        return authDao.findAllTenantsByOwnerId(ownerId);
-    }
-
-    @Override
-    public List<TenantListDTO> findAllTenantsByAdminId(Integer adminId) {
-        if (adminId == null) {
-            throw new BusinessException("Invalid Login!");
-        }
-        return authDao.findAllTenantsByAdminId(adminId);
-    }
-
-    @Override
-    public List<TenantListDTO> findAllTenantsByMemberId(Integer userId) {
+    public List<TenantDTO> findAllTenantsByUserType(String userType, Integer userId) {
         if (userId == null) {
             throw new BusinessException("Invalid Login!");
         }
-        return authDao.findAllTenantsByMemberId(userId);
+        if (userType == null || userType.isBlank()) {
+            throw new BusinessException("Invalid identity type");
+        }
+
+        return switch (userType.trim().toLowerCase()) {
+            case "owner" -> tenantDao.findTenantFeaturesByOwnerId(userId);
+            case "member" -> tenantDao.findTenantFeaturesByMemberId(userId);
+            case "user" -> tenantDao.findTenantFeaturesByAdminId(userId);
+            default -> throw new BusinessException("Invalid identity type");
+        };
     }
 
     @Override
@@ -248,40 +248,36 @@ public class AuthServiceImpl implements AuthService {
         }
 
         String userType = String.valueOf(user.user_type).trim().toLowerCase();
-        List<TenantListDTO> rows = switch (userType) {
-            case "owner" -> findAllTenantsByOwnerId(user.user_id);
-            case "member" -> findAllTenantsByMemberId(user.user_id);
-            default -> findAllTenantsByAdminId(user.user_id);
-        };
+        List<TenantDTO> rows = findAllTenantsByUserType(userType, user.user_id);
 
         LocalDate today = LocalDate.now();
         List<Map<String, Object>> data = new ArrayList<>();
         LinkedHashSet<String> parentTenantCodes = new LinkedHashSet<>();
 
-        for (TenantListDTO row : rows) {
-            if (row == null) {
+        for (Tenant tenant : TenantDtoHelper.distinctTenants(rows)) {
+            if (tenant == null) {
                 continue;
             }
-            if (row.getExpirationDate() != null && row.getExpirationDate().isBefore(today)) {
+            if (tenant.getExpirationDate() != null && tenant.getExpirationDate().isBefore(today)) {
                 continue;
             }
             if (!all) {
                 // Reserved: filter by session tenant_id / login_scope when needed.
             }
 
-            boolean isGroup = row.getTenantType() == Tenant.TenantType.GROUP;
-            String code = row.getCode() != null ? row.getCode().trim().toUpperCase() : "";
-            String parentTenantCode = row.getParentGroupCode() != null
-                    ? row.getParentGroupCode().trim().toUpperCase()
+            boolean isGroup = tenant.getTenantType() == Tenant.TenantType.GROUP;
+            String code = tenant.getCode() != null ? tenant.getCode().trim().toUpperCase() : "";
+            String parentTenantCode = tenant.getParentGroupCode() != null
+                    ? tenant.getParentGroupCode().trim().toUpperCase()
                     : null;
 
             Map<String, Object> ui = new LinkedHashMap<>();
-            ui.put("tenant_id", row.getId());
+            ui.put("tenant_id", tenant.getId());
             ui.put("tenant_code", code);
-            ui.put("tenant_type", row.getTenantType() != null ? row.getTenantType().name() : null);
+            ui.put("tenant_type", tenant.getTenantType() != null ? tenant.getTenantType().name() : null);
             ui.put("parent_tenant_code", isGroup ? code : parentTenantCode);
             ui.put("native_parent_tenant_code", isGroup ? code : parentTenantCode);
-            ui.put("expiration_date", row.getExpirationDate());
+            ui.put("expiration_date", tenant.getExpirationDate());
             data.add(ui);
 
             if (isGroup && !code.isBlank()) {
@@ -314,38 +310,26 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public void verifyOwnerSecondaryPassword(
-            String secondaryPassword,
-            SessionUser current,
-            String jti,
-            long ttlMillis
-    ) {
-        if (current == null || !"owner".equalsIgnoreCase(current.user_type)) {
+    public void verifySecondaryPassword(String secondaryPassword, SessionUser current, String jti, long ttlMillis) {
+        if (current == null || current.user_id == null) {
             throw new BusinessException("Unauthorized");
         }
-        if (!current.needs_owner_secondary) {
-            return;
-        }
 
-        verifySecondaryPin(secondaryPassword, current.user_id, true);
-        authTokenStore.save(jti, current.withSecondaryVerified(), ttlMillis);
-    }
-
-    @Override
-    public void verifyUserSecondaryPassword(
-            String secondaryPassword,
-            SessionUser current,
-            String jti,
-            long ttlMillis
-    ) {
-        if (current == null || !"user".equalsIgnoreCase(current.user_type)) {
+        String userType = String.valueOf(current.user_type).trim().toLowerCase();
+        if ("owner".equals(userType)) {
+            if (!current.needs_owner_secondary) {
+                return;
+            }
+            verifySecondaryPin(secondaryPassword, current.user_id, true);
+        } else if ("user".equals(userType)) {
+            if (!current.needs_user_secondary) {
+                return;
+            }
+            verifySecondaryPin(secondaryPassword, current.user_id, false);
+        } else {
             throw new BusinessException("Unauthorized");
         }
-        if (!current.needs_user_secondary) {
-            return;
-        }
 
-        verifySecondaryPin(secondaryPassword, current.user_id, false);
         authTokenStore.save(jti, current.withSecondaryVerified(), ttlMillis);
     }
 
@@ -361,13 +345,14 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("No permission to access this company");
         }
 
-        Tenant tenant = permissionDao.findTenantById(tenantId);
+        Tenant tenant = tenantDao.findTenantById(tenantId);
         if (tenant == null) {
             throw new BusinessException("No permission to access this company");
         }
         assertTenantNotExpired(tenant);
 
-        SessionUser rebuilt = rebuildSessionUserWithTenant(current, tenant);
+        List<FeatureModule> featureModules = tenantDao.findActiveFeatureModulesByTenantId(tenantId);
+        SessionUser rebuilt = rebuildSessionUserWithTenant(current, tenant, featureModules);
         final boolean secondaryAlreadyVerified =
                 !current.needs_owner_secondary && !current.needs_user_secondary;
         if (secondaryAlreadyVerified || (!rebuilt.needs_owner_secondary && !rebuilt.needs_user_secondary)) {
@@ -376,8 +361,8 @@ public class AuthServiceImpl implements AuthService {
 
         authTokenStore.save(jti, rebuilt, ttlMillis);
 
-        final boolean hasGame = permissionService.hasGameModule(tenant);
-        final boolean hasBank = permissionService.hasBankModule(tenant);
+        final boolean hasGame = permissionService.hasGameModule(featureModules);
+        final boolean hasBank = permissionService.hasBankModule(featureModules);
         final String code = tenant.getCode() != null ? tenant.getCode().trim().toUpperCase() : null;
 
         Map<String, Object> data = new LinkedHashMap<>();
@@ -418,6 +403,12 @@ public class AuthServiceImpl implements AuthService {
         result.setIdentity(identity);
         result.setLoginTenant(loginTenant);
         result.setSessionTenant(sessionTenant);
+        if (sessionTenant != null && sessionTenant.getId() != null) {
+            result.setSessionFeatureModules(
+                    tenantDao.findActiveFeatureModulesByTenantId(sessionTenant.getId()));
+        } else {
+            result.setSessionFeatureModules(List.of());
+        }
 
         if (identity.getUser() != null) {
             result.setUserType("member");
@@ -426,32 +417,20 @@ public class AuthServiceImpl implements AuthService {
         }
         if (identity.getAdmin() != null) {
             result.setUserType("user");
-            result.setRedirect(needsUserSecondaryPassword(identity.getAdmin())
+            result.setRedirect(SecondaryPasswordUtils.isConfigured(identity.getAdmin().getSecondaryPassword())
                     ? "/user-secondary-password"
                     : "/dashboard");
             return result;
         }
         if (identity.getOwner() != null) {
             result.setUserType("owner");
-            result.setRedirect(needsOwnerSecondaryPassword(identity.getOwner())
+            result.setRedirect(SecondaryPasswordUtils.isConfigured(identity.getOwner().getSecondaryPassword())
                     ? "/owner-secondary-password"
                     : "/dashboard");
             return result;
         }
 
         throw new BusinessException("Invalid login result");
-    }
-
-    private static boolean needsUserSecondaryPassword(Admin admin) {
-        return admin != null && hasConfiguredSecondaryPassword(admin.getSecondaryPassword());
-    }
-
-    private static boolean needsOwnerSecondaryPassword(Owner owner) {
-        return owner != null && hasConfiguredSecondaryPassword(owner.getSecondaryPassword());
-    }
-
-    private static boolean hasConfiguredSecondaryPassword(String secondaryPassword) {
-        return secondaryPassword != null && !secondaryPassword.isBlank();
     }
 
     private void verifySecondaryPin(String secondaryPassword, Integer userId, boolean owner) {
@@ -522,17 +501,17 @@ public class AuthServiceImpl implements AuthService {
             return false;
         }
         final String userType = String.valueOf(user.user_type).trim().toLowerCase();
-        final List<TenantListDTO> rows = switch (userType) {
-            case "owner" -> findAllTenantsByOwnerId(user.user_id);
-            case "member" -> findAllTenantsByMemberId(user.user_id);
-            default -> findAllTenantsByAdminId(user.user_id);
-        };
+        final List<TenantDTO> rows = findAllTenantsByUserType(userType, user.user_id);
         final LocalDate today = LocalDate.now();
-        for (TenantListDTO row : rows) {
-            if (row == null || row.getId() == null || row.getId() != tenantId) {
+        for (TenantDTO row : rows) {
+            if (row == null || row.getTenant() == null || row.getTenant().getId() == null) {
                 continue;
             }
-            if (row.getExpirationDate() != null && row.getExpirationDate().isBefore(today)) {
+            if (row.getTenant().getId() != tenantId) {
+                continue;
+            }
+            if (row.getTenant().getExpirationDate() != null
+                    && row.getTenant().getExpirationDate().isBefore(today)) {
                 return false;
             }
             return true;
@@ -540,33 +519,22 @@ public class AuthServiceImpl implements AuthService {
         return false;
     }
 
-    private SessionUser rebuildSessionUserWithTenant(SessionUser current, Tenant tenant) {
+    private SessionUser rebuildSessionUserWithTenant(
+            SessionUser current,
+            Tenant tenant,
+            List<FeatureModule> featureModules
+    ) {
         final String userType = String.valueOf(current.user_type).trim().toLowerCase();
-        if ("owner".equals(userType)) {
-            Owner owner = authDao.findOwnerByOwnerCode(current.login_id);
-            if (owner == null) {
-                throw new BusinessException("Unauthorized");
-            }
-            return SessionUser.from(owner, tenant, permissionService);
-        }
-        if ("member".equals(userType)) {
-            User member = authDao.findMemberByAccountId(current.login_id);
-            if (member == null) {
-                throw new BusinessException("Unauthorized");
-            }
-            UserDTO identity = new UserDTO();
-            identity.setUser(member);
-            identity.setTenant(tenant);
-            return SessionUser.from(identity, tenant, permissionService);
-        }
-        Admin admin = authDao.findAdminByLoginId(current.login_id);
-        if (admin == null) {
-            throw new BusinessException("Unauthorized");
-        }
-        UserDTO identity = new UserDTO();
-        identity.setAdmin(admin);
+        UserDTO identity = requireIdentity(userType, current.login_id);
         identity.setTenant(tenant);
-        return SessionUser.from(identity, tenant, permissionService);
+        return SessionUser.from(identity, tenant, featureModules, permissionService);
+    }
+
+    private static <T> T requireFound(T entity, Function<T, ?> key, String notFoundMessage) {
+        if (entity == null || key.apply(entity) == null) {
+            throw new BusinessException(notFoundMessage);
+        }
+        return entity;
     }
 
     private boolean verifyPassword(String raw, String stored) {

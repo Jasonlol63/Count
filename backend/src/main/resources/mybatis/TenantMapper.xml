@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.TenantDao">
+
+    <resultMap id="TenantMap" type="com.eazycount.entity.Tenant">
+        <id property="id" column="id"/>
+        <result property="tenantType" column="tenant_type"
+                typeHandler="com.eazycount.handler.TenantTypeHandler"/>
+        <result property="code" column="code"/>
+        <result property="name" column="name"/>
+        <result property="ownerId" column="owner_id"/>
+        <result property="parentId" column="parent_id"/>
+        <result property="parentGroupCode" column="parent_group_code"/>
+        <result property="expirationDate" column="expiration_date"/>
+        <result property="status" column="status"
+                typeHandler="com.eazycount.handler.TenantStatusHandler"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <resultMap id="FeatureModuleMap" type="com.eazycount.entity.FeatureModule">
+        <id property="id" column="id"/>
+        <result property="code" column="code"/>
+        <result property="name" column="name"/>
+        <result property="sortOrder" column="sort_order"/>
+        <result property="status" column="status"/>
+    </resultMap>
+
+    <resultMap id="TenantDTOMap" type="com.eazycount.dto.TenantDTO">
+        <association property="tenant" javaType="com.eazycount.entity.Tenant">
+            <id property="id" column="tenantId"/>
+            <result property="tenantType" column="tenantType"
+                    typeHandler="com.eazycount.handler.TenantTypeHandler"/>
+            <result property="code" column="tenantCode"/>
+            <result property="name" column="tenantName"/>
+            <result property="ownerId" column="tenantOwnerId"/>
+            <result property="parentId" column="tenantParentId"/>
+            <result property="parentGroupCode" column="tenantParentGroupCode"/>
+            <result property="expirationDate" column="tenantExpirationDate"/>
+            <result property="status" column="tenantStatus"
+                    typeHandler="com.eazycount.handler.TenantStatusHandler"/>
+            <result property="createdBy" column="tenantCreatedBy"/>
+            <result property="createdAt" column="tenantCreatedAt"/>
+            <result property="updatedAt" column="tenantUpdatedAt"/>
+        </association>
+
+        <association property="tenantFeatureModule" javaType="com.eazycount.entity.TenantFeatureModule">
+            <id property="id" column="tenantFeatureModuleId"/>
+            <result property="tenantId" column="tenantFeatureModuleTenantId"/>
+            <result property="moduleId" column="tenantFeatureModuleModuleId"/>
+            <result property="createdAt" column="tenantFeatureModuleCreatedAt"/>
+        </association>
+
+        <association property="featureModule" javaType="com.eazycount.entity.FeatureModule">
+            <id property="id" column="featureModuleId"/>
+            <result property="code" column="featureModuleCode"/>
+            <result property="name" column="featureModuleName"/>
+            <result property="sortOrder" column="featureModuleSortOrder"/>
+            <result property="status" column="featureModuleStatus"/>
+        </association>
+    </resultMap>
+
+    <sql id="TenantColumns">
+        t.id,
+        t.tenant_type,
+        t.code,
+        t.name,
+        t.owner_id,
+        t.parent_id,
+        parent_t.code AS parent_group_code,
+        t.expiration_date,
+        t.status,
+        t.created_by,
+        t.created_at,
+        t.updated_at
+    </sql>
+
+    <sql id="TenantDtoSelectColumns">
+        t.id                   AS tenantId,
+        t.tenant_type          AS tenantType,
+        t.code                 AS tenantCode,
+        t.name                 AS tenantName,
+        t.owner_id             AS tenantOwnerId,
+        t.parent_id            AS tenantParentId,
+        parent_t.code          AS tenantParentGroupCode,
+        t.expiration_date      AS tenantExpirationDate,
+        t.status               AS tenantStatus,
+        t.created_by           AS tenantCreatedBy,
+        t.created_at           AS tenantCreatedAt,
+        t.updated_at           AS tenantUpdatedAt,
+
+        tfm.id                 AS tenantFeatureModuleId,
+        tfm.tenant_id          AS tenantFeatureModuleTenantId,
+        tfm.module_id          AS tenantFeatureModuleModuleId,
+        tfm.created_at         AS tenantFeatureModuleCreatedAt,
+
+        fm.id                  AS featureModuleId,
+        fm.code                AS featureModuleCode,
+        fm.name                AS featureModuleName,
+        fm.sort_order          AS featureModuleSortOrder,
+        fm.status              AS featureModuleStatus
+    </sql>
+
+    <select id="findTenantById" resultMap="TenantMap">
+        SELECT
+        <include refid="TenantColumns"/>
+        FROM tenant t
+        LEFT JOIN tenant parent_t
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
+        WHERE t.id = #{tenantId}
+          AND t.status = 'ACTIVE'
+        LIMIT 1
+    </select>
+
+    <select id="findTenantByCode" resultMap="TenantMap">
+        SELECT
+        <include refid="TenantColumns"/>
+        FROM tenant t
+        LEFT JOIN tenant parent_t
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
+        WHERE UPPER(TRIM(t.code)) = UPPER(TRIM(#{code}))
+          AND t.status = 'ACTIVE'
+        LIMIT 1
+    </select>
+
+    <select id="findTenantFeaturesById" resultMap="TenantDTOMap">
+        SELECT
+        <include refid="TenantDtoSelectColumns"/>
+        FROM tenant t
+        LEFT JOIN tenant parent_t
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
+        LEFT JOIN tenant_feature_module tfm
+            ON tfm.tenant_id = t.id
+        LEFT JOIN feature_module fm
+            ON fm.id = tfm.module_id
+           AND fm.status = 'ACTIVE'
+        WHERE t.id = #{tenantId}
+          AND t.status = 'ACTIVE'
+        ORDER BY fm.sort_order ASC, fm.id ASC, tfm.id ASC
+    </select>
+
+    <select id="findTenantFeaturesByOwnerId" resultMap="TenantDTOMap">
+        SELECT
+        <include refid="TenantDtoSelectColumns"/>
+        FROM tenant t
+        LEFT JOIN tenant parent_t
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
+        LEFT JOIN tenant_feature_module tfm
+            ON tfm.tenant_id = t.id
+        LEFT JOIN feature_module fm
+            ON fm.id = tfm.module_id
+           AND fm.status = 'ACTIVE'
+        WHERE t.owner_id = #{ownerId}
+          AND t.status = 'ACTIVE'
+          AND TRIM(t.code) &lt;&gt; ''
+        ORDER BY
+            CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
+            t.code ASC,
+            t.id ASC,
+            fm.sort_order ASC,
+            fm.id ASC
+    </select>
+
+    <select id="findTenantFeaturesByAdminId" resultMap="TenantDTOMap">
+        SELECT
+        <include refid="TenantDtoSelectColumns"/>
+        FROM tenant t
+        LEFT JOIN tenant parent_t
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
+        LEFT JOIN tenant_feature_module tfm
+            ON tfm.tenant_id = t.id
+        LEFT JOIN feature_module fm
+            ON fm.id = tfm.module_id
+           AND fm.status = 'ACTIVE'
+        INNER JOIN user_tenant_access uta ON uta.tenant_id = t.id
+        INNER JOIN user u ON u.id = uta.user_id
+        WHERE u.id = #{adminId}
+          AND u.status = 'ACTIVE'
+          AND t.status = 'ACTIVE'
+          AND TRIM(t.code) &lt;&gt; ''
+        ORDER BY
+            CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
+            t.code ASC,
+            t.id ASC,
+            fm.sort_order ASC,
+            fm.id ASC
+    </select>
+
+    <select id="findTenantFeaturesByMemberId" resultMap="TenantDTOMap">
+        SELECT
+        <include refid="TenantDtoSelectColumns"/>
+        FROM tenant t
+        LEFT JOIN tenant parent_t
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
+        LEFT JOIN tenant_feature_module tfm
+            ON tfm.tenant_id = t.id
+        LEFT JOIN feature_module fm
+            ON fm.id = tfm.module_id
+           AND fm.status = 'ACTIVE'
+        INNER JOIN account_tenant_access ata ON ata.tenant_id = t.id
+        INNER JOIN account a ON a.id = ata.account_id
+        WHERE a.id = #{memberId}
+          AND a.status = 'ACTIVE'
+          AND t.status = 'ACTIVE'
+          AND TRIM(t.code) &lt;&gt; ''
+        ORDER BY
+            CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
+            t.code ASC,
+            t.id ASC,
+            fm.sort_order ASC,
+            fm.id ASC
+    </select>
+
+    <select id="findActiveTenantFeaturesByLoginCode" resultMap="TenantDTOMap">
+        SELECT
+        <include refid="TenantDtoSelectColumns"/>
+        FROM tenant t
+        LEFT JOIN tenant parent_t
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
+        LEFT JOIN tenant_feature_module tfm
+            ON tfm.tenant_id = t.id
+        LEFT JOIN feature_module fm
+            ON fm.id = tfm.module_id
+           AND fm.status = 'ACTIVE'
+        WHERE t.status = 'ACTIVE'
+          AND (
+            UPPER(TRIM(t.code)) = UPPER(TRIM(#{code}))
+            OR UPPER(TRIM(parent_t.code)) = UPPER(TRIM(#{code}))
+          )
+        ORDER BY
+            CASE
+                WHEN UPPER(TRIM(t.code)) = UPPER(TRIM(#{code}))
+                 AND t.tenant_type = 'GROUP' THEN 0
+                WHEN UPPER(TRIM(t.code)) = UPPER(TRIM(#{code})) THEN 1
+                ELSE 2
+            END,
+            t.id ASC,
+            fm.sort_order ASC,
+            fm.id ASC
+    </select>
+
+    <select id="findActiveFeatureModulesByTenantId" resultMap="FeatureModuleMap">
+        SELECT
+            fm.id,
+            fm.code,
+            fm.name,
+            fm.sort_order,
+            fm.status
+        FROM tenant_feature_module tfm
+        INNER JOIN feature_module fm ON fm.id = tfm.module_id
+        WHERE tfm.tenant_id = #{tenantId}
+          AND fm.status = 'ACTIVE'
+        ORDER BY fm.sort_order ASC, fm.id ASC
+    </select>
+
+    <select id="hasActiveFeatureCode" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+            FROM tenant_feature_module tfm
+            INNER JOIN feature_module fm ON fm.id = tfm.module_id
+            WHERE tfm.tenant_id = #{tenantId}
+              AND fm.status = 'ACTIVE'
+              AND UPPER(TRIM(fm.code)) = UPPER(TRIM(#{code}))
+        )
+    </select>
+
+</mapper>
