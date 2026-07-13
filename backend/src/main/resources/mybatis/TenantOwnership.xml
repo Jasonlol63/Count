@@ -31,7 +31,7 @@
             
             CASE
                 WHEN co.owner_type = 'group' THEN 'GROUP'
-                WHEN co.owner_type = 'user'  THEN u.role
+                WHEN co.owner_type = 'user'  THEN ur.code
                 ELSE 'OWNER'
             END AS role,
             
@@ -42,6 +42,7 @@
         FROM tenant_ownership co
         LEFT JOIN owner o ON co.account_id = o.id AND co.owner_type = 'owner'
         LEFT JOIN user u ON co.account_id = u.id AND co.owner_type = 'user'
+        LEFT JOIN user_role ur ON u.role_id = ur.id
         LEFT JOIN tenant t ON co.tenant_id = t.id
         LEFT JOIN tenant t_partner ON co.partner_tenant_id = t_partner.id AND co.owner_type = 'group'
         WHERE co.tenant_id = #{tenantId}
@@ -77,7 +78,7 @@
             
             CASE
                 WHEN coh.owner_type = 'group' THEN 'GROUP'
-                WHEN coh.owner_type = 'user'  THEN u.role
+                WHEN coh.owner_type = 'user'  THEN ur.code
                 ELSE 'OWNER'
             END AS role,
             
@@ -88,6 +89,7 @@
         FROM tenant_ownership_history coh
         LEFT JOIN owner o ON coh.account_id = o.id AND coh.owner_type = 'owner'
         LEFT JOIN user u ON coh.account_id = u.id AND coh.owner_type = 'user'
+        LEFT JOIN user_role ur ON u.role_id = ur.id
         LEFT JOIN tenant t ON coh.tenant_id = t.id
         LEFT JOIN tenant t_partner ON coh.partner_tenant_id = t_partner.id AND coh.owner_type = 'group'
         WHERE coh.tenant_id = #{tenantId} AND coh.effective_month = #{effectiveMonth}
@@ -126,9 +128,10 @@
               'PARTNERSHIP' AS role,
               0 AS isExternalPartner
           FROM user u
+                   JOIN user_role ur ON u.role_id = ur.id
                    JOIN user_tenant_access uta ON u.id = uta.user_id
           WHERE uta.tenant_id = #{tenantId}
-            AND u.role = 'PARTNERSHIP'
+            AND ur.code = 'PARTNERSHIP'
             AND u.status = 'ACTIVE'
           UNION ALL
           -- ③ 系统中所有的活跃集团 (作为 GROUP 股东选项) --
