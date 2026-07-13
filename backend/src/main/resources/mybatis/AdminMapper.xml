@@ -102,6 +102,107 @@
             LIMIT 1
     </select>
 
+    <select id="findAdminById" resultType="com.eazycount.entity.Admin">
+        SELECT
+            u.id,
+            u.login_id              AS loginId,
+            u.name,
+            u.email,
+            u.password,
+            u.secondary_password    AS secondaryPassword,
+            u.role_id               AS roleId,
+            ur.code                 AS roleCode,
+            u.status,
+            u.created_by            AS createdBy,
+            u.read_only             AS readOnly,
+            u.last_login            AS lastLogin
+        FROM user u
+        INNER JOIN user_role ur ON ur.id = u.role_id
+        WHERE u.id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findDuplicateEmailExcludingId" resultType="com.eazycount.entity.Admin">
+        SELECT id, login_id, name, email, role_id, status
+        FROM user
+        WHERE LOWER(TRIM(email)) = LOWER(TRIM(#{email}))
+          AND id != #{excludeId}
+        LIMIT 1
+    </select>
+
+    <select id="findAdminByUserIdAndTenantId" resultMap="AdminListDTO">
+        SELECT
+            u.id                    AS adminId,
+            u.login_id              AS adminLoginId,
+            u.name                  AS adminName,
+            u.email                 AS adminEmail,
+            u.role_id               AS adminRoleId,
+            ur.code                 AS adminRoleCode,
+            u.status                AS adminStatus,
+            u.created_by            AS adminCreatedBy,
+            u.last_login            AS adminLastLogin,
+
+            uta.id                  AS adminTenantAccessId,
+            uta.user_id             AS adminTenantAccessUserId,
+            uta.tenant_id           AS adminTenantAccessTenantId,
+            uta.account_acl_mode    AS adminTenantAccessAccountAclMode,
+            uta.process_acl_mode    AS adminTenantAccessProcessAclMode,
+            uta.created_at          AS adminTenantAccessCreatedAt,
+            uta.updated_at          AS adminTenantAccessUpdatedAt
+        FROM user u
+        INNER JOIN user_role ur ON ur.id = u.role_id
+        INNER JOIN user_tenant_access uta ON uta.user_id = u.id
+        WHERE u.id = #{userId}
+          AND uta.tenant_id = #{tenantId}
+        LIMIT 1
+    </select>
+
+    <select id="findTenantAccessByUserIdAndTenantId" resultType="com.eazycount.entity.AdminTenantAccess">
+        SELECT
+            id,
+            user_id                 AS userId,
+            tenant_id               AS tenantId,
+            account_acl_mode        AS accountAclMode,
+            process_acl_mode        AS processAclMode,
+            created_at              AS createdAt,
+            updated_at              AS updatedAt
+        FROM user_tenant_access
+        WHERE user_id = #{userId}
+          AND tenant_id = #{tenantId}
+        LIMIT 1
+    </select>
+
+    <select id="findAdminTenantIdsByUserId" resultType="int">
+        SELECT tenant_id
+        FROM user_tenant_access
+        WHERE user_id = #{userId}
+        ORDER BY tenant_id ASC
+    </select>
+
+    <select id="findAccountPermissionsByUserTenantAccessId"
+            resultType="com.eazycount.dto.AdminDTO$AccountPermissionItem">
+        SELECT
+            a.id         AS accountId,
+            a.account_id AS accountCode
+        FROM user_tenant_account_access utaa
+        INNER JOIN account a ON a.id = utaa.account_id
+        WHERE utaa.user_tenant_access_id = #{userTenantAccessId}
+        ORDER BY a.account_id ASC
+    </select>
+
+    <select id="findProcessPermissionsByUserTenantAccessId"
+            resultType="com.eazycount.dto.AdminDTO$ProcessPermissionItem">
+        SELECT
+            p.id     AS processId,
+            p.code   AS processCode,
+            p.remark AS description
+        FROM user_tenant_process_access utpa
+        INNER JOIN process p ON p.id = utpa.process_id
+        WHERE utpa.user_tenant_access_id = #{userTenantAccessId}
+        ORDER BY p.code ASC
+    </select>
+
+    <!-- insert Admin Details Use -->
     <insert id="insertAdmin" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO user (login_id, name, email, password, secondary_password, role_id, status, created_by, read_only)
         VALUES ( #{loginId}, #{name}, #{email}, #{password}, #{secondaryPassword}, #{roleId}, #{status}, #{createdBy}, #{readOnly})
@@ -127,5 +228,66 @@
             (#{item.userTenantAccessId}, #{item.processId})
         </foreach>
     </insert>
+
+    <!-- Update admin -->
+    <update id="updateAdmin">
+        UPDATE user
+        SET name = #{name},
+            email = #{email},
+            password = #{password},
+            secondary_password = #{secondaryPassword},
+            role_id = #{roleId},
+            status = #{status},
+            read_only = #{readOnly}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateAdminTenantAccess">
+        UPDATE user_tenant_access
+        SET account_acl_mode = #{accountAclMode},
+            process_acl_mode = #{processAclMode}
+        WHERE id = #{id}
+    </update>
+
+    <!-- Delete admin (aligned with account delete: tenant access first, then inactive user row) -->
+    <delete id="deleteTenantAccessByUserIdAndTenantId">
+        DELETE FROM user_tenant_access
+        WHERE user_id = #{userId}
+          AND tenant_id = #{tenantId}
+    </delete>
+
+    <delete id="deleteAdminByIdAndStatus">
+        DELETE FROM user
+        WHERE id = #{id}
+          AND status = #{status}
+    </delete>
+
+    <delete id="deleteTenantAccessByUserIdExceptTenants">
+        DELETE FROM user_tenant_access
+        WHERE user_id = #{userId}
+        <if test="tenantIds != null and tenantIds.size() > 0">
+            AND tenant_id NOT IN
+            <foreach collection="tenantIds" item="tenantId" open="(" separator="," close=")">
+                #{tenantId}
+            </foreach>
+        </if>
+    </delete>
+
+    <delete id="deleteAccountAccessByUserTenantAccessId">
+        DELETE FROM user_tenant_account_access
+        WHERE user_tenant_access_id = #{userTenantAccessId}
+    </delete>
+
+    <delete id="deleteProcessAccessByUserTenantAccessId">
+        DELETE FROM user_tenant_process_access
+        WHERE user_tenant_access_id = #{userTenantAccessId}
+    </delete>
+
+    <!-- update status use -->
+    <update id="updateStatusById">
+        UPDATE user
+        SET status = #{status}
+        WHERE id = #{id}
+    </update>
 
 </mapper>

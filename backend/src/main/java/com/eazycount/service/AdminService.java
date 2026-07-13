@@ -1,10 +1,6 @@
 package com.eazycount.service;
 
 import com.eazycount.dto.AdminDTO;
-import com.eazycount.entity.Admin;
-import com.eazycount.entity.AdminTenantAccess;
-import com.eazycount.entity.AdminTenantAccountAccess;
-import com.eazycount.entity.AdminTenantProcessAccess;
 
 import java.util.List;
 
@@ -12,11 +8,15 @@ public interface AdminService {
 
     List<AdminDTO> findAdminsByTenantId(Integer tenantId);
 
-    void insertAdmin(Admin admin);
+    AdminDTO getAdminDetailByUserId(Integer userId, Integer scopeTenantId);
 
-    void insertAdminTenantAccess(AdminTenantAccess access);
+    AdminDTO createAdmin(AdminDTO dto);
 
-    void insertAdminTenantAccountAccessBatch(List<AdminTenantAccountAccess> list);
+    AdminDTO updateAdmin(AdminDTO dto);
 
-    void insertAdminTenantProcessAccessBatch(List<AdminTenantProcessAccess> list);
+    AdminDTO updateOwnerProfile(AdminDTO dto);
+
+    AdminDTO updateStatusById(Integer userId, Integer scopeTenantId);
+
+    void deleteAdminByIdAndStatus(Integer userId, Integer scopeTenantId);
 }
