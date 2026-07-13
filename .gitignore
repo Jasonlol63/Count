@@ -29,37 +29,8 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
-### VS Code / Cursor ###
 .vscode/
-.cursor/
 
-### OS junk ###
-Thumbs.db
-Desktop.ini
-.DS_Store
-
-### Logs & runtime ###
-*.log
-logs/
-hs_err_pid*
-
-### Local secrets & environment ###
-.env
-.env.*
-!.env.example
-**/application-local.yml
-**/application-local.properties
-
-# Machine-specific Spring config (copy from application.yml.example)
-backend/src/main/resources/application.yml
-
-### Internal dev docs (local reference, not for GitHub) ###
-docs/
-
-### Local DB dumps, backups, dev-only seeds ###
 dump.rdb
 /eazycount_import.sql
 /u857194726_count168.sql
-*.sql.dump
-/backend/local-sql/
-backend/src/main/resources/sql/seed_*.sql
