@@ -1,15 +1,15 @@
 package com.eazycount.controller;
 
 import com.eazycount.common.BusinessException;
+import com.eazycount.dto.DomainDTO;
+import com.eazycount.dto.DomainFeeSettingsDTO;
 import com.eazycount.dto.OwnerTenantDTO;
-import com.eazycount.entity.DomainFee;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
 import com.eazycount.service.DomainService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import com.eazycount.dto.DomainDTO;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -114,11 +114,11 @@ public class DomainController {
     @PostMapping("/list-fee")
     public ResponseEntity<Map<String, Object>> listFee() {
         try{
-            List<DomainFee> domainFees = domainService.findAllDomainFee();
+            DomainFeeSettingsDTO settings = domainService.findDomainFeeSettings();
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Domain Fee retrieved successfully",
-                    "data", domainFees));
+                    "data", List.of(settings)));
         } catch (BusinessException e) {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", false);
@@ -129,9 +129,9 @@ public class DomainController {
     }
 
     @PostMapping("/add-fee")
-    public ResponseEntity<Map<String, Object>> Insertfee(@RequestBody DomainFee domainFee) {
+    public ResponseEntity<Map<String, Object>> Insertfee(@RequestBody DomainFeeSettingsDTO settings) {
         try{
-            DomainFee fee = domainService.updateDomainFee(domainFee);
+            DomainFeeSettingsDTO fee = domainService.updateDomainFeeSettings(settings);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Domain Fee updated successfully",
