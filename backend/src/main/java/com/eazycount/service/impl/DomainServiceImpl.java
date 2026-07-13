@@ -3,14 +3,18 @@ package com.eazycount.service.impl;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.DomainDao;
+import com.eazycount.dao.DomainListFeePriceDao;
+import com.eazycount.dao.TenantFeeShareAllocateDao;
 import com.eazycount.dao.UserDao;
 import com.eazycount.dto.DomainDTO;
+import com.eazycount.dto.DomainFeeSettingsDTO;
 import com.eazycount.dto.OwnerTenantDTO;
 import com.eazycount.dto.UserListDTO;
 import com.eazycount.entity.*;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.DomainService;
+import com.eazycount.util.DomainFeeSettingsMapper;
 
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,14 +22,19 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class DomainServiceImpl implements DomainService {
+
+    private static final int DEFAULT_GROUP_MODULE_ID = 1;
 
     @Autowired
     private DomainDao domainDao;
@@ -37,7 +46,195 @@ public class DomainServiceImpl implements DomainService {
     private CurrencyDao currencyDao;
 
     @Autowired
+    private TenantFeeShareAllocateDao feeShareAllocateDao;
+
+    @Autowired
+    private DomainListFeePriceDao domainListFeePriceDao;
+
+    @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Override
+    public List<TenantFeeShareAllocate> findFeeShareByTenantId(Integer tenantId) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null) {
+            throw new BusinessException("Not logged in");
+        }
+
+        if (tenantId == null || tenantId <= 0) {
+            throw new BusinessException("Invalid Tenant ID");
+        }
+
+        List<TenantFeeShareAllocate> rows = feeShareAllocateDao.findFeeShareByTenantId(tenantId);
+        return rows != null ? rows : List.of();
+    }
+
+    @Override
+    @Transactional
+    public void batchInsert(List<TenantFeeShareAllocate> list) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null) {
+            throw new BusinessException("Not logged in");
+        }
+
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+
+        validateAndPrepareFeeShareRows(list);
+        feeShareAllocateDao.batchInsert(list);
+    }
+
+    @Override
+    @Transactional
+    public void deleteByTenantId(Integer tenantId) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null) {
+            throw new BusinessException("Not logged in");
+        }
+
+        if (tenantId == null || tenantId <= 0) {
+            throw new BusinessException("Invalid Tenant ID");
+        }
+
+        feeShareAllocateDao.deleteByTenantId(tenantId);
+    }
+
+    private void validateAndPrepareFeeShareRows(List<TenantFeeShareAllocate> list) {
+        Map<TenantFeeShareAllocate.ShareType, BigDecimal> totalsByShareType = new EnumMap<>(
+                TenantFeeShareAllocate.ShareType.class);
+
+        for (int i = 0; i < list.size(); i++) {
+            TenantFeeShareAllocate row = list.get(i);
+            if (row == null) {
+                throw new BusinessException("Invalid fee share row");
+            }
+
+            if (row.getTenantId() == null || row.getTenantId() <= 0) {
+                throw new BusinessException("Tenant ID is required for fee share row");
+            }
+
+            if (row.getShareType() == null) {
+                throw new BusinessException("Share type is required");
+            }
+
+            if (row.getOwnerType() == null || row.getOwnerType().isBlank()) {
+                row.setOwnerType("owner");
+            } else {
+                row.setOwnerType(row.getOwnerType().trim().toLowerCase());
+            }
+
+            BigDecimal percentage = row.getPercentage() != null ? row.getPercentage() : BigDecimal.ZERO;
+            if (percentage.compareTo(BigDecimal.ZERO) < 0 || percentage.compareTo(new BigDecimal("100")) > 0) {
+                throw new BusinessException("Percentage must be between 0 and 100");
+            }
+            row.setPercentage(percentage);
+
+            if (row.getSortOrder() == null) {
+                row.setSortOrder(i);
+            }
+
+            row.setId(null);
+
+            if ("group".equals(row.getOwnerType())) {
+                if (row.getPartnerTenantId() == null || row.getPartnerTenantId() <= 0) {
+                    throw new BusinessException("Partner tenant is required for group fee share");
+                }
+            } else if (!"owner".equals(row.getOwnerType()) && !"user".equals(row.getOwnerType())) {
+                throw new BusinessException("Owner type must be owner, user, or group");
+            } else if (row.getAccountId() == null || row.getAccountId() <= 0) {
+                throw new BusinessException("Account is required for fee share allocation");
+            }
+
+            totalsByShareType.merge(row.getShareType(), percentage, BigDecimal::add);
+        }
+
+        for (Map.Entry<TenantFeeShareAllocate.ShareType, BigDecimal> entry : totalsByShareType.entrySet()) {
+            if (entry.getValue().compareTo(new BigDecimal("100")) > 0) {
+                throw new BusinessException("Total " + entry.getKey() + " allocation exceeds 100%");
+            }
+        }
+    }
+
+    @Override
+    public List<FeatureModule> findFeatureModulesByTenantId(Integer tenantId) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null) {
+            throw new BusinessException("Not logged in");
+        }
+
+        if (tenantId == null || tenantId <= 0) {
+            throw new BusinessException("Invalid Tenant ID");
+        }
+
+        List<FeatureModule> modules = domainDao.findFeatureModulesByTenantId(tenantId);
+        return modules != null ? modules : List.of();
+    }
+
+    @Override
+    @Transactional
+    public void batchInsertFeatureModules(List<TenantFeatureModule> list) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null) {
+            throw new BusinessException("Not logged in");
+        }
+
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+
+        validateAndPrepareFeatureModuleRows(list);
+        domainDao.batchInsertFeatureModules(list);
+    }
+
+    @Override
+    @Transactional
+    public void deleteFeatureModulesByTenantId(Integer tenantId) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null) {
+            throw new BusinessException("Not logged in");
+        }
+
+        if (tenantId == null || tenantId <= 0) {
+            throw new BusinessException("Invalid Tenant ID");
+        }
+
+        domainDao.deleteFeatureModulesByTenantId(tenantId);
+    }
+
+    private void validateAndPrepareFeatureModuleRows(List<TenantFeatureModule> list) {
+        List<FeatureModule> activeModules = domainDao.findAllActiveFeatureModules();
+        Set<Integer> activeModuleIds = activeModules == null ? Set.of()
+                : activeModules.stream()
+                  .map(FeatureModule::getId)
+                  .filter(id -> id != null && id > 0)
+                  .collect(Collectors.toSet());
+
+        Set<String> seenPairs = new HashSet<>();
+
+        for (TenantFeatureModule row : list) {
+            if (row == null) {
+                throw new BusinessException("Invalid feature module row");
+            }
+            if (row.getTenantId() == null || row.getTenantId() <= 0) {
+                throw new BusinessException("Tenant ID is required for feature module row");
+            }
+            if (row.getModuleId() == null || row.getModuleId() <= 0) {
+                throw new BusinessException("Module ID is required for feature module row");
+            }
+            if (!activeModuleIds.contains(row.getModuleId())) {
+                throw new BusinessException("Invalid or inactive feature module ID: " + row.getModuleId());
+            }
+
+            String pairKey = row.getTenantId() + ":" + row.getModuleId();
+            if (!seenPairs.add(pairKey)) {
+                throw new BusinessException("Duplicate feature module in batch: " + row.getModuleId());
+            }
+
+            row.setId(null);
+            row.setCreatedAt(null);
+        }
+    }
 
     @Override
     public List<OwnerTenantDTO> findAllTenantsByOwner(Integer ownerId) {
@@ -46,7 +243,13 @@ public class DomainServiceImpl implements DomainService {
             throw new BusinessException("Not logged in");
         }
 
-        return domainDao.findAllTenantsByOwner(ownerId);
+        List<OwnerTenantDTO> rows = domainDao.findAllTenantsByOwner(ownerId);
+        if (rows != null) {
+            for (OwnerTenantDTO dto : rows) {
+                loadTenantAssociations(dto.getTenant());
+            }
+        }
+        return rows;
     }
 
     @Override
@@ -113,8 +316,6 @@ public class DomainServiceImpl implements DomainService {
         tenant.setOwnerId(tenant.getOwnerId());
         tenant.setParentId(tenant.getParentId());
         tenant.setExpirationDate(tenant.getExpirationDate());
-        tenant.setFeeShareAllocate(tenant.getFeeShareAllocate());
-        tenant.setCategoryCode(tenant.getCategoryCode());
         try {
             domainDao.insertTenantDetails(tenant);
         } catch (Exception e) {
@@ -216,16 +417,25 @@ public class DomainServiceImpl implements DomainService {
                 throw new BusinessException("Invalid Tenant ID or Owner ID!");
             }
 
-            if (Tenant.TenantType.GROUP.equals(findTenantOwner.getTenantType())) {
-                findTenantOwner.setCategoryCode(java.util.List.of("Games"));
-            } else {
-                findTenantOwner.setCategoryCode(tenant.getCategoryCode());
-            }
-
             findTenantOwner.setCode(tenant.getCode());
             findTenantOwner.setName(tenant.getCode());
             findTenantOwner.setExpirationDate(tenant.getExpirationDate());
             domainDao.updateTenantDetails(findTenantOwner);
+
+            Integer tenantId = findTenantOwner.getId();
+
+            if (tenant.getFeatureModules() != null) {
+                Tenant modulePatch = new Tenant();
+                modulePatch.setId(tenantId);
+                modulePatch.setFeatureModules(tenant.getFeatureModules());
+                replaceFeatureModules(modulePatch);
+            } else if (Tenant.TenantType.GROUP.equals(findTenantOwner.getTenantType())) {
+                ensureDefaultGroupFeatureModule(tenantId);
+            }
+
+            if (tenant.getFeeShareAllocations() != null) {
+                replaceFeeShareAllocations(tenantId, tenant.getFeeShareAllocations());
+            }
         } catch (Exception e) {
             throw new BusinessException("Update Tenant Failed!");
         }
@@ -304,7 +514,6 @@ public class DomainServiceImpl implements DomainService {
             for (Tenant group : domainDTO.getGroups()) {
                 group.setOwnerId(ownerId);
                 group.setTenantType(Tenant.TenantType.GROUP);
-                group.setCategoryCode(java.util.List.of("Games"));
                 group.setName(group.getCode());
                 this.insertTenantDetails(group);
                 groupCodeToIdMap.put(group.getCode(), group.getId());
@@ -411,14 +620,12 @@ public class DomainServiceImpl implements DomainService {
 
                 if (existing != null) {
                     group.setId(existing.getId());
-                    group.setName(existing.getName());
+                    group.setName(group.getCode() != null ? group.getCode() : existing.getName());
                     group.setStatus(existing.getStatus());
-                    group.setFeeShareAllocate(existing.getFeeShareAllocate());
-                    group.setCategoryCode(java.util.List.of("Games"));
+                    group.setExpirationDate(existing.getExpirationDate());
                     this.updateTenantDetails(group);
                     groupCodeToIdMap.put(groupCode, existing.getId());
                 } else {
-                    group.setCategoryCode(java.util.List.of("Games"));
                     group.setName(group.getCode());
                     this.insertTenantDetails(group);
                     if (group.getId() != null) {
@@ -454,10 +661,9 @@ public class DomainServiceImpl implements DomainService {
 
                 if (existing != null) {
                     company.setId(existing.getId());
-                    company.setName(existing.getName());
+                    company.setName(company.getCode() != null ? company.getCode() : existing.getName());
                     company.setStatus(existing.getStatus());
-                    company.setFeeShareAllocate(existing.getFeeShareAllocate());
-                    company.setCategoryCode(existing.getCategoryCode());
+                    company.setExpirationDate(existing.getExpirationDate());
                     this.updateTenantDetails(company);
                 } else {
                     company.setName(company.getCode());
@@ -475,44 +681,109 @@ public class DomainServiceImpl implements DomainService {
     }
 
     @Override
-    public List<DomainFee> findAllDomainFee() {
-        List<DomainFee> list = domainDao.findAllDomainFee();
-
-        if (list == null || list.isEmpty()) {
-            DomainFee defaultFee = new DomainFee();
-            defaultFee.setId(1);
-            defaultFee.setCompanyPrice(new DomainFee.PriceMap());
-            defaultFee.setGroupPrice(new DomainFee.PriceMap());
-            domainDao.insertDomainFee(defaultFee);
-            return List.of(defaultFee);
+    public List<DomainListFeePrice> findAllDomainListFeePrices() {
+        List<DomainListFeePrice> rows = domainListFeePriceDao.findAll();
+        if (rows == null || rows.isEmpty()) {
+            domainListFeePriceDao.insertDefaults();
+            rows = domainListFeePriceDao.findAll();
         }
-
-        return list;
+        return rows != null ? rows : List.of();
     }
 
     @Override
-    public DomainFee updateDomainFee(DomainFee domainFee) {
-        if (domainFee == null) {
+    public List<RenewalPeriod> findAllRenewalPeriods() {
+        List<RenewalPeriod> periods = domainListFeePriceDao.findAllRenewalPeriodsOrdered();
+        return periods != null ? periods : List.of();
+    }
+
+    @Override
+    public DomainFeeSettingsDTO findDomainFeeSettings() {
+        return DomainFeeSettingsMapper.toDto(findAllDomainListFeePrices());
+    }
+
+    @Override
+    @Transactional
+    public DomainFeeSettingsDTO updateDomainFeeSettings(DomainFeeSettingsDTO settings) {
+        if (settings == null) {
             throw new BusinessException("Invalid Domain Fee");
         }
 
-        domainFee.setId(1);
-
-        if (domainFee.getCompanyPrice() == null) {
-            domainFee.setCompanyPrice(new DomainFee.PriceMap());
+        if (settings.getCompanyPeriodPrices() == null) {
+            settings.setCompanyPeriodPrices(new DomainFeeSettingsDTO.PeriodPrices());
+        }
+        if (settings.getGroupPeriodPrices() == null) {
+            settings.setGroupPeriodPrices(new DomainFeeSettingsDTO.PeriodPrices());
         }
 
-        if (domainFee.getGroupPrice() == null) {
-            domainFee.setGroupPrice(new DomainFee.PriceMap());
+        List<DomainListFeePrice> rows = DomainFeeSettingsMapper.toRows(settings);
+        if (!rows.isEmpty()) {
+            domainListFeePriceDao.batchUpsert(rows);
+        }
+        return findDomainFeeSettings();
+    }
+
+    private void loadTenantAssociations(Tenant tenant) {
+        if (tenant == null || tenant.getId() == null) {
+            return;
         }
 
-        List<DomainFee> existing = domainDao.findAllDomainFee();
-        if (existing == null || existing.isEmpty()) {
-            domainDao.insertDomainFee(domainFee);
-        } else {
-            domainDao.updateDomainFee(domainFee);
+        List<TenantFeeShareAllocate> feeShares = feeShareAllocateDao.findFeeShareByTenantId(tenant.getId());
+        tenant.setFeeShareAllocations(feeShares != null ? feeShares : List.of());
+
+        List<FeatureModule> modules = domainDao.findFeatureModulesByTenantId(tenant.getId());
+        tenant.setFeatureModules(modules != null ? modules : List.of());
+    }
+
+    private void replaceFeeShareAllocations(Integer tenantId, List<TenantFeeShareAllocate> allocations) {
+        feeShareAllocateDao.deleteByTenantId(tenantId);
+        if (allocations == null || allocations.isEmpty()) {
+            return;
         }
-        return domainFee;
+
+        for (TenantFeeShareAllocate row : allocations) {
+            row.setTenantId(tenantId);
+        }
+        validateAndPrepareFeeShareRows(allocations);
+        feeShareAllocateDao.batchInsert(allocations);
+    }
+
+    private void replaceFeatureModules(Tenant tenant) {
+        if (tenant == null || tenant.getId() == null) {
+            return;
+        }
+
+        domainDao.deleteFeatureModulesByTenantId(tenant.getId());
+
+        List<TenantFeatureModule> rows = toFeatureModuleRows(tenant.getId(), tenant.getFeatureModules());
+        if (rows.isEmpty()) {
+            return;
+        }
+
+        validateAndPrepareFeatureModuleRows(rows);
+        domainDao.batchInsertFeatureModules(rows);
+    }
+
+    private void ensureDefaultGroupFeatureModule(Integer tenantId) {
+        List<FeatureModule> existing = domainDao.findFeatureModulesByTenantId(tenantId);
+        if (existing != null && !existing.isEmpty()) {
+            return;
+        }
+
+        List<TenantFeatureModule> rows = List.of(
+                new TenantFeatureModule(null, tenantId, DEFAULT_GROUP_MODULE_ID, null));
+        validateAndPrepareFeatureModuleRows(rows);
+        domainDao.batchInsertFeatureModules(rows);
+    }
+
+    private List<TenantFeatureModule> toFeatureModuleRows(Integer tenantId, List<FeatureModule> modules) {
+        if (tenantId == null || tenantId <= 0 || modules == null || modules.isEmpty()) {
+            return List.of();
+        }
+
+        return modules.stream()
+                .filter(module -> module != null && module.getId() != null && module.getId() > 0)
+                .map(module -> new TenantFeatureModule(null, tenantId, module.getId(), null))
+                .collect(Collectors.toList());
     }
 
     private void createAccountTenantInC168(Tenant tenant, Integer c168TenantId) {

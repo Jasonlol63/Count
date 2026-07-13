@@ -12,7 +12,11 @@ DROP TABLE IF EXISTS `account_currency`;
 DROP TABLE IF EXISTS `currency`;
 DROP TABLE IF EXISTS `maintenance_marquee`;
 DROP TABLE IF EXISTS `announcements`;
+DROP TABLE IF EXISTS `domain_list_fee_price`;
+DROP TABLE IF EXISTS `domain_list_fee_settings`;
+DROP TABLE IF EXISTS `renewal_period`;
 DROP TABLE IF EXISTS `tenant_link`;
+DROP TABLE IF EXISTS `tenant_fee_share_allocation`;
 DROP TABLE IF EXISTS `tenant_feature_module`;
 DROP TABLE IF EXISTS `user_role_permission`;
 DROP TABLE IF EXISTS `permission`;
@@ -229,7 +233,6 @@ CREATE TABLE `tenant` (
   `owner_id`          INT UNSIGNED          DEFAULT NULL COMMENT 'FK owner.id',
   `parent_id`         INT UNSIGNED          DEFAULT NULL COMMENT 'company → parent group tenant.id',
   `expiration_date`   DATE                  DEFAULT NULL COMMENT 'Per-tenant expiry (group or company)',
-  `fee_share_allocations` JSON DEFAULT NULL COMMENT 'Sales/CS/IT/Profit share % by account',
   `status`            ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
   `created_by`        VARCHAR(50)           DEFAULT NULL,
   `created_at`        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -256,6 +259,25 @@ CREATE TABLE `tenant_feature_module` (
   CONSTRAINT `fk_tfm_module`
     FOREIGN KEY (`module_id`) REFERENCES `feature_module` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Tenant business modules';
+
+CREATE TABLE `tenant_fee_share_allocation` (
+  `id`                INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`         INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+  `share_type`        ENUM('SALES', 'CS', 'IT', 'PROFIT') NOT NULL COMMENT 'Fee share category',
+  `account_id`        INT UNSIGNED DEFAULT NULL COMMENT 'Shareholder account (owner.id or user.id)',
+  `owner_type`        ENUM('owner', 'user', 'group') NOT NULL DEFAULT 'owner' COMMENT 'Account identity type',
+  `partner_tenant_id` INT UNSIGNED DEFAULT NULL COMMENT 'When owner_type=group, FK partner tenant.id',
+  `percentage`        DECIMAL(7, 4) NOT NULL DEFAULT 0.0000 COMMENT 'Share percentage (e.g. 33.3333)',
+  `sort_order`        INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_tfsa` (`tenant_id`, `share_type`, `account_id`, `owner_type`, `partner_tenant_id`),
+  KEY `idx_tfsa_tenant_id` (`tenant_id`),
+  CONSTRAINT `fk_tfsa_tenant`
+    FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_tfsa_partner_tenant`
+    FOREIGN KEY (`partner_tenant_id`) REFERENCES `tenant` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Per-tenant fee share rows (replaces tenant.fee_share_allocations JSON)';
 
 CREATE TABLE `tenant_link` (
   `id`               INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -362,15 +384,43 @@ CREATE TABLE `password_reset_tac_owner` (
   KEY `idx_prto_expires_at` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Password reset TAC for domain owners';
 
-CREATE TABLE `domain_list_fee_settings` (
-  `id`            TINYINT UNSIGNED NOT NULL PRIMARY KEY DEFAULT 1,
-  `company_price` JSON NOT NULL COMMENT 'Company prices by period',
-  `group_price`   JSON NOT NULL COMMENT 'Group prices by period',
-  `updated_at`    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT `chk_domain_fee_singleton` CHECK (`id` = 1),
-  CONSTRAINT `chk_company_prices_shape` CHECK (json_valid(`company_price`)),
-  CONSTRAINT `chk_group_prices_shape`   CHECK (json_valid(`group_price`))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='C168 global domain list fee / auto-renew price config (singleton)';
+-- Renewal period dictionary (shared by domain_list_fee_price and tenant_auto_renew_request)
+CREATE TABLE `renewal_period` (
+  `code`       VARCHAR(20)  NOT NULL COMMENT 'Machine code e.g. 7days, 1month, 1year',
+  `sort_order` SMALLINT UNSIGNED NOT NULL,
+  `label`      VARCHAR(50)  NOT NULL COMMENT 'Display label',
+  PRIMARY KEY (`code`),
+  KEY `idx_renewal_period_sort` (`sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Auto-renew period dictionary';
+
+INSERT INTO `renewal_period` (`code`, `sort_order`, `label`) VALUES
+  ('7days',   1, '7 Days'),
+  ('1month',  2, '1 Month'),
+  ('3months', 3, '3 Months'),
+  ('6months', 4, '6 Months'),
+  ('1year',   5, '1 Year');
+
+-- One row per tenant_type + period (replaces domain_list_fee_settings JSON columns)
+CREATE TABLE `domain_list_fee_price` (
+  `tenant_type` ENUM('GROUP', 'COMPANY') NOT NULL COMMENT 'GROUP or COMPANY list fee',
+  `period`      VARCHAR(20)  NOT NULL COMMENT 'FK renewal_period.code',
+  `price`       DECIMAL(25, 8) NOT NULL DEFAULT 0 COMMENT 'Price for this period',
+  `updated_at`  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`tenant_type`, `period`),
+  KEY `idx_dlfp_period` (`period`),
+  CONSTRAINT `fk_dlfp_period`
+    FOREIGN KEY (`period`) REFERENCES `renewal_period` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='C168 global domain list fee / auto-renew prices (normalized)';
+
+INSERT INTO `domain_list_fee_price` (`tenant_type`, `period`, `price`)
+SELECT tt.tenant_type, rp.code, 0
+FROM (
+  SELECT 'GROUP' AS tenant_type
+  UNION ALL
+  SELECT 'COMPANY'
+) AS tt
+CROSS JOIN `renewal_period` AS rp;
 
 CREATE TABLE `announcements` (
   `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,

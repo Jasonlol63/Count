@@ -1,19 +1,20 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.dao.AutoRenewDao;
-import com.eazycount.dao.DomainDao;
 import com.eazycount.common.BusinessException;
+import com.eazycount.dao.DomainDao;
 import com.eazycount.dao.TenantDao;
 import com.eazycount.dao.UserDao;
 import com.eazycount.dto.AutoRenewDTO;
+import com.eazycount.dto.DomainFeeSettingsDTO;
 import com.eazycount.dto.UserListDTO;
-import com.eazycount.entity.DomainFee;
 import com.eazycount.entity.Tenant;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.User;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AutoRenewService;
+import com.eazycount.service.DomainService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -30,6 +31,9 @@ public class AutoRenewServiceImpl implements AutoRenewService {
 
     @Autowired
     private AutoRenewDao autoRenewDao;
+
+    @Autowired
+    private DomainService domainService;
 
     @Autowired
     private DomainDao domainDao;
@@ -189,8 +193,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
         }
 
         // 价格配置
-        List<DomainFee> feesList = domainDao.findAllDomainFee();
-        DomainFee feeSettings = (feesList != null && !feesList.isEmpty()) ? feesList.get(0) : null;
+        DomainFeeSettingsDTO feeSettings = domainService.findDomainFeeSettings();
 
         // 计算当前页签的分类统计数和红点徽章统计数
         Map<String, Object> stats = this.getAutoRenewCounts(tenantTypeFilter, WINDOW_DAYS);

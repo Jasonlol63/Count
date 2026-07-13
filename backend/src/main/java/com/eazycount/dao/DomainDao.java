@@ -1,9 +1,7 @@
 package com.eazycount.dao;
 
 import com.eazycount.dto.OwnerTenantDTO;
-import com.eazycount.entity.DomainFee;
-import com.eazycount.entity.Owner;
-import com.eazycount.entity.Tenant;
+import com.eazycount.entity.*;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -37,10 +35,12 @@ public interface DomainDao {
 
     void deleteTenantDetails(Tenant tenant);
 
-    /*List and Update Domain*/
-    List<DomainFee> findAllDomainFee();
+    /* List, Insert, Delete Feature Modules */
+    List<FeatureModule> findFeatureModulesByTenantId(@Param("tenantId") Integer tenantId);
 
-    void insertDomainFee(DomainFee domainFee);
+    List<FeatureModule> findAllActiveFeatureModules();
 
-    void updateDomainFee(DomainFee domainFee);
+    void deleteFeatureModulesByTenantId(@Param("tenantId") Integer tenantId);
+
+    void batchInsertFeatureModules(@Param("list") List<TenantFeatureModule> list);
 }

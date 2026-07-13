@@ -158,8 +158,6 @@
             owner_id AS ownerId,
             parent_id AS parentId,
             expiration_date AS expirationDate,
-            category_code AS categoryCode,
-            fee_share_allocations AS feeShareAllocations,
             status,
             created_by AS createdBy,
             created_at AS createdAt,

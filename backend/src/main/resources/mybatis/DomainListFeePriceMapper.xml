@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.DomainListFeePriceDao">
+
+    <resultMap id="DomainListFeePriceMap" type="com.eazycount.entity.DomainListFeePrice">
+        <result property="tenantType" column="tenant_type" typeHandler="com.eazycount.handler.TenantTypeHandler"/>
+        <result property="period" column="period"/>
+        <result property="price" column="price"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <resultMap id="RenewalPeriodMap" type="com.eazycount.entity.RenewalPeriod">
+        <id property="code" column="code"/>
+        <result property="sortOrder" column="sort_order"/>
+        <result property="label" column="label"/>
+    </resultMap>
+
+    <select id="findAllRenewalPeriodsOrdered" resultMap="RenewalPeriodMap">
+        SELECT code, sort_order, label
+        FROM renewal_period
+        ORDER BY sort_order, code
+    </select>
+
+    <select id="findAll" resultMap="DomainListFeePriceMap">
+        SELECT
+            d.tenant_type,
+            d.period,
+            d.price,
+            d.updated_at
+        FROM domain_list_fee_price d
+        INNER JOIN renewal_period r ON r.code = d.period
+        ORDER BY d.tenant_type, r.sort_order
+    </select>
+
+    <insert id="insertDefaults">
+        INSERT IGNORE INTO domain_list_fee_price (tenant_type, period, price)
+        SELECT tt.tenant_type, rp.code, 0
+        FROM (
+            SELECT 'GROUP' AS tenant_type
+            UNION ALL
+            SELECT 'COMPANY'
+        ) AS tt
+        CROSS JOIN renewal_period AS rp
+    </insert>
+
+    <insert id="batchUpsert">
+        INSERT INTO domain_list_fee_price (tenant_type, period, price, updated_at)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (
+                #{item.tenantType, typeHandler=com.eazycount.handler.TenantTypeHandler},
+                #{item.period},
+                #{item.price},
+                NOW()
+            )
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+            price = VALUES(price),
+            updated_at = NOW()
+    </insert>
+
+</mapper>

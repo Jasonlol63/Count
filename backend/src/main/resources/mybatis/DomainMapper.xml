@@ -20,19 +20,9 @@
         <result property="ownerId" column="owner_id"/>
         <result property="parentId" column="parent_id"/>
         <result property="expirationDate" column="expiration_date"/>
-        <result property="feeShareAllocate" column="fee_share_allocations"/>
-        <result property="categoryCode" column="category_code" typeHandler="com.eazycount.handler.JsonStringListTypeHandler"/>
         <result property="status" column="status"/>
         <result property="createdBy" column="created_by"/>
         <result property="createdAt" column="created_at"/>
-        <result property="updatedAt" column="updated_at"/>
-    </resultMap>
-
-    <!-- Domain Fee Setting -->
-    <resultMap id="DomainFeeMap" type="com.eazycount.entity.DomainFee">
-        <result property="id" column="id"/>
-        <result property="companyPrice" column="company_price" typeHandler="com.eazycount.handler.PriceMapTypeHandler"/>
-        <result property="groupPrice" column="group_price" typeHandler="com.eazycount.handler.PriceMapTypeHandler"/>
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
 
@@ -55,10 +45,16 @@
             <result property="name" column="tenantName"/>
             <result property="parentId" column="tenantParentId"/>
             <result property="expirationDate" column="tenantExpirationDate"/>
-            <result property="feeShareAllocate" column="tenantFeeShareAllocations"/>
-            <result property="categoryCode" column="tenantCategoryCode" typeHandler="com.eazycount.handler.JsonStringListTypeHandler"/>
             <result property="status" column="tenantStatus"/>
         </association>
+    </resultMap>
+
+    <resultMap id="FeatureModuleMap" type="com.eazycount.entity.FeatureModule">
+        <id property="id" column="id"/>
+        <result property="code" column="code"/>
+        <result property="name" column="name"/>
+        <result property="sortOrder" column="sort_order"/>
+        <result property="status" column="status"/>
     </resultMap>
 
     <!-- check duplicate use -->
@@ -102,8 +98,6 @@
         t.name               as tenantName,
         t.parent_id          as tenantParentId,
         t.expiration_date    as tenantExpirationDate,
-        t.fee_share_allocations as tenantFeeShareAllocations,
-        t.category_code      as tenantCategoryCode,
         t.status             as tenantStatus
         from owner o
         left join tenant t on t.owner_id = o.id
@@ -121,8 +115,8 @@
     </insert>
 
     <insert id="insertTenantDetails" useGeneratedKeys="true" keyProperty="id">
-        insert into tenant (tenant_type, code, name, owner_id, parent_id, expiration_date, fee_share_allocations, category_code, status, created_by, created_at)
-        values (#{tenantType}, #{code}, #{name}, #{ownerId}, #{parentId}, #{expirationDate}, #{feeShareAllocate}, #{categoryCode, typeHandler=com.eazycount.handler.JsonStringListTypeHandler} , #{status}, #{createdBy}, NOW())
+        insert into tenant (tenant_type, code, name, owner_id, parent_id, expiration_date, status, created_by, created_at)
+        values (#{tenantType}, #{code}, #{name}, #{ownerId}, #{parentId}, #{expirationDate}, #{status}, #{createdBy}, NOW())
     </insert>
 
     <!-- update details use -->
@@ -139,8 +133,6 @@
             name = #{name},
             parent_id = #{parentId},
             expiration_date = #{expirationDate},
-            fee_share_allocations = #{feeShareAllocate},
-            category_code = #{categoryCode, typeHandler=com.eazycount.handler.JsonStringListTypeHandler},
             status = #{status},
             updated_at = NOW()
         where id = #{id} and owner_id = #{ownerId}
@@ -155,19 +147,39 @@
         delete from owner where id = #{id}
     </delete>
 
-    <!-- Domain Fee Setting -->
-    <select id="findAllDomainFee" resultMap="DomainFeeMap">
-        select * from domain_list_fee_settings
+    <!-- list, insert and delete feature module use -->
+    <select id="findFeatureModulesByTenantId" resultMap="FeatureModuleMap">
+        SELECT
+            fm.id,
+            fm.code,
+            fm.name,
+            fm.sort_order,
+            fm.status
+        FROM tenant_feature_module tfm
+                 INNER JOIN feature_module fm ON fm.id = tfm.module_id
+        WHERE tfm.tenant_id = #{tenantId}
+          AND fm.status = 'ACTIVE'
+        ORDER BY fm.sort_order ASC, fm.id ASC
     </select>
 
-    <insert id="insertDomainFee">
-        insert into domain_list_fee_settings (id, company_price, group_price, updated_at)
-        values (#{id}, #{companyPrice, typeHandler=com.eazycount.handler.PriceMapTypeHandler}, #{groupPrice, typeHandler=com.eazycount.handler.PriceMapTypeHandler}, NOW())
+    <select id="findAllActiveFeatureModules" resultMap="FeatureModuleMap">
+        SELECT id, code, name, sort_order, status
+        FROM feature_module
+        WHERE status = 'ACTIVE'
+        ORDER BY sort_order ASC, id ASC
+    </select>
+
+    <insert id="batchInsertFeatureModules">
+        INSERT IGNORE INTO tenant_feature_module (tenant_id, module_id) VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.tenantId}, #{item.moduleId})
+        </foreach>
     </insert>
 
-    <update id="updateDomainFee">
-        update domain_list_fee_settings
-        set company_price = #{companyPrice, typeHandler=com.eazycount.handler.PriceMapTypeHandler}, group_price = #{groupPrice, typeHandler=com.eazycount.handler.PriceMapTypeHandler}, updated_at = NOW()
-        where id = #{id}
-    </update>
+    <delete id="deleteFeatureModulesByTenantId">
+        DELETE FROM tenant_feature_module WHERE tenant_id = #{tenantId}
+    </delete>
+
+
+
 </mapper>

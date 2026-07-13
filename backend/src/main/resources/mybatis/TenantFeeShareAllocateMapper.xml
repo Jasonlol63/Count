@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.TenantFeeShareAllocateDao">
+
+    <resultMap id="TenantFeeShareAllocateMap" type="com.eazycount.entity.TenantFeeShareAllocate">
+        <id property="id" column="id"/>
+        <result property="tenantId" column="tenant_id"/>
+        <result property="shareType" column="share_type"/>
+        <result property="accountId" column="account_id"/>
+        <result property="ownerType" column="owner_type"/>
+        <result property="partnerTenantId" column="partner_tenant_id"/>
+        <result property="percentage" column="percentage"/>
+        <result property="sortOrder" column="sort_order"/>
+    </resultMap>
+
+    <select id="findFeeShareByTenantId" resultMap="TenantFeeShareAllocateMap">
+        SELECT
+            id,
+            tenant_id,
+            share_type,
+            account_id,
+            owner_type,
+            partner_tenant_id,
+            percentage,
+            sort_order
+        FROM tenant_fee_share_allocation
+        WHERE tenant_id = #{tenantId}
+        ORDER BY share_type, sort_order, id
+    </select>
+
+    <delete id="deleteByTenantId">
+        DELETE FROM tenant_fee_share_allocation
+        WHERE tenant_id = #{tenantId}
+    </delete>
+
+    <insert id="batchInsert">
+        INSERT INTO tenant_fee_share_allocation (
+            tenant_id, share_type, account_id, owner_type, partner_tenant_id, percentage, sort_order
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+            (
+                #{item.tenantId},
+                #{item.shareType},
+                #{item.accountId},
+                #{item.ownerType},
+                #{item.partnerTenantId},
+                #{item.percentage},
+                #{item.sortOrder}
+            )
+        </foreach>
+    </insert>
+
+</mapper>
