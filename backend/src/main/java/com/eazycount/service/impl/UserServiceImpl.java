@@ -452,7 +452,7 @@ public class UserServiceImpl implements UserService {
             int linkedId = (link.getAccountId1() == accountId) ? link.getAccountId2() : link.getAccountId1();
 
             // Bidirectional is always included.
-            // Unidirectional is included only if current account is the source.
+            // Unidirectional is included only if the current account is the source.
             if (link.getLinkType() == UserLink.LinkType.BIDIRECTIONAL ||
                     (link.getLinkType() == UserLink.LinkType.UNIDIRECTIONAL &&
                             link.getSourceAccountId() != null && link.getSourceAccountId() == accountId)) {
