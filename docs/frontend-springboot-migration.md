@@ -4,7 +4,7 @@
 > **后端契约说明**见同目录 [`login-to-business-pages.md`](./login-to-business-pages.md)。  
 > **前端仓库路径**：`../Count-frontend/`（与本 `Count/` 后端仓库并列）。
 
-**最后更新**：2026-07-13
+**最后更新**：2026-07-14（Process delete：单条 Spring + 前端循环，同 Account）
 
 ---
 
@@ -18,6 +18,7 @@
 6. [Spring ↔ 前端字段对照](#6-spring--前端字段对照)
 7. [尚未迁移 / 仍走 PHP](#7-尚未迁移--仍走-php)
 8. [维护约定](#8-维护约定)
+9. [Process List 专项（2026-07-14）](#9-process-list-专项2026-07-14)
 
 ---
 
@@ -61,7 +62,7 @@ res.success === true || res.status === "success"
 | **Announcement / Maintenance** | ✅ 已迁移 | `/api/announcement/*` | `apiUrl.js` 重写（页面仍写 PHP 路径） |
 | **Auto Renew** | ⚠️ 部分 | `/api/auto-renew/*` | 列表经 `apiUrl` 重写；reject 等已直调 Spring |
 | **Ownership** | ✅ API 已迁移 + **数据层已对齐 Spring** | `/api/ownership/*` | `apiUrl.js` 重写 + `ownershipRowHelpers` normalize |
-| **Process** | ⚠️ 部分 | `/api/process/*` | 描述 CRUD 等已 Spring；列表/删除仍混用 PHP |
+| **Process** | ⚠️ 部分 | `/api/process/*` | **列表 + description CRUD + add/update/status/delete + Edit 回填** 已 Spring；form meta（`addprocess_api`）等仍混用 PHP |
 | **Transaction / Report / Data Capture / Bank Process / Member** | ❌ 大多仍 PHP | — | 未系统迁移 |
 
 ---
@@ -180,6 +181,25 @@ res.success === true || res.status === "success"
 - `POST api/ownership/batch-save-ownership`
 - `POST api/ownership/link-partner`
 - `POST api/ownership/update-parent-tenant`
+
+### 4.9 Process List（详见第 9 节）
+
+| 文件 | 改动 |
+|------|------|
+| `pages/processlist/processListApi.js` | `process-list` / description CRUD / **`addProcess`** / **`updateProcess`** / **`updateProcessStatus`** |
+| `pages/processlist/processListHelpers.js` | `normalizeProcessListItem`；`dayUseIdsFromListRow` / `buildEditDescriptionSelection`（Edit 用 list 行） |
+| `pages/processlist/processRoutePrefetch.js` | 列表改走 `fetchProcessListByTenantId` |
+| `pages/processlist/ProcessListPage.jsx` | description CRUD + add/update/status；**`openEdit` 用 `rows` 回填** |
+
+**后端契约同步（本仓）**：
+
+- `ProcessController`：`POST /add-process`、`POST /update-process`、`POST /update-status`、`POST /delete-process`；list/description 均为 RequestBody
+- `ProcessDTO` 扁平写：`id?`（update）、`tenantId, code`（add）、`currencyId, descriptionIds, dayOfWeeks, removeWord, ...`
+- Update 子表：按 `processId` **先删再插** `process_description_link` / `process_day`
+- Status：`update-status` body `{ id, tenantId }`；返回 `Process`，前端读 `data.status`
+- Delete：`delete-process` body `{ id, tenantId }`（单条，同 Account；须 INACTIVE；子表靠 CASCADE）；前端多选循环调用
+- `process.created_by` / `updated_by`：`String` / `VARCHAR(50)` 存 `session.login_id`（admin=`user.login_id`，owner=`owner_code`）
+- DB：`process` + `process_description_link` + `process_day`
 
 ---
 
@@ -303,13 +323,28 @@ Group 候选完全依赖 Spring `GET /api/ownership/available-accounts`。
 | `accountId` | `account_id` |
 | `scopeTenantId` | `scope_tenant_id` |
 
+### 6.4 Process list（`ProcessDTO`）
+
+| Spring JSON | 前端表格行（normalize 后） |
+|-------------|---------------------------|
+| `process.code` | `process_name`（列 Process ID） |
+| `processDescriptions[].name` | 拼成 `description`（列 Description） |
+| `process.status` | `status`（小写 active/inactive） |
+| `currencyCode`（DTO 顶层） | `currency` |
+| `processDays[].dayOfWeek`（1–7） | 拼成 `day_use`（如 `MON,THU`） |
+| `process.id` | `id` |
+| `process.currencyId` | `currency_id` |
+| `process.createdBy` / `updatedBy`（String = `login_id`） | `created_by` / `updated_by`（Edit 直接展示） |
+
+展示字符串 **只在前端** `formatProcessDescriptionLabel` / `formatProcessDayUseLabel` 生成；API 保持结构化 list。
+
 ---
 
 ## 7. 尚未迁移 / 仍走 PHP
 
 以下模块**未**在 `apiUrl.js` 中做 Spring 重写，或仅部分 endpoint 迁移：
 
-- **Process 列表主体**：`api/processes/processlist_api.php`、`delete_processes_api.php` 等
+- **Process 写操作 / 详情**：部分 form meta 仍 PHP；**列表 + description CRUD + add/update/status/delete + Edit 自 list 回填** 已走 Spring / 前端
 - **Transaction / Payment**：`api/transactions/*`
 - **Report**：`api/reports/*`
 - **Data Capture / Summary**：`api/datacapture/*`、`api/summary/*`
@@ -325,11 +360,116 @@ Group 候选完全依赖 Spring `GET /api/ownership/available-accounts`。
 ## 8. 维护约定
 
 1. **每次完成前端 Spring 适配**，更新本文「迁移状态一览」+ 对应模块小节 + **最后更新日期**。
-2. **Ownership 类问题**：先查第 5 节是否又用回 `id`/`G_{code}` 等 PHP 假设。
-3. **新接口**：优先直写 Spring URL；仅在需兼容大量旧调用时才扩展 `apiUrl.js`。
-4. **相关文档**：
+2. **凡改动前端与 Spring Boot 的桥接**（URL、入参、`normalize*`、DTO 字段对照），**必须**写入本文（状态表 + 字段对照 + 模块小节）；不要只改代码不记文档。
+3. **Ownership 类问题**：先查第 5 节是否又用回 `id`/`G_{code}` 等 PHP 假设。
+4. **Process list 展示**：Description / Day Use 字符串在前端拼，勿在 list API 再塞 `GROUP_CONCAT`（编辑仍要数组）。
+5. **新接口**：优先直写 Spring URL；仅在需兼容大量旧调用时才扩展 `apiUrl.js`。
+6. **相关文档**：
    - 后端 API 行为：`login-to-business-pages.md`
    - 前端 ownership 代码索引：`Count-frontend/src/pages/ownership/README.md`
+
+---
+
+## 9. Process List 专项（2026-07-14）
+
+### 9.1 背景
+
+`process` 表去掉 JSON 后，Spring list 返回：
+
+- `process`（含 `code` / `status` / `currencyId` …）
+- `processDescriptions[]`
+- `processDays[]`（`dayOfWeek` 1=Mon…7=Sun）
+- `currencyCode`（join `currency.code`，挂在 DTO 顶层）
+
+表格列需要的是扁平展示串；**转换放在前端**，API 保持结构化。
+
+### 9.2 桥接约定
+
+| 项 | 约定 |
+|----|------|
+| URL | `POST /api/process/process-list`（**无** query；tenantId 不出现在 URL） |
+| Body | JSON 数字，如 `12`（`@RequestBody Integer tenantId`） |
+| `tenantId` | UI `company.id` = `tenant.id` |
+| 成功 | `success === true`（或 `status === "success"`） |
+| normalize | `normalizeProcessListItem` / `normalizeRows` |
+| Description | `formatProcessDescriptionLabel(processDescriptions)` → `description` |
+| Day Use | `formatProcessDayUseLabel(processDays)` → `day_use`（如 `MON,THU`） |
+| Currency | `currencyCode` → `currency` |
+| Process ID | `process.code` → `process_name` |
+
+### 9.3 Description CRUD（前后端对齐）
+
+| 接口 | Body | 前端入口 |
+|------|------|----------|
+| `POST /api/process/list-description` | JSON 数字 `tenantId` | `fetchProcessDescriptionsByTenantId` |
+| `POST /api/process/add-description` | `{ tenantId, name }` | `addProcessDescription` |
+| `POST /api/process/delete-description` | `{ id, tenantId }` | `deleteProcessDescription` |
+
+URL **不**带 `tenant_id` / `id`。`ProcessListPage` 的 `loadFormMeta` / `reloadDescriptions` / add / delete 已改走上述 API。
+
+### 9.5 Process Add（后端，2026-07-14）
+
+| 项 | 约定 |
+|----|------|
+| URL | `POST /api/process/add-process`（RequestBody，无 query） |
+| Body | `{ tenantId, code, currencyId, descriptionIds[], dayOfWeeks[], removeWord, replaceWordFrom, replaceWordTo, remark }` |
+| `dayOfWeeks` | `1=Mon … 7=Sun`，非法值忽略；空数组则不插 `process_day` |
+| `descriptionIds` | 须属于同 `tenantId`；写 `process_description_link` |
+| 查重 | `findProcessCodeByTenantId`（code trim+upper） |
+| 成功 `data` | 回写后的 `ProcessDTO`（含 `id`） |
+| 前端 | `addProcess()` → `ProcessListPage` 新建提交 |
+
+### 9.6 Process Update（前后端，2026-07-14）
+
+| 项 | 约定 |
+|----|------|
+| URL | `POST /api/process/update-process`（RequestBody，无 query） |
+| Body | `{ id, tenantId, currencyId, descriptionIds[], dayOfWeeks[], removeWord, replaceWordFrom, replaceWordTo, remark }` |
+| `code` | **不更新**（编辑只读） |
+| 校验 | body 非空；`id`+`tenantId` 对齐已有行；`currencyId` 属同 tenant |
+| 主表 | `updateProcessDetails`（`WHERE id AND tenant_id`） |
+| 子表 | `delete*ByProcessId` → 非空再 `insert*Batch`（空列表 = 清空） |
+| 前端 | `updateProcess()` → `ProcessListPage` `editMode` 提交（不再走 PHP `update_process`） |
+
+### 9.6.1 Process Edit 打开（前端 list 回填，2026-07-14）
+
+| 项 | 约定 |
+|----|------|
+| 不调用 | PHP `processlist_api.php?action=get_process`；也未做 Spring `get-process` |
+| 数据源 | 当前页已加载的 `rows`（`normalizeProcessListItem` 后）按 `id` 查找 |
+| Description | `process_descriptions` / `description_ids` → `buildEditDescriptionSelection` |
+| Day Use | `process_days[].dayOfWeek`（1–7）→ `dayUseIdsFromListRow`，**不用**展示串 `MON,THU` |
+| 字段 | `remove_word` / `replace_*` / `remark` / `currency_id` / `created_at` / `updated_at` 等直接取自行 |
+| 操作人 | `created_by` / `updated_by` = 库里存的 `login_id`（owner=`owner_code`，admin=`user.login_id`），非 user.id |
+
+### 9.6.2 Process Update Status（前后端，2026-07-14）
+
+| 项 | 约定 |
+|----|------|
+| URL | `POST /api/process/update-status`（RequestBody，无 query） |
+| Body | `{ id, tenantId }`（对齐 `Process` 字段；**无** PHP query） |
+| 行为 | 服务端 `ACTIVE` ↔ `INACTIVE`；校验 `id` 属于 `tenantId` |
+| 成功 `data` | 更新后的 `Process`（读 `data.status`：`ACTIVE`/`INACTIVE`） |
+| 前端 | `updateProcessStatus(tenantId, id)` → 行上 `status` 小写化；**不**用 `newStatus` |
+
+### 9.6.3 Process Delete（前后端，同 Account 单条循环，2026-07-14）
+
+| 项 | 约定 |
+|----|------|
+| URL | `POST /api/process/delete-process`（RequestBody，无 query） |
+| Body | `{ id, tenantId }`（**无** `ids[]`；批量由前端循环） |
+| 校验 | 存在且属 tenant；status **必须** `INACTIVE` |
+| 子表 | 只删 `process`；`process_description_link` / `process_day` / `process_submitted` 靠 **ON DELETE CASCADE** |
+| 前端 | `deleteProcess(tenantId, id)`；多选 `for … of selectedIds` |
+
+### 9.7 已知缺口
+
+| 项 | 说明 |
+|----|------|
+| Add form meta | 部分仍 `addprocess_api.php`（`existingProcesses` / days 等） |
+| List process 服务端 search / showInactive | 暂无；✅ 客户端 `applyProcessFilters`（`fetchGamesProcessListSlice`） |
+| 前端 add/update/status/delete | ✅ `addProcess` / `updateProcess` / `updateProcessStatus` / `deleteProcess` |
+| Edit 打开 | ✅ list 行本地回填（无 get API） |
 
 ---
 
@@ -347,4 +487,8 @@ Count-frontend/src/pages/ownership/shared/ownershipRowHelpers.js   # Ownership S
 Count-frontend/src/pages/ownership/company/useCompanyOwnership.js
 Count-frontend/src/pages/ownership/group/useGroupEarnings.js
 Count-frontend/src/pages/ownership/ownershipRoutePrefetch.js
+Count-frontend/src/pages/processlist/processListApi.js             # process-list + description CRUD + add/update (RequestBody)
+Count-frontend/src/pages/processlist/processListHelpers.js         # desc / dayUse 展示转换
+Count-frontend/src/pages/processlist/processRoutePrefetch.js
+Count-frontend/src/pages/processlist/ProcessListPage.jsx
 ```

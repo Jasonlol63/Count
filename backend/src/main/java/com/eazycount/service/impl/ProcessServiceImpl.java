@@ -1,22 +1,24 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
+import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.ProcessDao;
-import com.eazycount.dto.ProcessDescriptionDTO;
+import com.eazycount.dto.ProcessDTO;
 import com.eazycount.entity.Process;
+import com.eazycount.entity.ProcessDay;
 import com.eazycount.entity.ProcessDescription;
+import com.eazycount.entity.ProcessDescriptionLink;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.ProcessService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 @Service
 public class ProcessServiceImpl implements ProcessService {
@@ -25,155 +27,327 @@ public class ProcessServiceImpl implements ProcessService {
     private ProcessDao processDao;
 
     @Autowired
-    private ObjectMapper objectMapper;
+    private CurrencyDao currencyDao;
 
     @Override
-    public List<ProcessDescriptionDTO> findAllProcessByTenantId(Integer tenantId) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
+    public List<ProcessDTO> findProcessByTenantId(Integer tenantId) {
+        SessionUser sessionUser = SecurityUtils.currentUser();
+        if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
 
-        return processDao.findAllProcessByTenantId(tenantId);
+        if (tenantId == null) {
+            throw new BusinessException("tenant_id is required!");
+        }
+
+        return processDao.findProcessByTenantId(tenantId);
     }
 
     @Override
     @Transactional
-    public void insertProcessDetails(ProcessDescriptionDTO processDescDTO) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
+    public ProcessDTO addNewProcess(ProcessDTO processDTO) {
+        SessionUser sessionUser = SecurityUtils.currentUser();
+        if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        if (processDTO == null) {
+            throw new BusinessException("Request body is required!");
+        }
 
-        String settingsJson = "{}";
-        String descriptionIdsJson = "[]";
-        String scheduleDaysJson = "[]";
+        String code = processDTO.getCode().trim().toUpperCase();
+        processDTO.setCode(code);
 
-        try {
-            Map<String, String> settingsMap = new HashMap<>();
-            settingsMap.put("remove_word",
-                    processDescDTO.getRemoveWord() != null ? processDescDTO.getRemoveWord() : "");
-            settingsMap.put("replace_word_from",
-                    processDescDTO.getReplaceWordFrom() != null ? processDescDTO.getReplaceWordFrom() : "");
-            settingsMap.put("replace_word_to",
-                    processDescDTO.getReplaceWordTo() != null ? processDescDTO.getReplaceWordTo() : "");
-            settingsJson = objectMapper.writeValueAsString(settingsMap);
-            List<Integer> descIds = processDescDTO.getDescriptionIds() != null ? processDescDTO.getDescriptionIds()
-                    : new ArrayList<>();
-            descriptionIdsJson = objectMapper.writeValueAsString(descIds);
+        if (currencyDao.findByIdAndTenantId(processDTO.getCurrencyId(), processDTO.getTenantId()) == null) {
+            throw new BusinessException("Currency not found!");
+        }
 
-            if (processDescDTO.getDayUse() != null && !processDescDTO.getDayUse().trim().isEmpty()) {
-                List<Integer> days = new ArrayList<>();
-                for (String d : processDescDTO.getDayUse().split(",")) {
-                    days.add(Integer.parseInt(d.trim()));
-                }
-                scheduleDaysJson = objectMapper.writeValueAsString(days);
-            }
-        } catch (Exception e) {
-            throw new BusinessException("JSON serialization failed: " + e.getMessage());
+        if (processDao.findProcessCodeByTenantId(processDTO.getTenantId(), code) != null) {
+            throw new BusinessException("Process code already exists!");
         }
 
         Process process = new Process();
-        process.setTenantId(processDescDTO.getTenantId());
-        process.setCode(processDescDTO.getCode().trim());
-        process.setCurrencyId(processDescDTO.getCurrencyId());
-        process.setDescriptionIds(descriptionIdsJson);
-        process.setScheduleDays(scheduleDaysJson);
-        process.setSettings(settingsJson);
-        process.setRemark(processDescDTO.getRemark());
+        process.setTenantId(processDTO.getTenantId());
+        process.setCode(code);
+        process.setCurrencyId(processDTO.getCurrencyId());
+        process.setRemoveWord(processDTO.getRemoveWord());
+        process.setReplaceWordFrom(processDTO.getReplaceWordFrom());
+        process.setReplaceWordTo(processDTO.getReplaceWordTo());
+        process.setRemark(processDTO.getRemark());
         process.setStatus(Process.Status.ACTIVE);
-        process.setCreatedBy(session.user_id);
+        process.setCreatedBy(sessionUser.login_id);
+
         try {
-            processDao.insertProcessDetails(process);
+            processDao.insertNewProcess(process);
         } catch (Exception e) {
-            throw new BusinessException("Failed to insert process: " + processDescDTO.getCode());
+            throw new BusinessException("Insert process failed. Please try again!");
         }
+        if (process.getId() == null) {
+            throw new BusinessException("Insert process failed. Please try again!");
+        }
+
+        List<Integer> descriptionIds = processDTO.getDescriptionIds();
+        if (descriptionIds != null && !descriptionIds.isEmpty()) {
+            List<ProcessDescriptionLink> links = new ArrayList<>();
+            Set<Integer> seenDesc = new LinkedHashSet<>();
+            for (Integer descriptionId : descriptionIds) {
+                if (descriptionId == null || descriptionId <= 0 || !seenDesc.add(descriptionId)) {
+                    continue;
+                }
+                ProcessDescription desc = processDao.findDescriptionByIdAndTenantId(
+                        descriptionId, processDTO.getTenantId());
+                if (desc == null) {
+                    throw new BusinessException("Description not found: " + descriptionId);
+                }
+                links.add(new ProcessDescriptionLink(null, process.getId(), descriptionId, null));
+            }
+            if (!links.isEmpty()) {
+                try {
+                    processDao.insertProcessDescriptionLinkBatch(links);
+                } catch (Exception e) {
+                    throw new BusinessException("Insert process description links failed!");
+                }
+            }
+        }
+
+        List<Integer> dayOfWeeks = processDTO.getDayOfWeeks();
+        if (dayOfWeeks != null && !dayOfWeeks.isEmpty()) {
+            List<ProcessDay> days = new ArrayList<>();
+            Set<Integer> seenDays = new LinkedHashSet<>();
+            for (Integer day : dayOfWeeks) {
+                if (day == null || day < 1 || day > 7 || !seenDays.add(day)) {
+                    continue;
+                }
+                days.add(new ProcessDay(null, process.getId(), day));
+            }
+            if (!days.isEmpty()) {
+                try {
+                    processDao.insertProcessDayBatch(days);
+                } catch (Exception e) {
+                    throw new BusinessException("Insert process days failed!");
+                }
+            }
+        }
+
+        processDTO.setId(process.getId());
+        return processDTO;
     }
 
     @Override
     @Transactional
-    public String updateStatusById(Integer id) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
+    public ProcessDTO updateProcess(ProcessDTO processDTO) {
+        SessionUser sessionUser = SecurityUtils.currentUser();
+        if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        if (processDTO == null) {
+            throw new BusinessException("Request body is required!");
+        }
+        if (processDTO.getTenantId() == null) {
+            throw new BusinessException("Tenant ID not found!");
+        }
+        if (processDTO.getId() == null) {
+            throw new BusinessException("Process ID not found!");
+        }
 
+        Process existed = processDao.findProcessById(processDTO.getId());
+        if (existed == null || !processDTO.getTenantId().equals(existed.getTenantId())) {
+            throw new BusinessException("Process not found!");
+        }
+
+        if (currencyDao.findByIdAndTenantId(processDTO.getCurrencyId(), processDTO.getTenantId()) == null) {
+            throw new BusinessException("Currency not found!");
+        }
+
+        Process process = new Process();
+        process.setId(processDTO.getId());
+        process.setTenantId(processDTO.getTenantId());
+        process.setCurrencyId(processDTO.getCurrencyId());
+        process.setRemoveWord(processDTO.getRemoveWord());
+        process.setReplaceWordFrom(processDTO.getReplaceWordFrom());
+        process.setReplaceWordTo(processDTO.getReplaceWordTo());
+        process.setRemark(processDTO.getRemark());
+        process.setUpdatedBy(sessionUser.login_id);
+        processDao.updateProcessDetails(process);
+
+        Integer processId = processDTO.getId();
+        processDao.deleteProcessDescriptionLinkByProcessId(processId);
+        processDao.deleteProcessDayByProcessId(processId);
+
+        List<Integer> descriptionIds = processDTO.getDescriptionIds();
+        if (descriptionIds != null && !descriptionIds.isEmpty()) {
+            List<ProcessDescriptionLink> links = new ArrayList<>();
+            Set<Integer> seenDesc = new LinkedHashSet<>();
+            for (Integer descriptionId : descriptionIds) {
+                if (descriptionId == null || descriptionId <= 0 || !seenDesc.add(descriptionId)) {
+                    continue;
+                }
+                ProcessDescription desc = processDao.findDescriptionByIdAndTenantId(
+                        descriptionId, processDTO.getTenantId());
+                if (desc == null) {
+                    throw new BusinessException("Description not found: " + descriptionId);
+                }
+                links.add(new ProcessDescriptionLink(null, processId, descriptionId, null));
+            }
+            if (!links.isEmpty()) {
+                try {
+                    processDao.insertProcessDescriptionLinkBatch(links);
+                } catch (Exception e) {
+                    throw new BusinessException("Insert process description links failed!");
+                }
+            }
+        }
+
+        List<Integer> dayOfWeeks = processDTO.getDayOfWeeks();
+        if (dayOfWeeks != null && !dayOfWeeks.isEmpty()) {
+            List<ProcessDay> days = new ArrayList<>();
+            Set<Integer> seenDays = new LinkedHashSet<>();
+            for (Integer day : dayOfWeeks) {
+                if (day == null || day < 1 || day > 7 || !seenDays.add(day)) {
+                    continue;
+                }
+                days.add(new ProcessDay(null, processId, day));
+            }
+            if (!days.isEmpty()) {
+                try {
+                    processDao.insertProcessDayBatch(days);
+                } catch (Exception e) {
+                    throw new BusinessException("Insert process days failed!");
+                }
+            }
+        }
+
+        return processDTO;
+    }
+
+    @Override
+    @Transactional
+    public void deleteProcessById(Integer id, Integer tenantId) {
+        SessionUser sessionUser = SecurityUtils.currentUser();
+        if (sessionUser == null) {
+            throw new BusinessException("Not logged in");
+        }
         if (id == null) {
             throw new BusinessException("id is required!");
         }
-
-        Process process = processDao.findProcessByIdAndTenantId(id, session.tenant_id);
-        if (process == null) {
-            throw new BusinessException("Process not found for id: " + id);
+        if (tenantId == null) {
+            throw new BusinessException("tenant_id is required!");
         }
 
-        Process.Status currentStatus = process.getStatus();
-        Process.Status newStatus = (currentStatus == Process.Status.ACTIVE) ? Process.Status.INACTIVE
+        Process process = processDao.findProcessByIdAndTenantId(id, tenantId);
+        if (process == null) {
+            throw new BusinessException("Process not found!");
+        }
+        if (process.getStatus() != Process.Status.INACTIVE) {
+            throw new BusinessException("Process is not inactive, cannot be deleted!");
+        }
+
+        // Child rows (description_link / day / process_submitted) cascade from process FK.
+        try {
+            processDao.deleteProcessById(id, tenantId);
+        } catch (Exception e) {
+            throw new BusinessException("Failed to delete process");
+        }
+    }
+
+    @Override
+    public Process updateProcessStatus(Integer id, Integer tenantId) {
+        SessionUser sessionUser = SecurityUtils.currentUser();
+        if (sessionUser == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (id == null) {
+            throw new BusinessException("id is required!");
+        }
+        if (tenantId == null) {
+            throw new BusinessException("tenant_id is required!");
+        }
+
+        Process process = processDao.findProcessById(id);
+        if (process == null || !tenantId.equals(process.getTenantId())) {
+            throw new BusinessException("Process not found!");
+        }
+
+        Process.Status current = process.getStatus() != null
+                ? process.getStatus()
+                : Process.Status.ACTIVE;
+        Process.Status newStatus = (current == Process.Status.ACTIVE)
+                ? Process.Status.INACTIVE
                 : Process.Status.ACTIVE;
 
-        try {
-            processDao.updateStatusById(id, String.valueOf(newStatus));
-        } catch (Exception e) {
-            throw new BusinessException("Failed to update status");
-        }
+        processDao.updateProcessStatus(id, tenantId, newStatus);
 
-        return String.valueOf(newStatus).toLowerCase();
+        Process result = processDao.findProcessById(id);
+        if (result == null) {
+            throw new BusinessException("Process not found!");
+        }
+        return result;
     }
 
     @Override
-    public List<ProcessDescription> findAllDescription(Integer tenantId) {
-
+    public List<ProcessDescription> findDescriptionByTenantId(Integer tenantId) {
+        SessionUser sessionUser = SecurityUtils.currentUser();
+        if (sessionUser == null) {
+            throw new BusinessException("Not logged in");
+        }
         if (tenantId == null) {
-            throw new BusinessException("tenantId is required!");
+            throw new BusinessException("tenant_id is required!");
         }
-
-        return processDao.findDescriptionsByTenantId(tenantId);
-
+        return processDao.findDescriptionByTenantId(tenantId);
     }
 
     @Override
-    public void insertNewDescription(ProcessDescription processDescription) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
+    public void insertNewProcessDescription(ProcessDescription processDescription) {
+        SessionUser sessionUser = SecurityUtils.currentUser();
+        if (sessionUser == null) {
             throw new BusinessException("Not logged in");
+        }
+        if (processDescription == null) {
+            throw new BusinessException("Request body is required!");
+        }
+        if (processDescription.getTenantId() == null) {
+            throw new BusinessException("tenant_id is required!");
+        }
+        if (processDescription.getName() == null || processDescription.getName().isBlank()) {
+            throw new BusinessException("Description name is required!");
+        }
+
+        processDescription.setName(processDescription.getName().trim().toUpperCase());
+
+        ProcessDescription existing = processDao.findDescriptionByName(
+                processDescription.getName(), processDescription.getTenantId());
+        if (existing != null) {
+            throw new BusinessException("Description name already exists!");
         }
 
         try {
-
-            ProcessDescription checked = processDao.findDescriptionByNameAndTenantId(processDescription.getTenantId(),
-                    processDescription.getName());
-            if (checked == null) {
-                processDao.insertNewDescription(processDescription);
-            } else {
-                processDescription.setId(checked.getId());
-            }
-
+            processDao.insertNewProcessDescription(processDescription);
         } catch (Exception e) {
-            throw new BusinessException("Failed to insert process description");
+            throw new BusinessException("Insert failed. Please try again!");
         }
-
     }
 
     @Override
-    public void deleteDescriptionById(Integer id, Integer tenantId) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
+    public void deleteProcessDescriptionById(Integer id, Integer tenantId) {
+        SessionUser sessionUser = SecurityUtils.currentUser();
+        if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
-
-        ProcessDescription find = processDao.findDescriptionById(id);
-        if (find == null) {
-            throw new BusinessException("Process description not found!");
+        if (id == null) {
+            throw new BusinessException("id is required!");
+        }
+        if (tenantId == null) {
+            throw new BusinessException("tenant_id is required!");
         }
 
-        if (!find.getTenantId().equals(tenantId)) {
-            throw new BusinessException("Unauthorized operation!");
+        ProcessDescription processDescription = processDao.findDescriptionByIdAndTenantId(id, tenantId);
+        if (processDescription == null) {
+            throw new BusinessException("Description does not exist!");
         }
 
         try {
-            processDao.deleteDescriptionById(id);
+            processDao.deleteProcessDescriptionById(id, tenantId);
         } catch (Exception e) {
-            throw new BusinessException("Failed to delete process description");
+            throw new BusinessException("Delete failed. Please try again!");
         }
     }
 }
