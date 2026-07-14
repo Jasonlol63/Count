@@ -9,20 +9,21 @@ import lombok.ToString;
 import java.time.LocalDateTime;
 
 /**
- * Maps to {@code process_description} — per-tenant description dictionary / templates.
+ * Maps to {@code process_description_link} — process ↔ description many-to-many
+ * (replaces {@code process.description_ids} JSON).
  */
 @Getter
 @Setter
 @ToString
 @NoArgsConstructor
 @AllArgsConstructor
-public class ProcessDescription {
+public class ProcessDescriptionLink {
 
     private Integer id;
 
-    private Integer tenantId;
+    private Integer processId;
 
-    private String name;
+    private Integer descriptionId;
 
     private LocalDateTime createdAt;
 }

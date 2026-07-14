@@ -6,23 +6,20 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 
-import java.time.LocalDateTime;
-
 /**
- * Maps to {@code process_description} — per-tenant description dictionary / templates.
+ * Maps to {@code process_day} — run weekdays for a process
+ * (replaces {@code process.schedule_days} JSON).
  */
 @Getter
 @Setter
 @ToString
 @NoArgsConstructor
 @AllArgsConstructor
-public class ProcessDescription {
+public class ProcessDay {
 
     private Integer id;
 
-    private Integer tenantId;
+    private Integer processId;
 
-    private String name;
-
-    private LocalDateTime createdAt;
+    private Integer dayOfWeek;
 }
