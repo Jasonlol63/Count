@@ -3,11 +3,16 @@
 -- Apply AFTER backend/src/main/resources/schema.sql on dev DB, or standalone
 -- when bootstrapping the login module only.
 DROP TABLE IF EXISTS `submitted_processes`;
+DROP TABLE IF EXISTS `process_submitted`;
 DROP TABLE IF EXISTS `process_day`;
 DROP TABLE IF EXISTS `process_description_link`;
 DROP TABLE IF EXISTS `process`;
 DROP TABLE IF EXISTS `process_description`;
 DROP TABLE IF EXISTS `description`;
+DROP TABLE IF EXISTS `bank_process_share`;
+DROP TABLE IF EXISTS `bank_process`;
+DROP TABLE IF EXISTS `bank_option`;
+DROP TABLE IF EXISTS `bank_country`;
 DROP TABLE IF EXISTS `tenant_ownership_history`;
 DROP TABLE IF EXISTS `tenant_ownership`;
 DROP TABLE IF EXISTS `tenant_auto_renew_request`;
@@ -613,3 +618,106 @@ CREATE TABLE `process_submitted` (
   CONSTRAINT `fk_sp_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`),
   KEY `idx_sp_tenant_capture_date` (`tenant_id`, `capture_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='已提交流程记录表';
+
+-- =============================================================================
+-- Bank Process (tenant model, CRUD only — no Accounting Due)
+-- Reuses: tenant, account, account_tenant_access, currency, account_currency
+-- =============================================================================
+
+CREATE TABLE `bank_country` (
+  `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`  INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+  `code`       VARCHAR(50)  NOT NULL COMMENT 'MYR, SGD, AUD ...',
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_bank_country_tenant_code` (`tenant_id`, `code`),
+  CONSTRAINT `fk_bank_country_tenant`
+    FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Tenant country options for Bank Process dropdown';
+
+CREATE TABLE `bank_option` (
+  `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`  INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+  `country_id` INT UNSIGNED NOT NULL COMMENT 'FK bank_country.id',
+  `name`       VARCHAR(200) NOT NULL COMMENT 'UBANK, RHB, CIMB ...',
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_bank_option_country_name` (`country_id`, `name`),
+  KEY `idx_bank_option_tenant` (`tenant_id`),
+  CONSTRAINT `fk_bank_option_tenant`
+    FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_bank_option_country`
+    FOREIGN KEY (`country_id`) REFERENCES `bank_country` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Banks under a country; cascade when country deleted';
+
+CREATE TABLE `bank_process` (
+  `id`                   INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`            INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+
+  `country_id`           INT UNSIGNED NOT NULL COMMENT 'FK bank_country.id',
+  `bank_option_id`       INT UNSIGNED NOT NULL COMMENT 'FK bank_option.id',
+  `card_owner`           VARCHAR(255) NOT NULL COMMENT 'Card Owner text',
+  `card_owner_type`      VARCHAR(100) NOT NULL COMMENT 'Type e.g. BUSINESS',
+  `day_start`            DATE                  DEFAULT NULL,
+  `day_end`              DATE                  DEFAULT NULL COMMENT 'Optional; UI may derive from day_start+contract',
+  `frequency`            ENUM( 'FIRST_OF_EVERY_MONTH', 'MONTHLY', 'ONCE', 'DAY', 'WEEK') NOT NULL DEFAULT 'FIRST_OF_EVERY_MONTH',
+
+  `supplier_account_id`  INT UNSIGNED          DEFAULT NULL COMMENT 'FK account.id — Supplier',
+  `supplier_price`       DECIMAL(25, 8)        DEFAULT NULL COMMENT 'Supplier price (list Cost / Buy Price)',
+  `customer_account_id`  INT UNSIGNED          DEFAULT NULL COMMENT 'FK account.id — Customer',
+  `customer_price`       DECIMAL(25, 8)        DEFAULT NULL COMMENT 'Customer price (list Price / Sell Price)',
+  `company_account_id`   INT UNSIGNED          DEFAULT NULL COMMENT 'FK account.id — Company',
+  `company_price`        DECIMAL(25, 8)        DEFAULT NULL COMMENT 'Company price (list Profit)',
+
+  `contract`             VARCHAR(20)           DEFAULT NULL COMMENT '1 / 3 / 6 months',
+  `insurance_price`      DECIMAL(25, 8)        DEFAULT NULL COMMENT 'Insurance amount with contract',
+  `sop`                  TEXT                  DEFAULT NULL,
+  `remark`               VARCHAR(500)          DEFAULT NULL,
+
+  `status`               ENUM('WAITING', 'ACTIVE', 'OFFICIAL', 'E_INVOICE', 'INACTIVE', 'BLOCK' ) NOT NULL DEFAULT 'ACTIVE' COMMENT 'WAITING=before day_start (also derivable); ACTIVE/OFFICIAL/E_INVOICE=contract ongoing; INACTIVE/BLOCK=stopped',
+
+  `created_by`           VARCHAR(50)           DEFAULT NULL,
+  `updated_by`           VARCHAR(50)           DEFAULT NULL,
+  `created_at`           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  PRIMARY KEY (`id`),
+  KEY `idx_bp_tenant` (`tenant_id`),
+  KEY `idx_bp_tenant_status` (`tenant_id`, `status`),
+  KEY `idx_bp_tenant_day_start` (`tenant_id`, `day_start`),
+  KEY `idx_bp_country` (`country_id`),
+  KEY `idx_bp_bank_option` (`bank_option_id`),
+  KEY `idx_bp_supplier` (`supplier_account_id`),
+  KEY `idx_bp_customer` (`customer_account_id`),
+
+  CONSTRAINT `fk_bp_tenant`
+    FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_bp_country`
+    FOREIGN KEY (`country_id`) REFERENCES `bank_country` (`id`),
+  CONSTRAINT `fk_bp_bank_option`
+    FOREIGN KEY (`bank_option_id`) REFERENCES `bank_option` (`id`),
+  CONSTRAINT `fk_bp_supplier`
+    FOREIGN KEY (`supplier_account_id`) REFERENCES `account` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_bp_customer`
+    FOREIGN KEY (`customer_account_id`) REFERENCES `account` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_bp_company_account`
+    FOREIGN KEY (`company_account_id`) REFERENCES `account` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Bank Process deal row — list + add/update';
+
+CREATE TABLE `bank_process_share` (
+  `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `bank_process_id` INT UNSIGNED NOT NULL COMMENT 'FK bank_process.id',
+  `account_id`      INT UNSIGNED NOT NULL COMMENT 'FK account.id',
+  `amount`          DECIMAL(25, 8) NOT NULL DEFAULT 0,
+  `sort_order`      INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `idx_bps_process` (`bank_process_id`),
+  CONSTRAINT `fk_bps_process`
+    FOREIGN KEY (`bank_process_id`) REFERENCES `bank_process` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_bps_account`
+    FOREIGN KEY (`account_id`) REFERENCES `account` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Profit sharing lines (replaces profit_sharing TEXT)';
