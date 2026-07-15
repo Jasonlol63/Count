@@ -4,7 +4,7 @@
 > **后端契约说明**见同目录 [`login-to-business-pages.md`](./login-to-business-pages.md)。  
 > **前端仓库路径**：`../Count-frontend/`（与本 `Count/` 后端仓库并列）。
 
-**最后更新**：2026-07-14（Process delete：单条 Spring + 前端循环，同 Account）
+**最后更新**：2026-07-15（Login/permission/logout：前端彻底去掉 PHP session 路径，统一 `utils/auth/authApi.js` → `/auth/*`）
 
 ---
 
@@ -19,6 +19,7 @@
 7. [尚未迁移 / 仍走 PHP](#7-尚未迁移--仍走-php)
 8. [维护约定](#8-维护约定)
 9. [Process List 专项（2026-07-14）](#9-process-list-专项2026-07-14)
+10. [Bank Process List 专项（2026-07-15）](#10-bank-process-list-专项2026-07-15)
 
 ---
 
@@ -53,7 +54,7 @@ res.success === true || res.status === "success"
 
 | 模块 | 状态 | Spring 前缀 | 前端适配方式 |
 |------|------|-------------|--------------|
-| **Auth / Session** | ✅ 已迁移 | `/auth/*` | 直接调 Spring + `sessionTenant.js` |
+| **Auth / Session** | ✅ 已迁移 | `/auth/*` | **直调** `authApi.js`（无 PHP session 路径 / 无 rewrite） |
 | **Tenant 列表** | ✅ 已迁移 | `GET /auth/tenant-accessible` | `tenantAccessibleApi.js` |
 | **Domain** | ✅ 已迁移 | `/api/domain/*` | `domainApi.js` + `domainHelpers.js` |
 | **Admin (User List)** | ✅ 已迁移 | `/api/userlist/*` | `userListApi.js` |
@@ -63,7 +64,8 @@ res.success === true || res.status === "success"
 | **Auto Renew** | ⚠️ 部分 | `/api/auto-renew/*` | 列表经 `apiUrl` 重写；reject 等已直调 Spring |
 | **Ownership** | ✅ API 已迁移 + **数据层已对齐 Spring** | `/api/ownership/*` | `apiUrl.js` 重写 + `ownershipRowHelpers` normalize |
 | **Process** | ⚠️ 部分 | `/api/process/*` | **列表 + description CRUD + add/update/status/delete + Edit 回填** 已 Spring；form meta（`addprocess_api`）等仍混用 PHP |
-| **Transaction / Report / Data Capture / Bank Process / Member** | ❌ 大多仍 PHP | — | 未系统迁移 |
+| **Bank Process** | ⚠️ 部分 | `/api/bank-process/*`、`/api/bank-country-option/*`、`/api/account/*` | **列表 + catalog + Add Process + Add Account** 已 Spring（tenant）；Edit/status/Due 等仍 PHP |
+| **Transaction / Report / Data Capture / Member** | ❌ 大多仍 PHP | — | 未系统迁移 |
 
 ---
 
@@ -71,13 +73,13 @@ res.success === true || res.status === "success"
 
 ### 3.1 `Count-frontend/src/utils/core/apiUrl.js`
 
-**核心**：`buildApiUrl(pathAndQuery)` 将旧 PHP 路径透明映射到 Spring。
+**核心**：非 Auth 模块仍可用 `buildApiUrl()` 把旧 PHP 路径映射到 Spring。  
+**Auth 例外**：login / current-user / logout / switch-tenant / secondary / reset **禁止**走 PHP 路径或 rewrite，统一 `utils/auth/authApi.js` 直写 `/auth/*`。
 
-已配置重写的模块：
+已配置重写的模块（**不含** `api/session/*`）：
 
 | 旧 PHP 路径前缀 | Spring 目标 |
 |----------------|-------------|
-| `api/session/*` | `auth/*` |
 | `api/transactions/get_owner_companies_api.php` | `auth/tenant-accessible` |
 | `api/ownership/get_companies_api.php` | `auth/tenant-accessible` |
 | `api/ownership/get_group_earnings_api.php` | `auth/tenant-accessible` |
@@ -119,9 +121,12 @@ res.success === true || res.status === "success"
 
 | 文件 | 改动 |
 |------|------|
-| `pages/login/LoginPage.jsx` | `auth/login`、`auth/current-user` |
-| `pages/login/SecondaryPasswordPage.jsx` | `auth/verify-*-secondary-password` |
-| `pages/login/resetPassword.js` | `auth/send-reset-tac`、`auth/reset-password` |
+| `pages/login/LoginPage.jsx` | `authApi.loginWithTenant` / `fetchCurrentUser` |
+| `pages/login/SecondaryPasswordPage.jsx` | `verifyOwner/UserSecondaryPassword` + `logoutSession` |
+| `pages/login/resetPassword.js` | `sendResetTacRequest` / `resetPasswordRequest` |
+| `utils/auth/authApi.js` | 统一 Spring `/auth/*`（login / current-user / logout / switch-tenant / secondary / reset） |
+| `components/AuthenticatedLayout.jsx` | `fetchCurrentUser` + `logoutSession` + `permissions` / `tenant_has_*` |
+| `utils/company/companySessionSync.js` | `switchSessionTenant`（不再走 PHP update_company_session） |
 
 ### 4.2 Domain
 
@@ -348,7 +353,7 @@ Group 候选完全依赖 Spring `GET /api/ownership/available-accounts`。
 - **Transaction / Payment**：`api/transactions/*`
 - **Report**：`api/reports/*`
 - **Data Capture / Summary**：`api/datacapture/*`、`api/summary/*`
-- **Bank Process List**：大量 `api/bankprocesses/*`、`api/accounts/*`
+- **Bank Process List**：列表已 Spring；**写操作 / 国家银行选择 / Accounting Due / 账户弹窗**仍混用 `api/bankprocesses/*`、`api/accounts/*` PHP
 - **Member Win/Loss**：`api/member/*`、`api/accounts/account_company_api.php`
 - **Maintenance 业务页**（formula/transaction/payment 等）：仍 PHP
 - **User Access 部分接口**
@@ -471,6 +476,76 @@ URL **不**带 `tenant_id` / `id`。`ProcessListPage` 的 `loadFormMeta` / `relo
 | 前端 add/update/status/delete | ✅ `addProcess` / `updateProcess` / `updateProcessStatus` / `deleteProcess` |
 | Edit 打开 | ✅ list 行本地回填（无 get API） |
 
+### 9.8 Games ↔ Bank Process 页面路由（2026-07-14）
+
+切换公司时需按 **目标 tenant** 的 `has_bank` / `has_game` 决定落在哪张 Process 页。会话仍停在上一公司时，**不能**只用当前 `sessionMe` 的 flag。
+
+| 项 | 约定 |
+|----|------|
+| Bank-only | `has_bank && !has_game`（兼容 `tenant_has_*` / `company_has_*`） |
+| 判定入口 | `resolveTenantIsBankOnly(tenantId, sessionMe)`（`bankProcessHelpers.js`） |
+| 同会话 tenant | 直接读 `sessionMe` hint，不调 API |
+| 跨 tenant | `POST auth/switch-tenant`（`syncCompanySessionApi`），读返回 `data.has_bank` / `data.has_game` |
+| **不再用** | PHP `domain_api.php?action=get_company_permissions`（本地易失败 → 误判为非 Bank） |
+| Games → Bank | `ProcessListPage`：bank-only → `/bank-process-list`（无 tenant query） |
+| Bank → Games | `useBankProcessListPage`：非 bank-only → `/process-list`（无 tenant query） |
+| Tenant 来源 | 会话 `session.tenant_id` + API RequestBody；`stripTenantIdFromUrlSearchParams` 清掉遗留 query |
+| 会话刷新 | switch 成功后 `notifyCompanySessionUpdated(syncJson.data)` |
+
+后端无需为路由单独加接口：`SessionUser` 与 `switch-tenant` 已带 `has_game` / `has_bank`。
+
+---
+
+## 10. Bank Process List 专项（2026-07-15）
+
+### 10.1 背景
+
+`bank_process` 表按 **tenant** 建模（`tenant_id`）。列表 API 用 **RequestBody** 传数字 `tenantId`；**不要**在 API query 或 SPA 地址栏写 `?tenant_id=` / `?company_id=`。UI 上 Group / Company pill 仍可用（展示 `tenant_code`），数字 id = `tenant.id`。
+
+### 10.2 列表桥接
+
+| 项 | 约定 |
+|----|------|
+| API | `POST /api/bank-process/list`，JSON body = 数字 `tenantId`（**无** query） |
+| 前端入口 | `bankProcessListApi.fetchBankProcessListByTenantId` |
+| DTO → 行 | `normalizeBankProcessListItemFromSpring`（`bankProcessHelpers.js`）— **前端适配后端 DTO**，不改 Spring 形状 |
+| Prefetch | `prefetchBankProcessListPayload`（`processRoutePrefetch.js`） |
+| SPA URL | **不写** tenant；`stripTenantIdFromUrlSearchParams` 清掉遗留；tenant 用 session + 页内 state |
+| 内部 state 名 | 变量可仍叫 `companyId`（历史命名）= **tenant 数字 id** |
+| Group / Company pills | `GET /auth/tenant-accessible` → `fetchOwnerCompaniesAll`；`id`/`tenant_id` = 数字 tenant id，`company_id` = `tenant_code`，`group_id` = `parent_tenant_code` |
+| Bank-only 路由 | `resolveTenantIsBankOnly`（session `tenant_has_*` / switch-tenant `has_bank`·`has_game`）；**不再**调 PHP `domain_api` |
+
+### 10.3 Country / Bank catalog（前后端，2026-07-15）
+
+| 项 | 约定 |
+|----|------|
+| List countries | `POST /api/bank-country-option/list-country`，body = 数字 `tenantId` |
+| List banks | `POST /api/bank-country-option/list-bank-option`，body `{ tenantId, countryId }` |
+| Add country | `POST /api/bank-country-option/insert-country`，body `{ tenantId, code }` |
+| Add bank | `POST /api/bank-country-option/insert-bank-option`，body `{ tenantId, countryId, name }` |
+| Delete | `delete-country` / `delete-bank-option`（body 用 `id` + `tenantId`，bank 还要 `countryId`） |
+| 前端入口 | `bankCountryOptionApi.js`；`useBankProcessListPage` 弹窗 Add/Remove/List 已直调 Spring |
+| 对齐方向 | **前端适配 Spring**（`id`/`code`/`name`/`tenantId`）；不再传 `company_id` / FormData PHP |
+| Selected chips | 仅本地 UI 过滤下拉；**无** PHP `save_selected_*`；Spring catalog = tenant 全量 |
+
+### 10.3.1 Bank Process Add（前后端，2026-07-15）
+
+| 项 | 约定 |
+|----|------|
+| API | `POST /api/bank-process/add-bank-process`（JSON body，无 query） |
+| 前端 | `bankProcessListApi.addBankProcess` + `buildAddBankProcessRequest` |
+| 字段 | `tenantId, countryId, bankOptionId, cardOwner, cardOwnerType, frequency, …, shares[]` |
+| Frequency | UI `1st_of_every_month/monthly/once/day/week` → Spring `FIRST_OF_EVERY_MONTH/MONTHLY/ONCE/DAY/WEEK` |
+| 不再走 | `api/processes/addprocess_api.php` |
+
+### 10.4 尚未 Spring（仍 PHP）
+
+- Bank Process **Edit** / Delete / status / remark
+- Accounting Due inbox
+
+**Bank Process → Add Account 弹窗（2026-07-15）**：已走 Spring  
+`POST /api/account/add|update`（`accountListApi`）、`/api/currency/available|add|delete`、`POST /api/account/list` 刷新下拉；`scopeTenantId` = 页内 tenant 数字 id；不再走 `addaccountapi.php` / `account_company_api` / `account_currency_api`。
+
 ---
 
 ## 附录：快速文件索引
@@ -491,4 +566,8 @@ Count-frontend/src/pages/processlist/processListApi.js             # process-lis
 Count-frontend/src/pages/processlist/processListHelpers.js         # desc / dayUse 展示转换
 Count-frontend/src/pages/processlist/processRoutePrefetch.js
 Count-frontend/src/pages/processlist/ProcessListPage.jsx
+Count-frontend/src/pages/bankprocesslist/lib/bankProcessHelpers.js  # resolveTenantIsBankOnly + stripTenantIdFromUrl + list normalize
+Count-frontend/src/pages/bankprocesslist/bankProcessListApi.js      # list + add-bank-process
+Count-frontend/src/pages/bankprocesslist/bankCountryOptionApi.js   # POST /api/bank-country-option/* (tenantId body)
+Count-frontend/src/pages/bankprocesslist/hooks/useBankProcessListPage.js
 ```

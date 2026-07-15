@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.BankCountryOptionDao">
+
+    <resultMap id="BankCountryMap" type="com.eazycount.entity.BankCountry">
+        <id property="id" column="id"/>
+        <result property="tenantId" column="tenant_id"/>
+        <result property="code" column="code"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <resultMap id="BankOptionMap" type="com.eazycount.entity.BankOption">
+        <id property="id" column="id"/>
+        <result property="tenantId" column="tenant_id"/>
+        <result property="countryId" column="country_id"/>
+        <result property="name" column="name"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <!-- Check Duplicate Code And Name for Bank Country and Option -->
+    <select id="findCountryByCode" resultMap="BankCountryMap">
+        SELECT *
+        FROM bank_country
+        WHERE tenant_id = #{tenantId}
+          AND code = #{code}
+        LIMIT 1
+    </select>
+
+    <select id="findBankOptionByName" resultMap="BankOptionMap">
+        SELECT *
+        FROM bank_option
+        WHERE tenant_id = #{tenantId}
+          AND country_id = #{countryId}
+          AND name = #{name}
+        LIMIT 1
+    </select>
+
+    <!-- Find Bank Country and Option Use For Insert/Delete -->
+    <select id="findCountryById" resultMap="BankCountryMap">
+        SELECT *
+        FROM bank_country
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findBankOptionById" resultMap="BankOptionMap">
+        SELECT *
+        FROM bank_option
+        WHERE tenant_id = #{tenantId}
+          AND country_id = #{countryId}
+          AND id = #{id}
+        LIMIT 1
+    </select>
+
+    <!-- List Bank Country and Option Use -->
+    <select id="findAllCountry" resultMap="BankCountryMap">
+        SELECT *
+        FROM bank_country
+        WHERE tenant_id = #{tenantId}
+        ORDER BY code ASC
+    </select>
+
+    <select id="findAllBankInCountry" resultMap="BankOptionMap">
+        SELECT *
+        FROM bank_option
+        WHERE tenant_id = #{tenantId}
+          AND country_id = #{countryId}
+        ORDER BY name ASC
+    </select>
+
+    <!-- Insert Bank Country and Option Use -->
+    <insert id="insertNewCountry" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO bank_country (tenant_id, code, created_at)
+        VALUES (#{tenantId}, #{code}, NOW())
+    </insert>
+
+    <insert id="insertNewBankOption" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO bank_option (tenant_id, country_id, name, created_at)
+        VALUES (#{tenantId}, #{countryId}, #{name}, NOW())
+    </insert>
+
+    <!-- Delete Bank Country and Option Use -->
+    <delete id="deleteCountryByIdAndTenantId">
+        DELETE FROM bank_country
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+    </delete>
+
+    <delete id="deleteBankOptionByIdAndTenantId">
+        DELETE FROM bank_option
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND country_id = #{countryId}
+    </delete>
+
+</mapper>

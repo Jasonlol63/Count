@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.BankProcessDao">
+
+    <resultMap id="BankProcessMap" type="com.eazycount.entity.BankProcess">
+        <id property="id" column="id"/>
+        <result property="tenantId" column="tenant_id"/>
+        <result property="countryId" column="country_id"/>
+        <result property="bankOptionId" column="bank_option_id"/>
+        <result property="cardOwner" column="card_owner"/>
+        <result property="cardOwnerType" column="card_owner_type"/>
+        <result property="dayStart" column="day_start"/>
+        <result property="dayEnd" column="day_end"/>
+        <result property="frequency" column="frequency"/>
+        <result property="supplierAccountId" column="supplier_account_id"/>
+        <result property="supplierPrice" column="supplier_price"/>
+        <result property="customerAccountId" column="customer_account_id"/>
+        <result property="customerPrice" column="customer_price"/>
+        <result property="companyAccountId" column="company_account_id"/>
+        <result property="companyPrice" column="company_price"/>
+        <result property="contract" column="contract"/>
+        <result property="insurancePrice" column="insurance_price"/>
+        <result property="sop" column="sop"/>
+        <result property="remark" column="remark"/>
+        <result property="status" column="status"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="updatedBy" column="updated_by"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <resultMap id="BankProcessListMap" type="com.eazycount.dto.BankProcessDTO">
+        <id property="id" column="bp_id"/>
+        <result property="countryCode" column="country_code"/>
+        <result property="bankName" column="bank_name"/>
+        <result property="supplierAccountCode" column="supplier_account_code"/>
+        <result property="supplierAccountName" column="supplier_account_name"/>
+        <result property="customerAccountCode" column="customer_account_code"/>
+        <result property="customerAccountName" column="customer_account_name"/>
+        <result property="companyAccountCode" column="company_account_code"/>
+        <result property="companyAccountName" column="company_account_name"/>
+
+        <association property="bankProcess" javaType="com.eazycount.entity.BankProcess">
+            <id property="id" column="bp_id"/>
+            <result property="tenantId" column="bp_tenant_id"/>
+            <result property="countryId" column="bp_country_id"/>
+            <result property="bankOptionId" column="bp_bank_option_id"/>
+            <result property="cardOwner" column="bp_card_owner"/>
+            <result property="cardOwnerType" column="bp_card_owner_type"/>
+            <result property="dayStart" column="bp_day_start"/>
+            <result property="dayEnd" column="bp_day_end"/>
+            <result property="frequency" column="bp_frequency"/>
+            <result property="supplierAccountId" column="bp_supplier_account_id"/>
+            <result property="supplierPrice" column="bp_supplier_price"/>
+            <result property="customerAccountId" column="bp_customer_account_id"/>
+            <result property="customerPrice" column="bp_customer_price"/>
+            <result property="companyAccountId" column="bp_company_account_id"/>
+            <result property="companyPrice" column="bp_company_price"/>
+            <result property="contract" column="bp_contract"/>
+            <result property="insurancePrice" column="bp_insurance_price"/>
+            <result property="sop" column="bp_sop"/>
+            <result property="remark" column="bp_remark"/>
+            <result property="status" column="bp_status"/>
+            <result property="createdBy" column="bp_created_by"/>
+            <result property="updatedBy" column="bp_updated_by"/>
+            <result property="createdAt" column="bp_created_at"/>
+            <result property="updatedAt" column="bp_updated_at"/>
+        </association>
+    </resultMap>
+
+    <resultMap id="BankProcessShareMap" type="com.eazycount.entity.BankProcessShare">
+        <id property="id" column="id"/>
+        <result property="bankProcessId" column="bank_process_id"/>
+        <result property="accountId" column="account_id"/>
+        <result property="amount" column="amount"/>
+        <result property="sortOrder" column="sort_order"/>
+    </resultMap>
+
+    <select id="findAllBankProcess" resultMap="BankProcessListMap">
+        SELECT
+            bp.id                   AS bp_id,
+            bp.tenant_id            AS bp_tenant_id,
+            bp.country_id           AS bp_country_id,
+            bp.bank_option_id       AS bp_bank_option_id,
+            bp.card_owner           AS bp_card_owner,
+            bp.card_owner_type      AS bp_card_owner_type,
+            bp.day_start            AS bp_day_start,
+            bp.day_end              AS bp_day_end,
+            bp.frequency            AS bp_frequency,
+            bp.supplier_account_id  AS bp_supplier_account_id,
+            bp.supplier_price       AS bp_supplier_price,
+            bp.customer_account_id  AS bp_customer_account_id,
+            bp.customer_price       AS bp_customer_price,
+            bp.company_account_id   AS bp_company_account_id,
+            bp.company_price        AS bp_company_price,
+            bp.contract             AS bp_contract,
+            bp.insurance_price      AS bp_insurance_price,
+            bp.sop                  AS bp_sop,
+            bp.remark               AS bp_remark,
+            bp.status               AS bp_status,
+            bp.created_by           AS bp_created_by,
+            bp.updated_by           AS bp_updated_by,
+            bp.created_at           AS bp_created_at,
+            bp.updated_at           AS bp_updated_at,
+            bc.code                 AS country_code,
+            bo.name                 AS bank_name,
+            sa.account_id           AS supplier_account_code,
+            sa.name                 AS supplier_account_name,
+            ca.account_id           AS customer_account_code,
+            ca.name                 AS customer_account_name,
+            coa.account_id          AS company_account_code,
+            coa.name                AS company_account_name
+        FROM bank_process bp
+                 LEFT JOIN bank_country bc ON bc.id = bp.country_id
+                 LEFT JOIN bank_option bo ON bo.id = bp.bank_option_id
+                 LEFT JOIN account sa ON sa.id = bp.supplier_account_id
+                 LEFT JOIN account ca ON ca.id = bp.customer_account_id
+                 LEFT JOIN account coa ON coa.id = bp.company_account_id
+        WHERE bp.tenant_id = #{tenantId}
+        ORDER BY bp.day_start DESC, bp.id DESC
+    </select>
+
+    <insert id="insertNewBankProcess" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO bank_process (
+            tenant_id,
+            country_id,
+            bank_option_id,
+            card_owner,
+            card_owner_type,
+            day_start,
+            day_end,
+            frequency,
+            supplier_account_id,
+            supplier_price,
+            customer_account_id,
+            customer_price,
+            company_account_id,
+            company_price,
+            contract,
+            insurance_price,
+            sop,
+            remark,
+            status,
+            created_by,
+            created_at
+        ) VALUES (
+            #{tenantId},
+            #{countryId},
+            #{bankOptionId},
+            #{cardOwner},
+            #{cardOwnerType},
+            #{dayStart},
+            #{dayEnd},
+            #{frequency},
+            #{supplierAccountId},
+            #{supplierPrice},
+            #{customerAccountId},
+            #{customerPrice},
+            #{companyAccountId},
+            #{companyPrice},
+            #{contract},
+            #{insurancePrice},
+            #{sop},
+            #{remark},
+            #{status},
+            #{createdBy},
+            NOW()
+        )
+    </insert>
+
+    <insert id="insertNewBankProcessShare" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO bank_process_share (bank_process_id, account_id, amount, sort_order)
+        VALUES (#{bankProcessId}, #{accountId}, #{amount}, #{sortOrder})
+    </insert>
+
+    <insert id="insertNewBankProcessShareBatch">
+        INSERT INTO bank_process_share (bank_process_id, account_id, amount, sort_order)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.bankProcessId}, #{item.accountId}, #{item.amount}, #{item.sortOrder})
+        </foreach>
+    </insert>
+
+    <select id="findProcessShare" resultMap="BankProcessShareMap">
+        SELECT *
+        FROM bank_process_share
+        WHERE bank_process_id = #{bankProcessId}
+    </select>
+
+</mapper>
