@@ -44,7 +44,7 @@ spring:
     cookie-name: ec_access_token
 
 server:
-  port: 8083
+  port: 8082
 #  address: 255.255.0.0
 
 mybatis:
