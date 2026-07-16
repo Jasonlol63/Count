@@ -3,9 +3,6 @@
 -- Apply AFTER backend/src/main/resources/schema.sql on dev DB, or standalone
 -- when bootstrapping the login module only.
 DROP TABLE IF EXISTS `submitted_processes`;
-DROP TABLE IF EXISTS `process_submitted`;
-DROP TABLE IF EXISTS `process_day`;
-DROP TABLE IF EXISTS `process_description_link`;
 DROP TABLE IF EXISTS `process`;
 DROP TABLE IF EXISTS `process_description`;
 DROP TABLE IF EXISTS `description`;
@@ -548,69 +545,39 @@ CREATE TABLE `tenant_ownership_history` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='租户股权历史月度快照表';
 
 -- =============================================================================
+-- Core Process Tables (Optimized Tenant-Model)
 -- =============================================================================
--- Core Process Tables (Optimized Tenant-Model, no JSON)
--- =============================================================================
-
-CREATE TABLE `process_description` (
-  `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `tenant_id`  INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
-  `name`       VARCHAR(255) NOT NULL COMMENT '描述名称/模板内容',
-  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  CONSTRAINT `fk_process_description_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
-  KEY `idx_description_tenant_id` (`tenant_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='交易描述库/模板表';
 
 CREATE TABLE `process` (
-  `id`                INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `tenant_id`         INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
-  `code`              VARCHAR(50) NOT NULL COMMENT '业务名称',
-  `currency_id`       INT UNSIGNED NOT NULL COMMENT '默认币别 FK currency.id',
-  `remove_word`       TEXT DEFAULT NULL COMMENT '要过滤的词，逗号分隔',
-  `replace_word_from` VARCHAR(255) DEFAULT NULL,
-  `replace_word_to`   VARCHAR(255) DEFAULT NULL,
-  `remark`            TEXT DEFAULT NULL COMMENT '备注',
-  `status`            ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE' COMMENT '状态：ACTIVE=启用, INACTIVE=停用',
-  `created_by`        VARCHAR(50) DEFAULT NULL COMMENT '创建人 login_id（admin=user.login_id；owner=owner_code）',
-  `updated_by`        VARCHAR(50) DEFAULT NULL COMMENT '修改人 login_id（同上）',
-  `created_at`        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`       INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+  `code`            VARCHAR(50) NOT NULL COMMENT '业务名称',
+  `currency_id`     INT UNSIGNED NOT NULL COMMENT '默认币别 FK currency.id',
+  `description_ids` JSON DEFAULT NULL COMMENT '关联的交易描述 ID 列表，例如 [12, 15]',
+  `schedule_days`   JSON DEFAULT NULL COMMENT '运行的星期几，例如 [1, 2, 3, 4, 5, 6, 7]',
+  `settings`        JSON DEFAULT NULL COMMENT '动态规则配置，如过滤词、替换对照表等',
+  `remark`          TEXT DEFAULT NULL COMMENT '备注',
+  `status`          ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE' COMMENT '状态：ACTIVE=启用, INACTIVE=停用',
+  `created_by`      INT UNSIGNED DEFAULT NULL COMMENT '创建人 FK user.id',
+  `updated_by`      INT UNSIGNED DEFAULT NULL COMMENT '修改人 FK user.id',
+  `created_at`      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_process_tenant_code` (`tenant_id`, `code`),
   CONSTRAINT `fk_process_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_process_currency` FOREIGN KEY (`currency_id`) REFERENCES `currency` (`id`),
+  CONSTRAINT `fk_process_created_by` FOREIGN KEY (`created_by`) REFERENCES `user` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_process_updated_by` FOREIGN KEY (`updated_by`) REFERENCES `user` (`id`) ON DELETE SET NULL,
   KEY `idx_process_tenant_id` (`tenant_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='流程配置表（无 JSON：settings/description/days 已拆表拆列）';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='流程配置表';
 
-CREATE TABLE `process_description_link` (
+CREATE TABLE `submitted_processes` (
   `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`      INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
   `process_id`     INT UNSIGNED NOT NULL COMMENT 'FK process.id',
-  `description_id` INT UNSIGNED NOT NULL COMMENT 'FK process_description.id',
+  `user_id`        INT UNSIGNED NOT NULL COMMENT '操作人 FK user.id',
+  `capture_date`   DATE NOT NULL COMMENT '业务捕获日期',
   `created_at`     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_proc_desc` (`process_id`, `description_id`),
-  KEY `idx_pdl_description` (`description_id`),
-  CONSTRAINT `fk_pdl_process` FOREIGN KEY (`process_id`) REFERENCES `process` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_pdl_description` FOREIGN KEY (`description_id`) REFERENCES `process_description` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='process ↔ description 多对多（替代 description_ids JSON）';
-
-CREATE TABLE `process_day` (
-  `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `process_id`  INT UNSIGNED NOT NULL COMMENT 'FK process.id',
-  `day_of_week` TINYINT UNSIGNED NOT NULL COMMENT '1=Mon ... 7=Sun',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_process_day` (`process_id`, `day_of_week`),
-  CONSTRAINT `fk_pd_process` FOREIGN KEY (`process_id`) REFERENCES `process` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='process 运行星期（替代 schedule_days JSON）';
-
-CREATE TABLE `process_submitted` (
-  `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `tenant_id`    INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
-  `process_id`   INT UNSIGNED NOT NULL COMMENT 'FK process.id',
-  `user_id`      INT UNSIGNED NOT NULL COMMENT '操作人 FK user.id',
-  `capture_date` DATE NOT NULL COMMENT '业务捕获日期',
-  `created_at`   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_submitted_tenant_process_date` (`tenant_id`, `process_id`, `capture_date`),
   CONSTRAINT `fk_sp_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
@@ -620,104 +587,14 @@ CREATE TABLE `process_submitted` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='已提交流程记录表';
 
 -- =============================================================================
--- Bank Process (tenant model, CRUD only — no Accounting Due)
--- Reuses: tenant, account, account_tenant_access, currency, account_currency
+-- Description Template Table (Optimized Tenant-Model)
 -- =============================================================================
 
-CREATE TABLE `bank_country` (
-  `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `tenant_id`  INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
-  `code`       VARCHAR(50)  NOT NULL COMMENT 'MYR, SGD, AUD ...',
+CREATE TABLE `process_description` (
+  `id`        INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `tenant_id` INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+  `name`      VARCHAR(255) NOT NULL COMMENT '描述名称/模板内容',
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_bank_country_tenant_code` (`tenant_id`, `code`),
-  CONSTRAINT `fk_bank_country_tenant`
-    FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Tenant country options for Bank Process dropdown';
-
-CREATE TABLE `bank_option` (
-  `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `tenant_id`  INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
-  `country_id` INT UNSIGNED NOT NULL COMMENT 'FK bank_country.id',
-  `name`       VARCHAR(200) NOT NULL COMMENT 'UBANK, RHB, CIMB ...',
-  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_bank_option_country_name` (`country_id`, `name`),
-  KEY `idx_bank_option_tenant` (`tenant_id`),
-  CONSTRAINT `fk_bank_option_tenant`
-    FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_bank_option_country`
-    FOREIGN KEY (`country_id`) REFERENCES `bank_country` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Banks under a country; cascade when country deleted';
-
-CREATE TABLE `bank_process` (
-  `id`                   INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `tenant_id`            INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
-
-  `country_id`           INT UNSIGNED NOT NULL COMMENT 'FK bank_country.id',
-  `bank_option_id`       INT UNSIGNED NOT NULL COMMENT 'FK bank_option.id',
-  `card_owner`           VARCHAR(255) NOT NULL COMMENT 'Card Owner text',
-  `card_owner_type`      VARCHAR(100) NOT NULL COMMENT 'Type e.g. BUSINESS',
-  `day_start`            DATE                  DEFAULT NULL,
-  `day_end`              DATE                  DEFAULT NULL COMMENT 'Optional; UI may derive from day_start+contract',
-  `frequency`            ENUM( 'FIRST_OF_EVERY_MONTH', 'MONTHLY', 'ONCE', 'DAY', 'WEEK') NOT NULL DEFAULT 'FIRST_OF_EVERY_MONTH',
-
-  `supplier_account_id`  INT UNSIGNED          DEFAULT NULL COMMENT 'FK account.id — Supplier',
-  `supplier_price`       DECIMAL(25, 8)        DEFAULT NULL COMMENT 'Supplier price (list Cost / Buy Price)',
-  `customer_account_id`  INT UNSIGNED          DEFAULT NULL COMMENT 'FK account.id — Customer',
-  `customer_price`       DECIMAL(25, 8)        DEFAULT NULL COMMENT 'Customer price (list Price / Sell Price)',
-  `company_account_id`   INT UNSIGNED          DEFAULT NULL COMMENT 'FK account.id — Company',
-  `company_price`        DECIMAL(25, 8)        DEFAULT NULL COMMENT 'Company price (list Profit)',
-
-  `contract`             VARCHAR(20)           DEFAULT NULL COMMENT '1 / 3 / 6 months',
-  `insurance_price`      DECIMAL(25, 8)        DEFAULT NULL COMMENT 'Insurance amount with contract',
-  `sop`                  TEXT                  DEFAULT NULL,
-  `remark`               VARCHAR(500)          DEFAULT NULL,
-
-  `status`               ENUM('WAITING', 'ACTIVE', 'OFFICIAL', 'E_INVOICE', 'INACTIVE', 'BLOCK' ) NOT NULL DEFAULT 'ACTIVE' COMMENT 'WAITING=before day_start (also derivable); ACTIVE/OFFICIAL/E_INVOICE=contract ongoing; INACTIVE/BLOCK=stopped',
-
-  `created_by`           VARCHAR(50)           DEFAULT NULL,
-  `updated_by`           VARCHAR(50)           DEFAULT NULL,
-  `created_at`           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-  PRIMARY KEY (`id`),
-  KEY `idx_bp_tenant` (`tenant_id`),
-  KEY `idx_bp_tenant_status` (`tenant_id`, `status`),
-  KEY `idx_bp_tenant_day_start` (`tenant_id`, `day_start`),
-  KEY `idx_bp_country` (`country_id`),
-  KEY `idx_bp_bank_option` (`bank_option_id`),
-  KEY `idx_bp_supplier` (`supplier_account_id`),
-  KEY `idx_bp_customer` (`customer_account_id`),
-
-  CONSTRAINT `fk_bp_tenant`
-    FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_bp_country`
-    FOREIGN KEY (`country_id`) REFERENCES `bank_country` (`id`),
-  CONSTRAINT `fk_bp_bank_option`
-    FOREIGN KEY (`bank_option_id`) REFERENCES `bank_option` (`id`),
-  CONSTRAINT `fk_bp_supplier`
-    FOREIGN KEY (`supplier_account_id`) REFERENCES `account` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_bp_customer`
-    FOREIGN KEY (`customer_account_id`) REFERENCES `account` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_bp_company_account`
-    FOREIGN KEY (`company_account_id`) REFERENCES `account` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Bank Process deal row — list + add/update';
-
-CREATE TABLE `bank_process_share` (
-  `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `bank_process_id` INT UNSIGNED NOT NULL COMMENT 'FK bank_process.id',
-  `account_id`      INT UNSIGNED NOT NULL COMMENT 'FK account.id',
-  `amount`          DECIMAL(25, 8) NOT NULL DEFAULT 0,
-  `sort_order`      INT UNSIGNED NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`),
-  KEY `idx_bps_process` (`bank_process_id`),
-  CONSTRAINT `fk_bps_process`
-    FOREIGN KEY (`bank_process_id`) REFERENCES `bank_process` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_bps_account`
-    FOREIGN KEY (`account_id`) REFERENCES `account` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Profit sharing lines (replaces profit_sharing TEXT)';
+  CONSTRAINT `fk_process_description_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+  KEY `idx_description_tenant_id` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='交易描述库/模板表';
