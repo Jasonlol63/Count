@@ -9,6 +9,8 @@ DROP TABLE IF EXISTS `process_description_link`;
 DROP TABLE IF EXISTS `process`;
 DROP TABLE IF EXISTS `process_description`;
 DROP TABLE IF EXISTS `description`;
+DROP TABLE IF EXISTS `bank_process_resend_daily_guard`;
+DROP TABLE IF EXISTS `bank_process_accounting_posted`;
 DROP TABLE IF EXISTS `bank_process_share`;
 DROP TABLE IF EXISTS `bank_process`;
 DROP TABLE IF EXISTS `bank_option`;
@@ -620,8 +622,10 @@ CREATE TABLE `process_submitted` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='已提交流程记录表';
 
 -- =============================================================================
--- Bank Process (tenant model, CRUD only — no Accounting Due)
+-- Bank Process (tenant model — list/CRUD + Accounting Due / Resend schema)
 -- Reuses: tenant, account, account_tenant_access, currency, account_currency
+-- Due tables: bank_process_accounting_posted, bank_process_resend_daily_guard
+-- Pending Resend: bank_process.resend_pending (no separate pending table)
 -- =============================================================================
 
 CREATE TABLE `bank_country` (
@@ -675,8 +679,14 @@ CREATE TABLE `bank_process` (
     `insurance_price`      DECIMAL(25, 8)        DEFAULT NULL COMMENT 'Insurance amount with contract',
     `sop`                  TEXT                  DEFAULT NULL,
     `remark`               VARCHAR(500)          DEFAULT NULL,
-
     `status`               ENUM('WAITING', 'ACTIVE', 'OFFICIAL', 'E_INVOICE', 'INACTIVE', 'BLOCK' ) NOT NULL DEFAULT 'ACTIVE' COMMENT 'WAITING=before day_start (also derivable); ACTIVE/OFFICIAL/E_INVOICE=contract ongoing; INACTIVE/BLOCK=stopped',
+
+    -- Resend / Due session state (replaces old bank_process_maintenance_resend_pending table)
+    `resend_pending`             TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=Maintenance/dismiss deleted posted txns; awaiting Resend; cleared on Resend success',
+    `resend_relax_created_floor` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=after Resend, Inbox relaxes created-date floor; cleared on successful post',
+    `resend_schedule_day_start`  DATE DEFAULT NULL COMMENT 'Resend modal day_start; overrides billing calc only while relax=1',
+    `resend_schedule_day_end`    DATE DEFAULT NULL COMMENT 'Resend modal day_end; overrides billing calc only while relax=1',
+    `resend_schedule_frequency`  ENUM('FIRST_OF_EVERY_MONTH', 'MONTHLY', 'ONCE', 'DAY', 'WEEK') DEFAULT NULL COMMENT 'Resend modal frequency; overrides billing calc only while relax=1',
 
     `created_by`           VARCHAR(50)           DEFAULT NULL,
     `updated_by`           VARCHAR(50)           DEFAULT NULL,
@@ -687,6 +697,7 @@ CREATE TABLE `bank_process` (
     KEY `idx_bp_tenant` (`tenant_id`),
     KEY `idx_bp_tenant_status` (`tenant_id`, `status`),
     KEY `idx_bp_tenant_day_start` (`tenant_id`, `day_start`),
+    KEY `idx_bp_tenant_resend_pending` (`tenant_id`, `resend_pending`),
     KEY `idx_bp_country` (`country_id`),
     KEY `idx_bp_bank_option` (`bank_option_id`),
     KEY `idx_bp_supplier` (`supplier_account_id`),
@@ -705,7 +716,7 @@ CREATE TABLE `bank_process` (
     CONSTRAINT `fk_bp_company_account`
         FOREIGN KEY (`company_account_id`) REFERENCES `account` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Bank Process deal row — list + add/update';
+  COMMENT='Bank Process deal row — list + add/update + Resend session flags';
 
 CREATE TABLE `bank_process_share` (
   `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -721,3 +732,46 @@ CREATE TABLE `bank_process_share` (
       FOREIGN KEY (`account_id`) REFERENCES `account` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Profit sharing lines (replaces profit_sharing TEXT)';
+
+-- Accounting Due ledger: which period was posted / skipped / dismissed
+CREATE TABLE `bank_process_accounting_posted` (
+  `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`       INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+  `bank_process_id` INT UNSIGNED NOT NULL COMMENT 'FK bank_process.id',
+  `posted_date`     DATE NOT NULL COMMENT 'Due anchor date (billing due day)',
+  `period_type`     ENUM('MONTHLY', 'FIRST_MONTH', 'PARTIAL_FIRST_MONTH', 'FULL_MONTH', 'DAY_END_TAIL', 'ONCE_ONE_OFF', 'MANUAL_INACTIVE', 'RESEND_CONSOLIDATED', 'WEEKLY','DAILY', 'DAILY_CONSOLIDATED') NOT NULL DEFAULT 'MONTHLY',
+  `outcome`         ENUM('POSTED', 'SKIPPED', 'DISMISSED') NOT NULL DEFAULT 'POSTED' COMMENT 'Replaces old period_type *_skipped suffix',
+  `billing_start`   DATE DEFAULT NULL COMMENT 'Optional period start for display / clear',
+  `billing_end`     DATE DEFAULT NULL COMMENT 'Optional period end for display / clear',
+  `transaction_id`  INT UNSIGNED DEFAULT NULL COMMENT 'Posted txn id when outcome=POSTED (FK later)',
+  `created_at`      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_by`      VARCHAR(50) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_bpap` (`tenant_id`, `bank_process_id`, `posted_date`, `period_type`),
+  KEY `idx_bpap_tenant_date` (`tenant_id`, `posted_date`),
+  KEY `idx_bpap_process` (`bank_process_id`),
+  KEY `idx_bpap_tenant_process` (`tenant_id`, `bank_process_id`),
+  CONSTRAINT `fk_bpap_tenant`
+      FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_bpap_bank_process`
+      FOREIGN KEY (`bank_process_id`) REFERENCES `bank_process` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Bank Process Accounting Due ledger: posted / skipped / dismissed periods';
+
+-- Same-day Resend lock (multiple resend_day_start per process per guard_date allowed)
+CREATE TABLE `bank_process_resend_daily_guard` (
+  `id`               INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`        INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+  `bank_process_id`  INT UNSIGNED NOT NULL COMMENT 'FK bank_process.id',
+  `resend_day_start` DATE NOT NULL COMMENT 'Resend modal anchor day_start',
+  `guard_date`       DATE NOT NULL COMMENT 'Lock calendar day (usually CURDATE())',
+  `created_at`       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_bprdg` (`tenant_id`, `bank_process_id`, `resend_day_start`, `guard_date`),
+  KEY `idx_bprdg_today` (`tenant_id`, `bank_process_id`, `guard_date`),
+  CONSTRAINT `fk_bprdg_tenant`
+      FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_bprdg_bank_process`
+      FOREIGN KEY (`bank_process_id`) REFERENCES `bank_process` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Same-day Resend lock per bank_process + resend_day_start';

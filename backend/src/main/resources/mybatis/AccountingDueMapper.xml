@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.AccountingDueDao">
+
+    <resultMap id="LedgerMap" type="com.eazycount.entity.BkProcessAccountingPosted">
+        <id property="id" column="id"/>
+        <result property="tenantId" column="tenant_id"/>
+        <result property="bankProcessId" column="bank_process_id"/>
+        <result property="postedDate" column="posted_date"/>
+        <result property="periodType" column="period_type"
+                javaType="com.eazycount.entity.BkProcessAccountingPosted$PeriodType" jdbcType="VARCHAR"/>
+        <result property="outcome" column="outcome"
+                javaType="com.eazycount.entity.BkProcessAccountingPosted$Outcome" jdbcType="VARCHAR"/>
+        <result property="billingStart" column="billing_start"/>
+        <result property="billingEnd" column="billing_end"/>
+        <result property="transactionId" column="transaction_id"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="createdBy" column="created_by"/>
+    </resultMap>
+
+    <select id="findSettledPeriods" resultMap="LedgerMap">
+        SELECT
+            id,
+            tenant_id,
+            bank_process_id,
+            posted_date,
+            period_type,
+            outcome,
+            billing_start,
+            billing_end,
+            transaction_id,
+            created_at,
+            created_by
+        FROM bank_process_accounting_posted
+        WHERE tenant_id = #{tenantId}
+          AND posted_date BETWEEN #{fromDate} AND #{toDate}
+    </select>
+
+    <select id="findLedgerEntry" resultMap="LedgerMap">
+        SELECT
+            id,
+            tenant_id,
+            bank_process_id,
+            posted_date,
+            period_type,
+            outcome,
+            billing_start,
+            billing_end,
+            transaction_id,
+            created_at,
+            created_by
+        FROM bank_process_accounting_posted
+        WHERE tenant_id = #{tenantId}
+          AND bank_process_id = #{bankProcessId}
+          AND posted_date = #{postedDate}
+          AND period_type = #{periodType}
+        LIMIT 1
+    </select>
+
+    <insert id="insertLedgerEntry" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO bank_process_accounting_posted (
+            tenant_id,
+            bank_process_id,
+            posted_date,
+            period_type,
+            outcome,
+            billing_start,
+            billing_end,
+            transaction_id,
+            created_by
+        ) VALUES (
+            #{tenantId},
+            #{bankProcessId},
+            #{postedDate},
+            #{periodType},
+            #{outcome},
+            #{billingStart},
+            #{billingEnd},
+            #{transactionId},
+            #{createdBy}
+        )
+    </insert>
+
+    <delete id="deleteSkippedInRange">
+        DELETE FROM bank_process_accounting_posted
+        WHERE tenant_id = #{tenantId}
+          AND posted_date BETWEEN #{fromDate} AND #{toDate}
+          AND outcome = 'SKIPPED'
+    </delete>
+
+</mapper>
