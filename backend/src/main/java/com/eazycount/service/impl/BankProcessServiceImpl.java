@@ -39,7 +39,23 @@ public class BankProcessServiceImpl implements BankProcessService {
         if (tenantId == null) {
             throw new BusinessException("Invalid Tenant Id!");
         }
-        return bankProcessDao.findAllBankProcess(tenantId);
+        List<BankProcessDTO> list = bankProcessDao.findAllBankProcess(tenantId);
+        if (list == null || list.isEmpty()) {
+            return list;
+        }
+        // Ensure root status string is always present for SPA normalize.
+        for (BankProcessDTO dto : list) {
+            if (dto == null) {
+                continue;
+            }
+            if (dto.getStatus() == null || dto.getStatus().isBlank()) {
+                BankProcess bp = dto.getBankProcess();
+                if (bp != null && bp.getStatus() != null) {
+                    dto.setStatus(bp.getStatus().name());
+                }
+            }
+        }
+        return list;
     }
 
     @Override
@@ -59,6 +75,131 @@ public class BankProcessServiceImpl implements BankProcessService {
         bankProcessDTO.setFrequency(bankProcess.getFrequency().name());
         bankProcessDTO.setShares(shares);
         return bankProcessDTO;
+    }
+
+    @Override
+    @Transactional
+    public BankProcessDTO updateBankProcessDetails(BankProcessDTO bankProcessDTO) {
+        SessionUser sessionUser = SecurityUtils.currentUser();
+        if (sessionUser == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (bankProcessDTO == null) {
+            throw new BusinessException("Invalid request");
+        }
+        if (bankProcessDTO.getId() == null) {
+            throw new BusinessException("Invalid bank process ID");
+        }
+        if (bankProcessDTO.getTenantId() == null) {
+            throw new BusinessException("Invalid Tenant Id!");
+        }
+
+        BankProcess updated = updateBankProcess(bankProcessDTO, sessionUser);
+        deleteBankProcessShareBatch(updated.getId());
+        List<BankProcessShare> shares = insertProfitSharing(updated.getId(), bankProcessDTO.getShares());
+
+        bankProcessDTO.setId(updated.getId());
+        bankProcessDTO.setCountryId(updated.getCountryId());
+        bankProcessDTO.setBankOptionId(updated.getBankOptionId());
+        bankProcessDTO.setCardOwner(updated.getCardOwner());
+        bankProcessDTO.setCardOwnerType(updated.getCardOwnerType());
+        bankProcessDTO.setFrequency(updated.getFrequency().name());
+        bankProcessDTO.setShares(shares);
+        return bankProcessDTO;
+    }
+
+    @Override
+    @Transactional
+    public void deleteBankProcess(Integer id, Integer tenantId) {
+        SessionUser sessionUser = SecurityUtils.currentUser();
+        if (sessionUser == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (id == null || id <= 0) {
+            throw new BusinessException("Invalid Bank Process ID!");
+        }
+        if (tenantId == null) {
+            throw new BusinessException("Invalid Tenant Id!");
+        }
+
+        BankProcess existing = bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId);
+        if (existing == null) {
+            throw new BusinessException("Bank process not found!");
+        }
+        if (existing.getStatus() == null || existing.getStatus() != BankProcess.Status.INACTIVE) {
+            throw new BusinessException("Bank process is not inactive, cannot be deleted!");
+        }
+
+        try {
+            deleteBankProcessShareBatch(id);
+            bankProcessDao.deleteBankProcess(id, tenantId);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException("Failed to delete bank process!");
+        }
+    }
+
+    @Override
+    @Transactional
+    public BankProcess updateBankProcessStatus(Integer id, Integer tenantId, BankProcess.Status status) {
+        SessionUser sessionUser = SecurityUtils.currentUser();
+        if (sessionUser == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (id == null) {
+            throw new BusinessException("Invalid Bank Process ID!");
+        }
+        if (tenantId == null) {
+            throw new BusinessException("Invalid Tenant Id!");
+        }
+        if (status == null) {
+            throw new BusinessException("Status is required!");
+        }
+        if (status == BankProcess.Status.WAITING) {
+            throw new BusinessException("Invalid status!");
+        }
+
+        BankProcess existing = bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId);
+        if (existing == null) {
+            throw new BusinessException("Bank process not found!");
+        }
+
+        try {
+            bankProcessDao.updateStatus(id, tenantId, status);
+        } catch (Exception e) {
+            throw new BusinessException("Update bank process status failed. Please try again!");
+        }
+
+        existing.setStatus(status);
+        existing.setUpdatedBy(sessionUser.login_id);
+        return existing;
+    }
+
+    @Override
+    @Transactional
+    public void updateBankProcessRemark(Integer id, Integer tenantId, String remark) {
+        SessionUser sessionUser = SecurityUtils.currentUser();
+        if (sessionUser == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (id == null || id <= 0) {
+            throw new BusinessException("Invalid Bank Process ID!");
+        }
+        if (tenantId == null) {
+            throw new BusinessException("Invalid Tenant Id!");
+        }
+
+        BankProcess existing = bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId);
+        if (existing == null) {
+            throw new BusinessException("Bank process not found!");
+        }
+
+        try {
+            bankProcessDao.updateRemark(id, tenantId, remark, sessionUser.login_id);
+        } catch (Exception e) {
+            throw new BusinessException("Update bank process remark failed. Please try again!");
+        }
     }
 
     private BankProcess insertNewBankProcess(BankProcessDTO bankProcessDTO, SessionUser sessionUser) {
@@ -86,14 +227,7 @@ public class BankProcessServiceImpl implements BankProcessService {
             throw new BusinessException("Card owner type is required!");
         }
 
-        BankProcess.Frequency frequency;
-        try {
-            String freq = bankProcessDTO.getFrequency() != null
-                    ? bankProcessDTO.getFrequency().trim().toUpperCase() : "";
-            frequency = BankProcess.Frequency.valueOf(freq);
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException("Invalid frequency!");
-        }
+        BankProcess.Frequency frequency = parseFrequency(bankProcessDTO.getFrequency());
 
         BankCountry country = bankCountryOptionDao.findCountryById(
                 bankProcessDTO.getTenantId(), bankProcessDTO.getCountryId());
@@ -130,6 +264,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         bankProcess.setRemark(bankProcessDTO.getRemark());
         bankProcess.setStatus(BankProcess.Status.ACTIVE);
         bankProcess.setCreatedBy(sessionUser.login_id);
+        bankProcess.setUpdatedAt(null);
 
         try {
             bankProcessDao.insertNewBankProcess(bankProcess);
@@ -140,6 +275,54 @@ public class BankProcessServiceImpl implements BankProcessService {
             throw new BusinessException("Insert bank process failed. Please try again!");
         }
         return bankProcess;
+    }
+
+    private BankProcess updateBankProcess(BankProcessDTO bankProcessDTO, SessionUser sessionUser) {
+        BankProcess existing = bankProcessDao.findBKProcessByIdAndTenantId(
+                bankProcessDTO.getId(), bankProcessDTO.getTenantId());
+        if (existing == null) {
+            throw new BusinessException("Bank process not found!");
+        }
+
+        BankProcess.Frequency frequency = parseFrequency(bankProcessDTO.getFrequency());
+
+        BankProcess bankProcess = new BankProcess();
+        bankProcess.setId(existing.getId());
+        bankProcess.setTenantId(existing.getTenantId());
+        bankProcess.setCountryId(existing.getCountryId());
+        bankProcess.setBankOptionId(existing.getBankOptionId());
+        bankProcess.setCardOwner(existing.getCardOwner());
+        bankProcess.setCardOwnerType(existing.getCardOwnerType());
+        bankProcess.setDayStart(bankProcessDTO.getDayStart());
+        bankProcess.setDayEnd(bankProcessDTO.getDayEnd());
+        bankProcess.setFrequency(frequency);
+        bankProcess.setSupplierAccountId(bankProcessDTO.getSupplierAccountId());
+        bankProcess.setSupplierPrice(bankProcessDTO.getSupplierPrice());
+        bankProcess.setCustomerAccountId(bankProcessDTO.getCustomerAccountId());
+        bankProcess.setCustomerPrice(bankProcessDTO.getCustomerPrice());
+        bankProcess.setCompanyAccountId(bankProcessDTO.getCompanyAccountId());
+        bankProcess.setCompanyPrice(bankProcessDTO.getCompanyPrice());
+        bankProcess.setContract(bankProcessDTO.getContract());
+        bankProcess.setInsurancePrice(bankProcessDTO.getInsurancePrice());
+        bankProcess.setSop(bankProcessDTO.getSop());
+        bankProcess.setRemark(bankProcessDTO.getRemark());
+        bankProcess.setUpdatedBy(sessionUser.login_id);
+
+        try {
+            bankProcessDao.updateBankProcess(bankProcess);
+        } catch (Exception e) {
+            throw new BusinessException("Update bank process failed. Please try again!");
+        }
+        return bankProcess;
+    }
+
+    private static BankProcess.Frequency parseFrequency(String raw) {
+        try {
+            String freq = raw != null ? raw.trim().toUpperCase() : "";
+            return BankProcess.Frequency.valueOf(freq);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException("Invalid frequency!");
+        }
     }
 
     private List<BankProcessShare> insertProfitSharing(Integer bankProcessId, List<BankProcessShare> shares) {
@@ -183,5 +366,16 @@ public class BankProcessServiceImpl implements BankProcessService {
             throw new BusinessException("Insert bank process share failed. Please try again!");
         }
         return toInsert;
+    }
+
+    private void deleteBankProcessShareBatch(Integer bankProcessId) {
+        if (bankProcessId == null || bankProcessId <= 0) {
+            throw new BusinessException("Bank process ID is required!");
+        }
+        try {
+            bankProcessDao.deleteBankProcessShareBatch(bankProcessId);
+        } catch (Exception e) {
+            throw new BusinessException("Delete bank process share failed. Please try again!");
+        }
     }
 }

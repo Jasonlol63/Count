@@ -64,7 +64,7 @@ res.success === true || res.status === "success"
 | **Auto Renew** | ⚠️ 部分 | `/api/auto-renew/*` | 列表经 `apiUrl` 重写；reject 等已直调 Spring |
 | **Ownership** | ✅ API 已迁移 + **数据层已对齐 Spring** | `/api/ownership/*` | `apiUrl.js` 重写 + `ownershipRowHelpers` normalize |
 | **Process** | ⚠️ 部分 | `/api/process/*` | **列表 + description CRUD + add/update/status/delete + Edit 回填** 已 Spring；form meta（`addprocess_api`）等仍混用 PHP |
-| **Bank Process** | ⚠️ 部分 | `/api/bank-process/*`、`/api/bank-country-option/*`、`/api/account/*` | **列表 + catalog + Add Process + Add Account** 已 Spring（tenant）；Edit/status/Due 等仍 PHP |
+| **Bank Process** | ⚠️ 部分 | `/api/bank-process/*`、`/api/bank-country-option/*`、`/api/account/*` | **列表（含 shares）+ catalog + Add/Update/Status/Delete/Remark + Edit list 回填** 已 Spring；Due 仍 PHP |
 | **Transaction / Report / Data Capture / Member** | ❌ 大多仍 PHP | — | 未系统迁移 |
 
 ---
@@ -508,7 +508,9 @@ URL **不**带 `tenant_id` / `id`。`ProcessListPage` 的 `loadFormMeta` / `relo
 |----|------|
 | API | `POST /api/bank-process/list`，JSON body = 数字 `tenantId`（**无** query） |
 | 前端入口 | `bankProcessListApi.fetchBankProcessListByTenantId` |
-| DTO → 行 | `normalizeBankProcessListItemFromSpring`（`bankProcessHelpers.js`）— **前端适配后端 DTO**，不改 Spring 形状 |
+| DTO → 行 | `normalizeBankProcessListItemFromSpring` — 优先读 DTO 根字段 `status`（String），再读 `bankProcess.status` |
+| Shares | list 经 MyBatis `<collection select="findSharesByBankProcessId">` 嵌套加载；normalize 写入行上 `shares[]`（供 Edit 回填） |
+| Status 列表 | DTO 根 `status` 用 `bp_status` 映射为 **String**（避免 nested enum TypeHandler 失败 → null → UI 误显示 ACTIVE） |
 | Prefetch | `prefetchBankProcessListPayload`（`processRoutePrefetch.js`） |
 | SPA URL | **不写** tenant；`stripTenantIdFromUrlSearchParams` 清掉遗留；tenant 用 session + 页内 state |
 | 内部 state 名 | 变量可仍叫 `companyId`（历史命名）= **tenant 数字 id** |
@@ -538,10 +540,53 @@ URL **不**带 `tenant_id` / `id`。`ProcessListPage` 的 `loadFormMeta` / `relo
 | Frequency | UI `1st_of_every_month/monthly/once/day/week` → Spring `FIRST_OF_EVERY_MONTH/MONTHLY/ONCE/DAY/WEEK` |
 | 不再走 | `api/processes/addprocess_api.php` |
 
+### 10.3.2 Bank Process Update / Edit（前后端，2026-07-16）
+
+| 项 | 约定 |
+|----|------|
+| API | `POST /api/bank-process/update-bank-process`（JSON body，无 query） |
+| Service | `updateBankProcessDetails`：更新可变字段 + **delete-all shares 再 batch insert**（同一 `@Transactional`） |
+| 不可变 | **不更新** `countryId` / `bankOptionId` / `cardOwner` / `cardOwnerType`（UI Edit 只读；后端以 DB 为准） |
+| 可变 | `dayStart` / `dayEnd` / `frequency`、supplier·customer·company account+price、`contract` / `insurancePrice` / `sop` / `remark`、`shares[]` |
+| 前端 | `buildUpdateBankProcessRequest` + `updateBankProcess`（只发 `id` + `tenantId` + 可变字段 + `shares`） |
+| Edit 打开 | **无 get API**；`openEdit` 用 list 行 `bankProcessListRowToEditForm(row, accounts)` 本地回填（对齐 Process list 回填） |
+| 不再走 | `processlist_api.php?action=get_process` / `action=update_process` |
+
+### 10.3.3 Bank Process Status（前后端，2026-07-16）
+
+| 项 | 约定 |
+|----|------|
+| API | `POST /api/bank-process/update-status`，body `{ id, tenantId, status }` |
+| Status 枚举 | Spring 统一字段：`ACTIVE` / `INACTIVE` / `OFFICIAL` / `E_INVOICE` / `BLOCK`（**不是** Process 的 ACTIVE↔INACTIVE toggle） |
+| 不可写 | `WAITING`（list 可读；update 拒绝） |
+| Service | `updateBankProcessStatus(id, tenantId, status)` → `updateStatus` |
+| 前端 | `bankProcessListApi.updateBankProcessStatus`；`BankProcessStatusControl` 菜单值直接当 `status` 一次提交 |
+| List → UI | `splitSpringBankProcessStatus`：统一枚举 → 行上 `status` + `issue_flag`（过滤 chips 仍用） |
+| 缓存 | status 变更后 `invalidateBankProcessListRouteCache` + 清页内 list cache；`bankProcessRowsFingerprint` 含 status/issue_flag（避免 silent refetch 因 id 相同而保留旧 ACTIVE） |
+| 不再走 | `toggle_process_status_api.php` / `update_bank_issue_flag_api.php` |
+
+### 10.3.4 Bank Process Delete（前后端，2026-07-16）
+
+| 项 | 约定 |
+|----|------|
+| API | `POST /api/bank-process/delete-bank-process`，body `{ id, tenantId }`（单条） |
+| Service | `deleteBankProcess`：须 `INACTIVE`；同一 `@Transactional` 先 `deleteBankProcessShareBatch` 再 `deleteBankProcess` |
+| Shares | 显式 batch delete；表上亦有 `ON DELETE CASCADE` |
+| 前端 | `bankProcessListApi.deleteBankProcess`；多选 `for … of selectedIds` 循环单条；成功后清 list/warm cache + `fetchRows({ forceReplace: true })` |
+| 不再走 | `api/processes/delete_processes_api.php` |
+
+### 10.3.5 Bank Process Remark（前后端，2026-07-16）
+
+| 项 | 约定 |
+|----|------|
+| API | `POST /api/bank-process/update-remark`，body `{ id, tenantId, remark }` |
+| Service | `updateBankProcessRemark` → 窄更新 `remark` + `updated_by` / `updated_at`（不走整单 `update-bank-process`） |
+| 前端 | `bankProcessListApi.updateBankProcessRemark`；行内 Remark 弹窗 `saveRemarkModal`；空串 → `remark: null` |
+| 不再走 | `api/processes/update_bank_remark_api.php` |
+
 ### 10.4 尚未 Spring（仍 PHP）
 
-- Bank Process **Edit** / Delete / status / remark
-- Accounting Due inbox
+- Accounting Due inbox / resend / post-to-transaction
 
 **Bank Process → Add Account 弹窗（2026-07-15）**：已走 Spring  
 `POST /api/account/add|update`（`accountListApi`）、`/api/currency/available|add|delete`、`POST /api/account/list` 刷新下拉；`scopeTenantId` = 页内 tenant 数字 id；不再走 `addaccountapi.php` / `account_company_api` / `account_currency_api`。
@@ -566,8 +611,9 @@ Count-frontend/src/pages/processlist/processListApi.js             # process-lis
 Count-frontend/src/pages/processlist/processListHelpers.js         # desc / dayUse 展示转换
 Count-frontend/src/pages/processlist/processRoutePrefetch.js
 Count-frontend/src/pages/processlist/ProcessListPage.jsx
-Count-frontend/src/pages/bankprocesslist/lib/bankProcessHelpers.js  # resolveTenantIsBankOnly + stripTenantIdFromUrl + list normalize
-Count-frontend/src/pages/bankprocesslist/bankProcessListApi.js      # list + add-bank-process
+Count-frontend/src/pages/bankprocesslist/lib/bankProcessHelpers.js  # list normalize + Edit 回填 + status split
+Count-frontend/src/pages/bankprocesslist/bankProcessListApi.js      # list + add/update/update-status/delete
 Count-frontend/src/pages/bankprocesslist/bankCountryOptionApi.js   # POST /api/bank-country-option/* (tenantId body)
+Count-frontend/src/pages/bankprocesslist/components/BankProcessStatusControl.jsx  # Spring update-status
 Count-frontend/src/pages/bankprocesslist/hooks/useBankProcessListPage.js
 ```

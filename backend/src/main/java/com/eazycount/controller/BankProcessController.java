@@ -2,6 +2,7 @@ package com.eazycount.controller;
 
 import com.eazycount.common.BusinessException;
 import com.eazycount.dto.BankProcessDTO;
+import com.eazycount.entity.BankProcess;
 import com.eazycount.service.BankProcessService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -43,6 +44,60 @@ public class BankProcessController {
             body.put("success", true);
             body.put("message", "Bank process inserted successfully");
             body.put("data", created);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
+    @PostMapping("/update-bank-process")
+    public ResponseEntity<Map<String, Object>> updateBankProcess(@RequestBody BankProcessDTO bankProcessDTO) {
+        try {
+            BankProcessDTO created = bankProcessService.updateBankProcessDetails(bankProcessDTO);
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "Bank process updated successfully");
+            body.put("data", created);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
+    @PostMapping("/delete-bank-process")
+    public ResponseEntity<Map<String, Object>> deleteBankProcess(@RequestBody BankProcess bankProcess) {
+        try {
+            bankProcessService.deleteBankProcess(bankProcess.getId(), bankProcess.getTenantId());
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "Bank process deleted successfully");
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
+    @PostMapping("/update-status")
+    public ResponseEntity<Map<String, Object>> updateStatus(@RequestBody BankProcess bankProcess) {
+        try{
+            BankProcess update = bankProcessService.updateBankProcessStatus(bankProcess.getId(), bankProcess.getTenantId(), bankProcess.getStatus());
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "BankProcess Status updated successfully");
+            body.put("data", update);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
+    @PostMapping("/update-remark")
+    public ResponseEntity<Map<String, Object>> updateRemark(@RequestBody BankProcess bankProcess) {
+        try{
+            bankProcessService.updateBankProcessRemark(bankProcess.getId(), bankProcess.getTenantId(), bankProcess.getRemark());
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "BankProcess Remark updated successfully");
             return ResponseEntity.ok(body);
         } catch (BusinessException e) {
             return error(e);

@@ -13,11 +13,27 @@ public interface BankProcessDao {
 
     List<BankProcessDTO> findAllBankProcess(@Param("tenantId") Integer tenantId);
 
-    List<BankProcessShare> findProcessShare(@Param("bankProcessId") Integer bankProcessId);
+    BankProcess findBKProcessByIdAndTenantId(@Param("id") Integer id, @Param("tenantId") Integer tenantId);
+
+    BankProcessShare findProcessShare(@Param("bankProcessId") Integer bankProcessId);
+
+    List<BankProcessShare> findSharesByBankProcessId(@Param("bankProcessId") Integer bankProcessId);
 
     void insertNewBankProcess(BankProcess bankProcess);
 
-    void insertNewBankProcessShare(BankProcessShare bankProcessShare);
+    void updateBankProcess(BankProcess bankProcess);
+
+    void deleteBankProcess(@Param("id") Integer id, @Param("tenantId") Integer tenantId);
+
+    void updateStatus(@Param("id") Integer id, @Param("tenantId") Integer tenantId, @Param("status") BankProcess.Status status);
+
+    void updateRemark(@Param("id") Integer id,
+                      @Param("tenantId") Integer tenantId,
+                      @Param("remark") String remark,
+                      @Param("updatedBy") String updatedBy);
 
     void insertNewBankProcessShareBatch(@Param("list") List<BankProcessShare> list);
+
+    void deleteBankProcessShareBatch(@Param("bankProcessId") Integer bankProcessId);
+
 }

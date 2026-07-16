@@ -40,7 +40,8 @@ public class BankProcessDTO {
 
     private String companyAccountName;
 
-    /** Flat write fields (add). */
+    private String status;
+
     private Integer tenantId;
 
     private Integer countryId;
@@ -77,6 +78,5 @@ public class BankProcessDTO {
 
     private String remark;
 
-    /** Profit sharing lines (add). Each item needs accountId + amount; bankProcessId set by service. */
     private List<BankProcessShare> shares;
 }
