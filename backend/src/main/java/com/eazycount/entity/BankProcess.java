@@ -37,6 +37,12 @@ public class BankProcess {
 
     private LocalDate dayEnd;
 
+    /**
+     * 1st of every month only. {@code true} = last month uses {@code DAY_END_TAIL} through dayEnd;
+     * {@code false} = last month uses {@code FULL_MONTH} through month end.
+     */
+    private Boolean dayEndMonthlyCapEnabled;
+
     private Frequency frequency;
 
     private Integer supplierAccountId;
@@ -78,11 +84,6 @@ public class BankProcess {
         WEEK
     }
 
-    /**
-     * Stored status. {@code WAITING} may also be derived from {@code dayStart} on read.
-     * Ongoing: {@code ACTIVE} / {@code OFFICIAL} / {@code E_INVOICE};
-     * stopped: {@code INACTIVE} / {@code BLOCK}.
-     */
     @Getter
     public enum Status {
         WAITING,

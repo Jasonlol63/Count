@@ -11,6 +11,7 @@
         <result property="cardOwnerType" column="card_owner_type"/>
         <result property="dayStart" column="day_start"/>
         <result property="dayEnd" column="day_end"/>
+        <result property="dayEndMonthlyCapEnabled" column="day_end_monthly_cap_enabled"/>
         <result property="frequency" column="frequency"/>
         <result property="supplierAccountId" column="supplier_account_id"/>
         <result property="supplierPrice" column="supplier_price"/>
@@ -52,6 +53,7 @@
             <result property="cardOwnerType" column="bp_card_owner_type"/>
             <result property="dayStart" column="bp_day_start"/>
             <result property="dayEnd" column="bp_day_end"/>
+            <result property="dayEndMonthlyCapEnabled" column="bp_day_end_monthly_cap_enabled"/>
             <result property="frequency" column="bp_frequency"/>
             <result property="supplierAccountId" column="bp_supplier_account_id"/>
             <result property="supplierPrice" column="bp_supplier_price"/>
@@ -95,6 +97,7 @@
             bp.card_owner_type      AS bp_card_owner_type,
             bp.day_start            AS bp_day_start,
             bp.day_end              AS bp_day_end,
+            bp.day_end_monthly_cap_enabled AS bp_day_end_monthly_cap_enabled,
             bp.frequency            AS bp_frequency,
             bp.supplier_account_id  AS bp_supplier_account_id,
             bp.supplier_price       AS bp_supplier_price,
@@ -139,6 +142,7 @@
             card_owner_type,
             day_start,
             day_end,
+            day_end_monthly_cap_enabled,
             frequency,
             supplier_account_id,
             supplier_price,
@@ -169,6 +173,7 @@
             card_owner_type,
             day_start,
             day_end,
+            day_end_monthly_cap_enabled,
             frequency,
             supplier_account_id,
             supplier_price,
@@ -191,6 +196,7 @@
             #{cardOwnerType},
             #{dayStart},
             #{dayEnd},
+            #{dayEndMonthlyCapEnabled},
             #{frequency},
             #{supplierAccountId},
             #{supplierPrice},
@@ -212,6 +218,7 @@
         UPDATE bank_process
         SET day_start = #{dayStart},
             day_end = #{dayEnd},
+            day_end_monthly_cap_enabled = #{dayEndMonthlyCapEnabled},
             frequency = #{frequency},
             supplier_account_id = #{supplierAccountId},
             customer_account_id = #{customerAccountId},

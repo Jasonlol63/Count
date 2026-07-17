@@ -56,6 +56,8 @@ public class BankProcessDTO {
 
     private LocalDate dayEnd;
 
+    private Boolean dayEndMonthlyCapEnabled;
+
     private String frequency;
 
     private Integer supplierAccountId;

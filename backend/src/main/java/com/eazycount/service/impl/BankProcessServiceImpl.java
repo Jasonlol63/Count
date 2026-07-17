@@ -251,6 +251,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         bankProcess.setCardOwnerType(cardOwnerType);
         bankProcess.setDayStart(bankProcessDTO.getDayStart());
         bankProcess.setDayEnd(bankProcessDTO.getDayEnd());
+        bankProcess.setDayEndMonthlyCapEnabled(resolveDayEndMonthlyCapEnabled(frequency, bankProcessDTO.getDayEndMonthlyCapEnabled()));
         bankProcess.setFrequency(frequency);
         bankProcess.setSupplierAccountId(bankProcessDTO.getSupplierAccountId());
         bankProcess.setSupplierPrice(bankProcessDTO.getSupplierPrice());
@@ -295,6 +296,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         bankProcess.setCardOwnerType(existing.getCardOwnerType());
         bankProcess.setDayStart(bankProcessDTO.getDayStart());
         bankProcess.setDayEnd(bankProcessDTO.getDayEnd());
+        bankProcess.setDayEndMonthlyCapEnabled(resolveDayEndMonthlyCapEnabled(frequency, bankProcessDTO.getDayEndMonthlyCapEnabled()));
         bankProcess.setFrequency(frequency);
         bankProcess.setSupplierAccountId(bankProcessDTO.getSupplierAccountId());
         bankProcess.setSupplierPrice(bankProcessDTO.getSupplierPrice());
@@ -323,6 +325,11 @@ public class BankProcessServiceImpl implements BankProcessService {
         } catch (IllegalArgumentException e) {
             throw new BusinessException("Invalid frequency!");
         }
+    }
+
+    /** Only 1st-of-every-month may enable last-month DAY_END_TAIL; otherwise always false. */
+    private static boolean resolveDayEndMonthlyCapEnabled(BankProcess.Frequency frequency, Boolean raw) {
+        return frequency == BankProcess.Frequency.FIRST_OF_EVERY_MONTH && Boolean.TRUE.equals(raw);
     }
 
     private List<BankProcessShare> insertProfitSharing(Integer bankProcessId, List<BankProcessShare> shares) {

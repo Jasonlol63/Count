@@ -1,0 +1,14 @@
+---
+description: Keep Accounting Due frequency documentation synchronized
+alwaysApply: true
+---
+
+# Accounting Due Documentation
+
+When changing Bank Process frequency, Accounting Due generation, posted dates, billing periods, skip behavior, or automatic status transitions:
+
+- Read `docs/accounting-due-frequency-rules.md` before changing behavior.
+- Update that document in the same task whenever behavior or an API contract changes.
+- Record examples, date boundaries, period types, single/multi-row behavior, and deferred functionality.
+- Keep backend and `Count-frontend` mappings and display behavior aligned.
+- Do not wait for the user to request documentation updates.

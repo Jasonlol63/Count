@@ -666,6 +666,7 @@ CREATE TABLE `bank_process` (
     `card_owner_type`      VARCHAR(100) NOT NULL COMMENT 'Type e.g. BUSINESS',
     `day_start`            DATE                  DEFAULT NULL,
     `day_end`              DATE                  DEFAULT NULL COMMENT 'Optional; UI may derive from day_start+contract',
+    `day_end_monthly_cap_enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1st of every month only: 1=last month DAY_END_TAIL to day_end; 0=last month FULL_MONTH to month end',
     `frequency`            ENUM( 'FIRST_OF_EVERY_MONTH', 'MONTHLY', 'ONCE', 'DAY', 'WEEK') NOT NULL DEFAULT 'FIRST_OF_EVERY_MONTH',
 
     `supplier_account_id`  INT UNSIGNED          DEFAULT NULL COMMENT 'FK account.id — Supplier',

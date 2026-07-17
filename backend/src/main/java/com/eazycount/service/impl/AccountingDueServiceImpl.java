@@ -37,6 +37,7 @@ public class AccountingDueServiceImpl implements AccountingDueService {
     private AccountingDueDao accountingDueDao;
 
     @Override
+    @Transactional
     public List<AccountingDueDTO> resolveInbox(Integer tenantId, LocalDate asOf, boolean restoreSkipped) {
         SessionUser sessionUser = SecurityUtils.currentUser();
         if (sessionUser == null) {
@@ -66,18 +67,25 @@ public class AccountingDueServiceImpl implements AccountingDueService {
             if (dto == null) {
                 continue;
             }
-            AccountingDueDTO due = resolveDue(dto, today);
-            if (due == null) {
+            // Once: dayStart before contract creation month → skip and mark inactive.
+            expireOnceIfBeforeCreationMonth(dto);
+            List<AccountingDueDTO> resolved = resolveDues(dto, today);
+            if (resolved == null || resolved.isEmpty()) {
                 continue;
             }
-            dues.add(due);
-            LocalDate posted = due.getPostedDate();
-            if (posted != null) {
-                if (posted.isBefore(fromDate)) {
-                    fromDate = posted;
+            for (AccountingDueDTO due : resolved) {
+                if (due == null) {
+                    continue;
                 }
-                if (posted.isAfter(toDate)) {
-                    toDate = posted;
+                dues.add(due);
+                LocalDate posted = due.getPostedDate();
+                if (posted != null) {
+                    if (posted.isBefore(fromDate)) {
+                        fromDate = posted;
+                    }
+                    if (posted.isAfter(toDate)) {
+                        toDate = posted;
+                    }
                 }
             }
         }
@@ -134,65 +142,96 @@ public class AccountingDueServiceImpl implements AccountingDueService {
             throw new BusinessException("Invalid period type!");
         }
     }
-
-    private static AccountingDueDTO resolveDue(BankProcessDTO dto, LocalDate today) {
+    
+    private static List<AccountingDueDTO> resolveDues(BankProcessDTO dto, LocalDate today) {
         BankProcess bp = dto.getBankProcess();
         if (bp == null || bp.getFrequency() == null) {
-            return null;
+            return List.of();
         }
         switch (bp.getFrequency()) {
             case FIRST_OF_EVERY_MONTH:
-                return resolveFirstOfMonthDue(dto, bp, today);
+                return resolveFirstOfMonthDues(dto, bp, today);
             case MONTHLY:
-                return resolveMonthlyDue(dto, bp, today);
+                return resolveMonthlyDues(dto, bp, today);
+            case ONCE: {
+                AccountingDueDTO due = resolveOnceDue(dto, bp, today);
+                return due == null ? List.of() : List.of(due);
+            }
+            case WEEK:
+                return resolveWeeklyDues(dto, bp, today);
+            case DAY:
+                return resolveDailyDues(dto, bp, today);
             default:
-                return null;
+                return List.of();
         }
     }
 
-    private static AccountingDueDTO resolveFirstOfMonthDue(BankProcessDTO dto, BankProcess bp, LocalDate today) {
+    private static List<AccountingDueDTO> resolveFirstOfMonthDues(BankProcessDTO dto, BankProcess bp, LocalDate today) {
         LocalDate dayStart = bp.getDayStart();
         LocalDate dayEnd = bp.getDayEnd();
         if (dayStart == null || dayEnd == null) {
-            return null;
+            return List.of();
         }
-        if (today.isBefore(dayStart) || today.isAfter(dayEnd)) {
-            return null;
+        if (today.isBefore(dayStart)) {
+            return List.of();
         }
         if (bp.getStatus() == null || !BILLABLE_STATUS.contains(bp.getStatus())) {
-            return null;
+            return List.of();
         }
 
-        YearMonth currentMonth = YearMonth.from(today);
         YearMonth startMonth = YearMonth.from(dayStart);
         YearMonth endMonth = YearMonth.from(dayEnd);
-        if (currentMonth.isBefore(startMonth) || currentMonth.isAfter(endMonth)) {
-            return null;
-        }
+        YearMonth creationMonth = YearMonth.from(creationMonthFloor(bp, dayStart));
+        YearMonth loopStart = startMonth.isBefore(creationMonth) ? creationMonth : startMonth;
 
-        LocalDate monthFirst = currentMonth.atDay(1);
-        LocalDate monthEnd = currentMonth.atEndOfMonth();
+        List<AccountingDueDTO> dues = new ArrayList<>();
+        for (YearMonth month = loopStart; !month.isAfter(endMonth); month = month.plusMonths(1)) {
+            AccountingDueDTO due = buildFirstOfMonthDueForMonth(dto, bp, month, dayStart, dayEnd);
+            if (due == null || due.getPostedDate() == null) {
+                continue;
+            }
+            if (due.getPostedDate().isAfter(today)) {
+                continue;
+            }
+            dues.add(due);
+        }
+        return dues;
+    }
+
+    private static AccountingDueDTO buildFirstOfMonthDueForMonth(BankProcessDTO dto,BankProcess bp,YearMonth month,LocalDate dayStart, LocalDate dayEnd) {
+        YearMonth startMonth = YearMonth.from(dayStart);
+        YearMonth endMonth = YearMonth.from(dayEnd);
+        LocalDate monthFirst = month.atDay(1);
+        LocalDate monthEnd = month.atEndOfMonth();
+        // ON = DAY_END_TAIL through dayEnd; OFF = FULL_MONTH through month end.
+        boolean useDayEndTail = Boolean.TRUE.equals(bp.getDayEndMonthlyCapEnabled());
 
         LocalDate postedDate;
         LocalDate billingStart;
         LocalDate billingEnd;
         BkProcessAccountingPosted.PeriodType periodType;
 
-        if (currentMonth.equals(startMonth)) {
+        if (month.equals(startMonth)) {
             billingStart = dayStart;
-            billingEnd = dayEnd.isBefore(monthEnd) ? dayEnd : monthEnd;
+            if (month.equals(endMonth) && !useDayEndTail) {
+                billingEnd = monthEnd;
+            } else {
+                billingEnd = dayEnd.isBefore(monthEnd) ? dayEnd : monthEnd;
+            }
             postedDate = dayStart;
             periodType = dayStart.getDayOfMonth() == 1
                     ? BkProcessAccountingPosted.PeriodType.FIRST_MONTH
                     : BkProcessAccountingPosted.PeriodType.PARTIAL_FIRST_MONTH;
-        } else if (currentMonth.equals(endMonth) && dayEnd.getDayOfMonth() < monthEnd.getDayOfMonth()) {
+        } else if (month.equals(endMonth)
+                && useDayEndTail
+                && dayEnd.getDayOfMonth() < monthEnd.getDayOfMonth()) {
             billingStart = monthFirst;
             billingEnd = dayEnd;
             postedDate = monthFirst;
             periodType = BkProcessAccountingPosted.PeriodType.DAY_END_TAIL;
         } else {
             billingStart = monthFirst;
-            billingEnd = currentMonth.equals(endMonth) ? dayEnd : monthEnd;
+            billingEnd = monthEnd;
             postedDate = monthFirst;
             periodType = BkProcessAccountingPosted.PeriodType.FULL_MONTH;
         }
@@ -200,56 +239,156 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         return buildDue(dto, bp, postedDate, billingStart, billingEnd, periodType);
     }
 
-    private static AccountingDueDTO resolveMonthlyDue(BankProcessDTO dto, BankProcess bp, LocalDate today) {
+    private static List<AccountingDueDTO> resolveMonthlyDues(BankProcessDTO dto, BankProcess bp, LocalDate today) {
         LocalDate dayStart = bp.getDayStart();
         LocalDate dayEnd = bp.getDayEnd();
         if (dayStart == null || dayEnd == null) {
-            return null;
+            return List.of();
         }
         if (bp.getStatus() == null || !BILLABLE_STATUS.contains(bp.getStatus())) {
-            return null;
+            return List.of();
+        }
+        if (today.isBefore(dayStart)) {
+            return List.of();
         }
 
-        // Real contract end = last posted date (dayEnd) plus one full billing month.
-        LocalDate contractEnd = dayEnd.plusMonths(1);
-        if (today.isBefore(dayStart) || today.isAfter(contractEnd)) {
-            return null;
-        }
-
-        // Current active bill = the latest posted anchor on or before today; a bill stays visible
-        // for its whole billing period, and the last bill lasts until contractEnd.
-        LocalDate postedDate = currentMonthlyPosted(dayStart, dayEnd, today);
-        if (postedDate == null) {
-            return null;
-        }
-
-        LocalDate billingStart = postedDate;
-        LocalDate billingEnd = postedDate.plusMonths(1);
-
-        return buildDue(dto, bp, postedDate, billingStart, billingEnd,
-                BkProcessAccountingPosted.PeriodType.MONTHLY);
-    }
-
-    private static LocalDate currentMonthlyPosted(LocalDate dayStart, LocalDate dayEnd, LocalDate today) {
-        LocalDate active = null;
-        LocalDate posted = dayStart;
-        YearMonth month = YearMonth.from(dayStart);
+        LocalDate creationFloor = creationMonthFloor(bp, dayStart);
+        YearMonth creationMonth = YearMonth.from(creationFloor);
+        YearMonth startMonth = YearMonth.from(dayStart);
         YearMonth endMonth = YearMonth.from(dayEnd);
+        // Created in July with dayStart in June → skip June anchor, start from July.
+        YearMonth month = startMonth.isBefore(creationMonth) ? creationMonth : startMonth;
+        LocalDate posted = month.equals(startMonth) ? dayStart : monthlyAnchor(month, dayStart);
+
+        List<AccountingDueDTO> dues = new ArrayList<>();
         while (true) {
-            if (posted.isAfter(dayEnd)) {
-                posted = dayEnd;
-            }
-            if (posted.isAfter(today)) {
+            LocalDate periodPosted = posted.isAfter(dayEnd) ? dayEnd : posted;
+            if (periodPosted.isAfter(today)) {
                 break;
             }
-            active = posted;
+            if (!periodPosted.isBefore(creationFloor)) {
+                dues.add(buildDue(dto, bp, periodPosted, periodPosted, periodPosted.plusMonths(1),
+                        BkProcessAccountingPosted.PeriodType.MONTHLY));
+            }
             if (!month.isBefore(endMonth)) {
                 break;
             }
             month = month.plusMonths(1);
             posted = monthlyAnchor(month, dayStart);
         }
-        return active;
+        return dues;
+    }
+
+    private static AccountingDueDTO resolveOnceDue(BankProcessDTO dto, BankProcess bp, LocalDate today) {
+        LocalDate dayStart = bp.getDayStart();
+        if (dayStart == null) {
+            return null;
+        }
+        if (bp.getStatus() == null || !BILLABLE_STATUS.contains(bp.getStatus())) {
+            return null;
+        }
+        // Non-month skip: dayStart strictly before creation month → never enter Due.
+        LocalDate creationFloor = creationMonthFloor(bp, dayStart);
+        if (dayStart.isBefore(creationFloor)) {
+            return null;
+        }
+        if (today.isBefore(dayStart)) {
+            return null;
+        }
+        // Once due, stay until POSTED/SKIPPED even after calendar month rolls.
+        return buildDue(dto, bp, dayStart, dayStart, dayStart,
+                BkProcessAccountingPosted.PeriodType.ONCE_ONE_OFF);
+    }
+
+    private void expireOnceIfBeforeCreationMonth(BankProcessDTO dto) {
+        BankProcess bp = dto.getBankProcess();
+        if (bp == null || bp.getFrequency() != BankProcess.Frequency.ONCE) {
+            return;
+        }
+        LocalDate dayStart = bp.getDayStart();
+        if (dayStart == null || bp.getId() == null || bp.getTenantId() == null) {
+            return;
+        }
+        if (bp.getStatus() == null || !BILLABLE_STATUS.contains(bp.getStatus())) {
+            return;
+        }
+        LocalDate creationFloor = creationMonthFloor(bp, dayStart);
+        if (!dayStart.isBefore(creationFloor)) {
+            return;
+        }
+        bankProcessDao.updateStatus(bp.getId(), bp.getTenantId(), BankProcess.Status.INACTIVE);
+        bp.setStatus(BankProcess.Status.INACTIVE);
+        dto.setStatus(BankProcess.Status.INACTIVE.name());
+    }
+
+
+    private static LocalDate creationMonthFloor(BankProcess bp, LocalDate dayStart) {
+        if (bp.getCreatedAt() != null) {
+            return YearMonth.from(bp.getCreatedAt()).atDay(1);
+        }
+        return YearMonth.from(dayStart).atDay(1);
+    }
+
+    private static List<AccountingDueDTO> resolveWeeklyDues(BankProcessDTO dto, BankProcess bp, LocalDate today) {
+        LocalDate dayStart = bp.getDayStart();
+        if (dayStart == null) {
+            return List.of();
+        }
+        if (bp.getStatus() == null || !BILLABLE_STATUS.contains(bp.getStatus())) {
+            return List.of();
+        }
+        if (today.isBefore(dayStart)) {
+            return List.of();
+        }
+
+        // Non-month skip floor = contract creation month (not rolling "today" month).
+        // Periods entirely before that month are omitted; once a period is due it stays
+        // until POSTED/SKIPPED even after the calendar month rolls.
+        LocalDate creationFloor = creationMonthFloor(bp, dayStart);
+        LocalDate posted = dayStart;
+        LocalDate billingEnd = dayStart.plusDays(6);
+        while (billingEnd.isBefore(creationFloor)) {
+            posted = billingEnd.plusDays(1);
+            billingEnd = posted.plusDays(6);
+        }
+
+        List<AccountingDueDTO> dues = new ArrayList<>();
+        while (!posted.isAfter(today)) {
+            LocalDate billingStart = posted;
+            // Keep if period touches creation month or any later month (not pure pre-creation).
+            if (!billingEnd.isBefore(creationFloor)) {
+                dues.add(buildDue(dto, bp, posted, billingStart, billingEnd,
+                        BkProcessAccountingPosted.PeriodType.WEEKLY));
+            }
+            posted = billingEnd.plusDays(1);
+            billingEnd = posted.plusDays(6);
+        }
+        return dues;
+    }
+
+    private static List<AccountingDueDTO> resolveDailyDues(BankProcessDTO dto, BankProcess bp, LocalDate today) {
+        LocalDate dayStart = bp.getDayStart();
+        if (dayStart == null) {
+            return List.of();
+        }
+        if (bp.getStatus() == null || !BILLABLE_STATUS.contains(bp.getStatus())) {
+            return List.of();
+        }
+        if (today.isBefore(dayStart)) {
+            return List.of();
+        }
+
+        LocalDate creationFloor = creationMonthFloor(bp, dayStart);
+        LocalDate from = dayStart.isAfter(creationFloor) ? dayStart : creationFloor;
+        if (from.isAfter(today)) {
+            return List.of();
+        }
+
+        List<AccountingDueDTO> dues = new ArrayList<>();
+        for (LocalDate d = from; !d.isAfter(today); d = d.plusDays(1)) {
+            dues.add(buildDue(dto, bp, d, d, d, BkProcessAccountingPosted.PeriodType.DAILY));
+        }
+        return dues;
     }
 
     private static LocalDate monthlyAnchor(YearMonth month, LocalDate dayStart) {
