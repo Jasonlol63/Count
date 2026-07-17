@@ -13,7 +13,6 @@
                 javaType="com.eazycount.entity.BkProcessAccountingPosted$Outcome" jdbcType="VARCHAR"/>
         <result property="billingStart" column="billing_start"/>
         <result property="billingEnd" column="billing_end"/>
-        <result property="transactionId" column="transaction_id"/>
         <result property="createdAt" column="created_at"/>
         <result property="createdBy" column="created_by"/>
     </resultMap>
@@ -28,7 +27,6 @@
             outcome,
             billing_start,
             billing_end,
-            transaction_id,
             created_at,
             created_by
         FROM bank_process_accounting_posted
@@ -46,7 +44,6 @@
             outcome,
             billing_start,
             billing_end,
-            transaction_id,
             created_at,
             created_by
         FROM bank_process_accounting_posted
@@ -66,7 +63,6 @@
             outcome,
             billing_start,
             billing_end,
-            transaction_id,
             created_by
         ) VALUES (
             #{tenantId},
@@ -76,7 +72,6 @@
             #{outcome},
             #{billingStart},
             #{billingEnd},
-            #{transactionId},
             #{createdBy}
         )
     </insert>

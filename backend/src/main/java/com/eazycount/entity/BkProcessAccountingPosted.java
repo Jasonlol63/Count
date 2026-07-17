@@ -36,9 +36,6 @@ public class BkProcessAccountingPosted {
 
     private LocalDate billingEnd;
 
-    /** Set when {@link Outcome#POSTED}; FK to transactions when that module exists. */
-    private Integer transactionId;
-
     private LocalDateTime createdAt;
 
     private String createdBy;

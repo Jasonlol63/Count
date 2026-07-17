@@ -487,9 +487,7 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         row.setPeriodType(periodType);
         row.setOutcome(BkProcessAccountingPosted.Outcome.SKIPPED);
         row.setBillingStart(item.getBillingStart());
-        row.setBillingEnd(item.getBillingEnd());
-        row.setTransactionId(null);
-        row.setCreatedBy(createdBy);
+        row.setBillingEnd(item.getBillingEnd());row.setCreatedBy(createdBy);
         accountingDueDao.insertLedgerEntry(row);
 
         if (periodType == BkProcessAccountingPosted.PeriodType.RESEND_CONSOLIDATED

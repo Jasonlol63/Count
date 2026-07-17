@@ -10,6 +10,7 @@ DROP TABLE IF EXISTS `process`;
 DROP TABLE IF EXISTS `process_description`;
 DROP TABLE IF EXISTS `description`;
 DROP TABLE IF EXISTS `bank_process_resend_daily_guard`;
+DROP TABLE IF EXISTS `transactions`;
 DROP TABLE IF EXISTS `bank_process_accounting_posted`;
 DROP TABLE IF EXISTS `bank_process_share`;
 DROP TABLE IF EXISTS `bank_process`;
@@ -625,6 +626,7 @@ CREATE TABLE `process_submitted` (
 -- Bank Process (tenant model — list/CRUD + Accounting Due / Resend schema)
 -- Reuses: tenant, account, account_tenant_access, currency, account_currency
 -- Due tables: bank_process_accounting_posted, bank_process_resend_daily_guard
+-- Post writes: transactions (N lines) → bank_process_accounting_posted (1 ledger row)
 -- Open Resend (one make-up bill): bank_process.resend_schedule_*
 -- Same-day Post lock: bank_process_resend_daily_guard (cleared on Maintenance txn delete)
 -- =============================================================================
@@ -735,7 +737,8 @@ CREATE TABLE `bank_process_share` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Profit sharing lines (replaces profit_sharing TEXT)';
 
--- Accounting Due ledger: which period was posted / skipped / dismissed
+-- Accounting Due ledger: which period was posted / skipped / dismissed.
+-- One posted row can own many transactions via transactions.bank_process_posted_id (no single transaction_id).
 CREATE TABLE `bank_process_accounting_posted` (
   `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `tenant_id`       INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
@@ -745,9 +748,8 @@ CREATE TABLE `bank_process_accounting_posted` (
   `outcome`         ENUM('POSTED', 'SKIPPED', 'DISMISSED') NOT NULL DEFAULT 'POSTED' COMMENT 'Replaces old period_type *_skipped suffix',
   `billing_start`   DATE DEFAULT NULL COMMENT 'Optional period start for display / clear',
   `billing_end`     DATE DEFAULT NULL COMMENT 'Optional period end for display / clear',
-  `transaction_id`  INT UNSIGNED DEFAULT NULL COMMENT 'Posted txn id when outcome=POSTED (FK later)',
   `created_at`      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `created_by`      VARCHAR(50) DEFAULT NULL,
+  `created_by`      VARCHAR(50) DEFAULT NULL COMMENT 'Actor login_id (admin=user.login_id; owner=owner_code)',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_bpap` (`tenant_id`, `bank_process_id`, `posted_date`, `period_type`),
   KEY `idx_bpap_tenant_date` (`tenant_id`, `posted_date`),
@@ -779,3 +781,53 @@ CREATE TABLE `bank_process_resend_daily_guard` (
       FOREIGN KEY (`bank_process_id`) REFERENCES `bank_process` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Same-day Resend lock per process+day_start after Post; Maintenance txn delete clears';
+
+-- Tenant transaction lines (replaces legacy PHP transactions).
+-- One row = one account amount. Bank Process Post: N lines share one bank_process_posted_id.
+-- Manual Payment / History remark uses remark (not legacy sms).
+CREATE TABLE `transactions` (
+    `id`                     INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `tenant_id`              INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+
+    `transaction_type`       ENUM('WIN', 'LOSE', 'PAYMENT', 'RECEIVE', 'CONTRA','CLAIM', 'RATE', 'CLEAR', 'ADJUSTMENT') NOT NULL,
+    `account_id`             INT UNSIGNED NOT NULL COMMENT 'FK account.id',
+    `from_account_id`        INT UNSIGNED DEFAULT NULL COMMENT 'FK account.id; transfer-style only',
+    `currency_id`            INT UNSIGNED DEFAULT NULL COMMENT 'FK currency.id (currency.tenant_id = tenant_id)',
+
+    `amount`                 DECIMAL(25, 8) NOT NULL COMMENT 'ADJUSTMENT may be negative non-zero; other types >= 0',
+    `transaction_date`       DATE NOT NULL COMMENT 'Economic / capture date for list filters',
+    `description`            VARCHAR(500) DEFAULT NULL COMMENT 'System / process line description',
+    `remark`                 VARCHAR(500) DEFAULT NULL COMMENT 'User / system remark (Payment History Remark)',
+
+    `created_by`             VARCHAR(50) DEFAULT NULL COMMENT 'Creator login_id (admin=user.login_id; owner=owner_code)',
+    `updated_by`             VARCHAR(50) DEFAULT NULL COMMENT 'Last updater login_id (same convention)',
+
+    `approval_status`        ENUM('APPROVED', 'PENDING') NOT NULL DEFAULT 'APPROVED',
+    `approved_by`            VARCHAR(50) DEFAULT NULL COMMENT 'Approver login_id (same convention as created_by)',
+    `approved_at`            TIMESTAMP NULL DEFAULT NULL,
+
+    `bank_process_posted_id` INT UNSIGNED DEFAULT NULL COMMENT 'FK bank_process_accounting_posted.id; NULL = manual / non-BP txn',
+
+    `created_at`             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (`id`),
+    KEY `idx_txn_tenant_date` (`tenant_id`, `transaction_date`),
+    KEY `idx_txn_tenant_account_date` (`tenant_id`, `account_id`, `transaction_date`),
+    KEY `idx_txn_posted` (`bank_process_posted_id`),
+    KEY `idx_txn_approval` (`tenant_id`, `approval_status`),
+    KEY `idx_txn_currency` (`currency_id`),
+
+    CONSTRAINT `fk_txn_tenant`
+        FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_txn_account`
+        FOREIGN KEY (`account_id`) REFERENCES `account` (`id`),
+    CONSTRAINT `fk_txn_from_account`
+        FOREIGN KEY (`from_account_id`) REFERENCES `account` (`id`) ON DELETE SET NULL,
+    CONSTRAINT `fk_txn_currency`
+        FOREIGN KEY (`currency_id`) REFERENCES `currency` (`id`) ON DELETE SET NULL,
+    CONSTRAINT `fk_txn_bp_posted`
+        FOREIGN KEY (`bank_process_posted_id`) REFERENCES `bank_process_accounting_posted` (`id`)
+            ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Tenant transaction lines; audit via login_id; BP Post via bank_process_posted_id';
