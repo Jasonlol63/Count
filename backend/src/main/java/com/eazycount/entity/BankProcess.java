@@ -67,6 +67,12 @@ public class BankProcess {
 
     private Status status;
 
+    private LocalDate resendScheduleDayStart;
+
+    private LocalDate resendScheduleDayEnd;
+
+    private Frequency resendScheduleFrequency;
+
     private String createdBy;
 
     private String updatedBy;

@@ -584,9 +584,20 @@ URL **不**带 `tenant_id` / `id`。`ProcessListPage` 的 `loadFormMeta` / `relo
 | 前端 | `bankProcessListApi.updateBankProcessRemark`；行内 Remark 弹窗 `saveRemarkModal`；空串 → `remark: null` |
 | 不再走 | `api/processes/update_bank_remark_api.php` |
 
+### 10.3.6 Bank Process Resend（前后端，2026-07-17）
+
+| 项 | 约定 |
+|----|------|
+| API | `POST /api/bank-process/resend`，body AccountingDueDTO：`{ tenantId, bankProcessId, dayStart, dayEnd?, frequency }` |
+| Frequency | Spring 枚举：`FIRST_OF_EVERY_MONTH` / `MONTHLY` / …（前端 `toSpringBankProcessFrequency`） |
+| Phase 1 | 全部频率已实现：`FIRST_OF_EVERY_MONTH`（dayStart+dayEnd）、`MONTHLY`（dayStart～+1月）、`ONCE`/`DAY`（单日）、`WEEK`（dayStart～+6天）；开放补单写 `resend_schedule_*`；同 dayStart 拒、换 dayStart 覆盖；补单不按日期过滤 |
+| 前端 | `bankProcessListApi.resendBankProcess` + `buildResendBankProcessRequest`；`useBankProcessListPage.resendAccountingDue` |
+| 锁检查 | Phase 1 无 Post 同日锁 API；开放重复用 Inbox `RESEND_CONSOLIDATED` / list `resend_schedule_day_start` 客户端判断 |
+| 不再走 | `api/bankprocess_maintenance/resend_accounting_due_api.php` |
+
 ### 10.4 尚未 Spring（仍 PHP）
 
-- Accounting Due inbox / resend / post-to-transaction
+- Accounting Due post-to-transaction
 
 **Bank Process → Add Account 弹窗（2026-07-15）**：已走 Spring  
 `POST /api/account/add|update`（`accountListApi`）、`/api/currency/available|add|delete`、`POST /api/account/list` 刷新下拉；`scopeTenantId` = 页内 tenant 数字 id；不再走 `addaccountapi.php` / `account_company_api` / `account_currency_api`。

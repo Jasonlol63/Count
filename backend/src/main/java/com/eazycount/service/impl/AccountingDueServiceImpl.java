@@ -10,6 +10,7 @@ import com.eazycount.entity.BkProcessAccountingPosted;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AccountingDueService;
+import com.eazycount.service.BankProcessResendService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +36,9 @@ public class AccountingDueServiceImpl implements AccountingDueService {
 
     @Autowired
     private AccountingDueDao accountingDueDao;
+
+    @Autowired
+    private BankProcessResendService bankProcessResendService;
 
     @Override
     @Transactional
@@ -70,15 +74,27 @@ public class AccountingDueServiceImpl implements AccountingDueService {
             // Once: dayStart before contract creation month → skip and mark inactive.
             expireOnceIfBeforeCreationMonth(dto);
             List<AccountingDueDTO> resolved = resolveDues(dto, today);
-            if (resolved == null || resolved.isEmpty()) {
-                continue;
-            }
-            for (AccountingDueDTO due : resolved) {
-                if (due == null) {
-                    continue;
+            if (resolved != null) {
+                for (AccountingDueDTO due : resolved) {
+                    if (due == null) {
+                        continue;
+                    }
+                    dues.add(due);
+                    LocalDate posted = due.getPostedDate();
+                    if (posted != null) {
+                        if (posted.isBefore(fromDate)) {
+                            fromDate = posted;
+                        }
+                        if (posted.isAfter(toDate)) {
+                            toDate = posted;
+                        }
+                    }
                 }
-                dues.add(due);
-                LocalDate posted = due.getPostedDate();
+            }
+            AccountingDueDTO resendDue = bankProcessResendService.resolveOpenMakeUp(dto, today);
+            if (resendDue != null) {
+                dues.add(resendDue);
+                LocalDate posted = resendDue.getPostedDate();
                 if (posted != null) {
                     if (posted.isBefore(fromDate)) {
                         fromDate = posted;
@@ -475,6 +491,12 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         row.setTransactionId(null);
         row.setCreatedBy(createdBy);
         accountingDueDao.insertLedgerEntry(row);
+
+        if (periodType == BkProcessAccountingPosted.PeriodType.RESEND_CONSOLIDATED
+                && bankProcess.getResendScheduleDayStart() != null
+                && bankProcess.getResendScheduleDayStart().equals(postedDate)) {
+            bankProcessResendService.clearOpenSchedule(bankProcessId, tenantId);
+        }
     }
 
     private Set<String> loadSettledKeys(Integer tenantId, LocalDate fromDate, LocalDate toDate) {

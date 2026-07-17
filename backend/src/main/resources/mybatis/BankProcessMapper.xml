@@ -24,6 +24,9 @@
         <result property="sop" column="sop"/>
         <result property="remark" column="remark"/>
         <result property="status" column="status" javaType="com.eazycount.entity.BankProcess$Status" jdbcType="VARCHAR"/>
+        <result property="resendScheduleDayStart" column="resend_schedule_day_start"/>
+        <result property="resendScheduleDayEnd" column="resend_schedule_day_end"/>
+        <result property="resendScheduleFrequency" column="resend_schedule_frequency"/>
         <result property="createdBy" column="created_by"/>
         <result property="updatedBy" column="updated_by"/>
         <result property="createdAt" column="created_at"/>
@@ -66,6 +69,9 @@
             <result property="sop" column="bp_sop"/>
             <result property="remark" column="bp_remark"/>
             <result property="status" column="bp_status" javaType="com.eazycount.entity.BankProcess$Status" jdbcType="VARCHAR"/>
+            <result property="resendScheduleDayStart" column="bp_resend_schedule_day_start"/>
+            <result property="resendScheduleDayEnd" column="bp_resend_schedule_day_end"/>
+            <result property="resendScheduleFrequency" column="bp_resend_schedule_frequency"/>
             <result property="createdBy" column="bp_created_by"/>
             <result property="updatedBy" column="bp_updated_by"/>
             <result property="createdAt" column="bp_created_at"/>
@@ -110,6 +116,9 @@
             bp.sop                  AS bp_sop,
             bp.remark               AS bp_remark,
             bp.status               AS bp_status,
+            bp.resend_schedule_day_start AS bp_resend_schedule_day_start,
+            bp.resend_schedule_day_end AS bp_resend_schedule_day_end,
+            bp.resend_schedule_frequency AS bp_resend_schedule_frequency,
             bp.created_by           AS bp_created_by,
             bp.updated_by           AS bp_updated_by,
             bp.created_at           AS bp_created_at,
@@ -155,6 +164,9 @@
             sop,
             remark,
             status,
+            resend_schedule_day_start,
+            resend_schedule_day_end,
+            resend_schedule_frequency,
             created_by,
             updated_by,
             created_at,

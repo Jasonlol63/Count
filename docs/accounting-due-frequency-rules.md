@@ -106,3 +106,57 @@
 - Once / Week / Day 表单禁用并不提交 `dayEnd`、`contract`。
 - 前端 Accounting Due 行键必须包含 process、period type 和 posted date，确保多账期（含 1st / Monthly / Week / Day）可独立选择、Skip 与 Refresh 恢复。
 - Day（`DAILY`）Billing Date 展示单日；Week（`WEEKLY`）展示 `start – end` 区间。
+- Resend（`RESEND_CONSOLIDATED`）：Week / Monthly / 1st 补单 Billing Date 同样展示 `start – end`；Once / Day 补单展示单日。
+
+## Resend（补单）
+
+Resend 在正常 Accounting Due **之外**追加一笔 make-up 账单。不修改合同 `dayStart` / `dayEnd` / `frequency`，不删除正常 ledger，不影响正常出账。
+
+实现隔离：`BankProcessResendService` / `BankProcessResendController` / `BankProcessResendDao`（与 CRUD、Accounting Due 分离）。
+
+### 通用（Phase 1）
+
+- API：`POST /api/bank-process/resend`，body 使用 `AccountingDueDTO`：`tenantId`、`bankProcessId`、`dayStart`、`dayEnd`、`frequency`。
+- 仅 `ACTIVE` 可 Resend。
+- 成功后写入 `bank_process.resend_schedule_*`（每个 process 最多一笔开放补单）。
+- Inbox 追加：`periodType = RESEND_CONSOLIDATED`。
+- **开放补单一律展示**：不因 `today` / `asOf`、未到期、创建月门槛等过滤；过去或未来 `dayStart` 只要 Resend 成功都会出现在 Accounting Due。
+- **同 process + 同 `dayStart`** 且补单仍在 Due（未 Post/Skip）→ 拒绝。
+- **同 process + 不同 `dayStart`** → 允许，**覆盖**旧开放补单（只保留最新）。
+- **不同 process** → 互不影响。
+- Skip 该 `RESEND_CONSOLIDATED` 时清除 `resend_schedule_*`；再次同锚点 Resend 会清除此前 `SKIPPED` make-up ledger。
+- **尚未实现**：Post 同日锁、Maintenance 清锁。
+
+### 1st of Every Month（已实现）
+
+- **必须**填 `dayStart` 与 `dayEnd`（缺一不可），且 `dayEnd >= dayStart`。
+- 补单窗口为整段 `[dayStart, dayEnd]`（可跨月），**不按自然月拆多笔**。
+
+### Monthly（已实现）
+
+- **只填** `dayStart`；`dayEnd` 禁用、不提交。
+- 补单窗口自动为 `[dayStart, dayStart + 1 month]`（与正常 Monthly 一期一致）。
+- 例：`dayStart = 6/20` → 补单 `6/20 – 7/20`，一笔 `RESEND_CONSOLIDATED`。
+- 同样不按创建日 / 未到期过滤，Resend 成功即进 Accounting Due。
+
+### Once（已实现）
+
+- Resend 产品规则与 Monthly 一致（只填 `dayStart`、冲突/覆盖/一律展示、`RESEND_CONSOLIDATED`）。
+- 窗口用 **Once 自己的单日逻辑**（不是 Monthly 的 +1 month）：`postedDate = billingStart = billingEnd = dayStart`。
+- 例：`dayStart = 6/20` → 补单单日 `6/20`。
+- 不套用正常 Once 的「未到 dayStart 不出」「早于创建月跳过」；Resend 成功即进 Due。
+
+### Week（已实现）
+
+- Resend 产品规则与 Monthly / Once 一致（只填 `dayStart`、冲突/覆盖/一律展示、只补一次）。
+- 窗口用 **Week 自己的一周逻辑**：`[dayStart, dayStart + 6]`（含首尾 7 天），`postedDate = dayStart`。
+- 例：`dayStart = 6/25` → 补单 `6/25 – 7/1`，一笔 `RESEND_CONSOLIDATED`。
+- Accounting Due **Billing Date** 与正常 Week 一致，展示 `start – end`（from – to）。
+- **不是**按正常 Week 从锚点滚到 today 出多周；只出用户本次选的这一周。
+
+### Day（已实现）
+
+- Resend 产品规则与 Monthly / Once 一致（只填 `dayStart`、冲突/覆盖/一律展示、只补一次）。
+- 窗口用 **Day 自己的单日逻辑**：`postedDate = billingStart = billingEnd = dayStart`。
+- 例：`dayStart = 6/25` → 补单单日 `6/25`。
+- **不是**按正常 Day 从锚点滚到 today 出多日；只出用户本次选的那一天。

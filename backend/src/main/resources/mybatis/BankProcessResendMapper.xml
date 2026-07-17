@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.BankProcessResendDao">
+
+    <update id="updateResendSchedule">
+        UPDATE bank_process
+        SET resend_schedule_day_start = #{resendScheduleDayStart},
+            resend_schedule_day_end = #{resendScheduleDayEnd},
+            resend_schedule_frequency = #{resendScheduleFrequency},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND tenant_id = #{tenantId}
+    </update>
+
+    <update id="clearResendSchedule">
+        UPDATE bank_process
+        SET resend_schedule_day_start = NULL,
+            resend_schedule_day_end = NULL,
+            resend_schedule_frequency = NULL,
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND tenant_id = #{tenantId}
+    </update>
+
+    <delete id="deleteSkippedResendConsolidated">
+        DELETE FROM bank_process_accounting_posted
+        WHERE tenant_id = #{tenantId}
+          AND bank_process_id = #{bankProcessId}
+          AND posted_date = #{postedDate}
+          AND period_type = 'RESEND_CONSOLIDATED'
+          AND outcome = 'SKIPPED'
+    </delete>
+
+</mapper>
