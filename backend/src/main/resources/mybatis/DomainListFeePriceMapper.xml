@@ -32,6 +32,14 @@
         ORDER BY d.tenant_type, r.sort_order
     </select>
 
+    <select id="findPriceByTenantTypeAndPeriod" resultType="java.math.BigDecimal">
+        SELECT price
+        FROM domain_list_fee_price
+        WHERE tenant_type = #{tenantType, typeHandler=com.eazycount.handler.TenantTypeHandler}
+          AND period = #{period}
+        LIMIT 1
+    </select>
+
     <insert id="insertDefaults">
         INSERT IGNORE INTO domain_list_fee_price (tenant_type, period, price)
         SELECT tt.tenant_type, rp.code, 0

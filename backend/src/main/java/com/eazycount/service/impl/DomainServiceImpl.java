@@ -13,6 +13,7 @@ import com.eazycount.dto.UserListDTO;
 import com.eazycount.entity.*;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
+import com.eazycount.service.DomainFeeChargeService;
 import com.eazycount.service.DomainService;
 import com.eazycount.util.DomainFeeSettingsMapper;
 
@@ -50,6 +51,9 @@ public class DomainServiceImpl implements DomainService {
 
     @Autowired
     private DomainListFeePriceDao domainListFeePriceDao;
+
+    @Autowired
+    private DomainFeeChargeService domainFeeChargeService;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -118,8 +122,11 @@ public class DomainServiceImpl implements DomainService {
                 throw new BusinessException("Share type is required");
             }
 
+            boolean isProfit = row.getShareType() == TenantFeeShareAllocate.ShareType.PROFIT;
+
             if (row.getOwnerType() == null || row.getOwnerType().isBlank()) {
-                row.setOwnerType("owner");
+                // Profit = C168's retained cut ("owner"); Sales/CS/IT = staff commission ("user").
+                row.setOwnerType(isProfit ? "owner" : "user");
             } else {
                 row.setOwnerType(row.getOwnerType().trim().toLowerCase());
             }
@@ -140,10 +147,23 @@ public class DomainServiceImpl implements DomainService {
                 if (row.getPartnerTenantId() == null || row.getPartnerTenantId() <= 0) {
                     throw new BusinessException("Partner tenant is required for group fee share");
                 }
-            } else if (!"owner".equals(row.getOwnerType()) && !"user".equals(row.getOwnerType())) {
+            } else if ("owner".equals(row.getOwnerType())) {
+                if (!isProfit) {
+                    throw new BusinessException(
+                            row.getShareType() + " share must use owner_type=user (commission earner), not owner");
+                }
+                if (row.getAccountId() == null || row.getAccountId() <= 0) {
+                    throw new BusinessException("Account is required for fee share allocation");
+                }
+            } else if ("user".equals(row.getOwnerType())) {
+                if (isProfit) {
+                    throw new BusinessException("Profit share must use owner_type=owner (C168), not user");
+                }
+                if (row.getAccountId() == null || row.getAccountId() <= 0) {
+                    throw new BusinessException("Account is required for fee share allocation");
+                }
+            } else {
                 throw new BusinessException("Owner type must be owner, user, or group");
-            } else if (row.getAccountId() == null || row.getAccountId() <= 0) {
-                throw new BusinessException("Account is required for fee share allocation");
             }
 
             totalsByShareType.merge(row.getShareType(), percentage, BigDecimal::add);
@@ -436,6 +456,14 @@ public class DomainServiceImpl implements DomainService {
             if (tenant.getFeeShareAllocations() != null) {
                 replaceFeeShareAllocations(tenantId, tenant.getFeeShareAllocations());
             }
+
+            // Domain Confirm "Charge on Save" — reads whatever allocation is now persisted for
+            // this tenant (just replaced above, or already saved from a previous edit).
+            findTenantOwner.setChargeDomainFeeOnConfirm(tenant.getChargeDomainFeeOnConfirm());
+            findTenantOwner.setDomainFeePeriod(tenant.getDomainFeePeriod());
+            domainFeeChargeService.chargeDomainFeeIfRequested(findTenantOwner);
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             throw new BusinessException("Update Tenant Failed!");
         }

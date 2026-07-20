@@ -4,7 +4,7 @@
 > **后端契约说明**见同目录 [`login-to-business-pages.md`](./login-to-business-pages.md)。  
 > **前端仓库路径**：`../Count-frontend/`（与本 `Count/` 后端仓库并列）。
 
-**最后更新**：2026-07-20（Account 页面全量 Spring + Transaction BP-only + UPLINE→SUPPLIER）
+**最后更新**：2026-07-20（Domain Share % Add Account tenant 对齐 + Domain 页全量 Spring + Account 页面全量 Spring + Share % owner_type/Profit percentage 业务对齐 + Domain Confirm Charge on Save 记账落地）
 
 ---
 
@@ -23,6 +23,7 @@
 11. [Transaction BP-only 列表（2026-07-20）](#11-transaction-bp-only-列表2026-07-20)
 12. [彻底去除 UPLINE 账户角色（2026-07-20）](#12-彻底去除-upline-账户角色2026-07-20)
 13. [Account List 全量 Spring（2026-07-20）](#13-account-list-全量-spring2026-07-20)
+14. [Domain Share % Add Account tenant 对齐（2026-07-20）](#14-domain-share--add-account-tenant-对齐2026-07-20)
 
 ---
 
@@ -135,9 +136,40 @@ res.success === true || res.status === "success"
 
 | 文件 | 改动 |
 |------|------|
-| `pages/domain/domainApi.js` | 直调 `api/domain/list|add|update|update-setting` |
-| `pages/domain/domainHelpers.js` | `featureModules` ↔ UI permissions；`groupToTenantSaveEntry` / `companyToTenantSaveEntry` |
-| `pages/domain/DomainPage.jsx` 等 | 消费 aggregate 后的 owner+tenant 结构 |
+| `pages/domain/domainApi.js` | 直调 Spring：`list` / `add` / `update` / `update-setting` / `delete` / `list-fee` / `add-fee`；`aggregateOwnerTenantRows`；Share 账户复用 `account/list` |
+| `pages/domain/domainHelpers.js` | `featureModules` ↔ UI permissions；`feeShareSpringToUi` / `feeShareUiToSpring`（PROFIT→`owner`，SALES/CS/IT→`user`；Profit % 用 `distributeProfitPercentages` 现算remainder，不用 UI 原始值）；`groupToTenantSaveEntry` / `companyToTenantSaveEntry` |
+| `pages/domain/DomainPage.jsx` | 列表/删除/续费价摘要走 `domainApi.js`（**不再** `domain_api.php`） |
+| `pages/domain/components/DomainFormModal.jsx` | create/update + `syncAllTenantSettings`；编辑回填用 list 行 `companies_full` / `groups_full` |
+| `pages/domain/components/DomainFeeModal.jsx` | `list-fee` / `add-fee` |
+| `pages/domain/components/CompanySettingsModal.jsx` | Share 账户 `fetchShareAccountsForTenant`；持久化 `update-setting`；Add Account 传 `shareLedgerTenantId` |
+| `pages/domain/components/AddAccountModal.jsx` | Share % **Add Account** 全 Spring：复用 `accountListApi` + `currencyApi`；scope = C168 `tenant.id` |
+
+**Spring 契约（Domain）**
+
+| 操作 | API | 说明 |
+|------|-----|------|
+| List | `POST /api/domain/list` | 扁平 `OwnerTenantDTO[]` → 前端 aggregate 为 owner 行 |
+| Add | `POST /api/domain/add` | `DomainDTO` + `Tenant` camelCase（`expirationDate`, `parentGroupCode`） |
+| Update 骨架 | `PUT /api/domain/update` | 增删改 tenant 结构；**不含** featureModules / feeShare |
+| Update 设置 | `PUT /api/domain/update-setting` | `Tenant`：`featureModules[]`, `feeShareAllocations[]`, `expirationDate`, `code` |
+| Delete | `POST /api/domain/delete` | body `{ id }`（owner id） |
+| List fee | `POST /api/domain/list-fee` | `data[0]` = `DomainFeeSettingsDTO`（`company_period_prices` / `group_period_prices`） |
+| Save fee | `POST /api/domain/add-fee` | 同上 DTO |
+
+**Confirm 流程**：`add`/`update` 骨架成功后，前端对每个 group/company 调 `update-setting` 写入 permissions + Share %。
+
+**Share % 账户 ledger（C168）**
+
+| 项 | 约定 |
+|----|------|
+| Tenant 解析 | `resolveShareLedgerTenantId(me)` / `resolveShareLedgerTenantCode(me)`（`domainApi.js`） |
+| Session 来源 | `SessionUser.tenant_id` / `tenant_code`（**非** `company_id`）；fallback 从 owner companies 找 code=`C168` |
+| 列表 | `POST /api/account/list?tenant_id=` → `fetchShareAccountsForTenant` |
+| Add Account | `POST /api/account/add` body `UserListDTO`：`scopeTenantId` + `currencyIds[]` |
+| 币种 | `POST /api/currency/available?tenant_id=` / `add` / `delete` |
+| UI pill | AccountModal 仍显示 “Company” 标签，但 picker `id` = **`tenant.id`**，`company_id` 列 = **tenant code** |
+
+**Domain Confirm 写 Transaction**（`apply_commission_payments_on_domain_save` / Charge on Save）已实现：详见 [`login-to-business-pages.md` §4.5.1](./login-to-business-pages.md#451-domain-confirm-charge-on-save--写-transactions2026-07-20)。开关本身仍只是 UI 本地状态（不落 `tenant` 表），随 Domain Confirm 一次性提交给 `PUT /update-setting`，记账成功与否都不需要显式重置——下次重新拉取数据天然是关闭的。
 
 ### 4.3 Admin (User List)
 
@@ -161,7 +193,7 @@ res.success === true || res.status === "success"
 |------|-----|------|
 | List | `POST /api/account/list?tenant_id=` | `company.id` = `tenant.id`；无 search query → `filterAccountListRows` |
 | Add | `POST /api/account/add` | body `UserListDTO` camelCase；`currencyIds[]` 一并写入 |
-| Update | `POST /api/account/update` | 含 `currencyIds[]`（服务端先删后插 account_currency） |
+| Update | `POST /api/account/update` | 含 `currencyIds[]`；**password 省略或留空 → 保留原密码** |
 | Status | `POST /api/account/updateStatus` | `{ id, scopeTenantId }` |
 | Delete | `POST /api/account/delete` | 须 INACTIVE；多选前端循环 |
 | Payment alert | `POST /api/account/update` | 无独立 toggle；toggle 时带当前 `currencyIds` |
@@ -895,7 +927,7 @@ WHERE UPPER(TRIM(`role`)) = 'UPLINE';
 | `bankProcessHelpers.js` | `BANK_PICK_ACCOUNT_ROLES` 去掉 `UPLINE` |
 | `transactionPaymentLogic.js` | role CSS class：`supplier` → `transaction-role-supplier` |
 | `transactionAccountHelpers.js` | Category 列表无 UPLINE 过滤/映射 |
-| `AddAccountModal.jsx` | 默认 role 直接 `SUPPLIER`，不再写 `UPLINE` |
+| `AddAccountModal.jsx`（Domain Share %） | 默认 role：`profit→PROFIT`，`sales/cs/it→STAFF`；scope 为 C168 `tenant.id` |
 | `accountTranslate.js` | 删除 `upline` i18n key（保留 `supplier`） |
 | CSS | `account-role-supplier`、`transaction-role-supplier`、`category-tag[data-category-value="SUPPLIER"]`；**删除** `*-upline` / `UPLINE` category 规则 |
 
@@ -942,7 +974,97 @@ Add/Update body 见 §4.4；校验错误直接展示 Spring `message`。
 
 ### 13.4 Roles meta
 
-无 Spring roles 接口；`deriveAccountRolesFromRows` 从当前 tenant list 提取 + `ROLE_PRIORITY` 排序。
+无 Spring roles 接口。Add/Edit modal 使用 **`ACCOUNT_LEDGER_ROLES`**（与后端 `UserServiceImpl.ALLOWED_ACCOUNT_LEDGER_ROLES` 一致）作为完整下拉选项；`deriveAccountRolesFromRows` 仍用于列表排序等，**不再**限制 modal 只显示 tenant 内已存在的 role。
+
+---
+
+## 14. Domain Share % Add Account tenant 对齐（2026-07-20）
+
+> **背景**：Share % 的账户始终建在 **C168 ledger tenant**（非正在编辑的 domain tenant）。  
+> **问题**：弹窗仍读 `me.company_id`（Spring session 为 `tenant_id`）→ `tenantId` 为空 → “Please select a company first”。  
+> **原则**：与 §13 Account List 相同——**picker `company.id` = `tenant.id`**，写操作带 **`scopeTenantId`**。
+
+### 14.1 Tenant 解析
+
+| 函数 | 文件 | 说明 |
+|------|------|------|
+| `resolveShareLedgerTenantId(me)` | `domainApi.js` | 优先 `SessionUser.tenant_id`（当前为 C168）；否则 owner companies 中 code=`C168` 的 `id` |
+| `resolveShareLedgerTenantCode(me)` | `domainApi.js` | 展示用 tenant code，默认 `C168` |
+| `getSessionTenantId(me)` | `sessionTenant.js` | `tenant_id ?? company_id`（兼容旧字段） |
+
+**调用链**：`DomainPage` / `AutoRenewPage` → `DomainFormModal` → `CompanySettingsModal` → `AddAccountModal`  
+Props 命名：**`shareLedgerTenantId` / `shareLedgerTenantCode`**（不再使用 `sessionCompanyId`）。
+
+### 14.2 Add Account API 映射
+
+| UI 动作 | Spring API | Body / Query |
+|---------|------------|--------------|
+| 打开弹窗 — 角色 | （无 API） | 客户端 `getAccountModalOrderedRoles` → 完整 `ACCOUNT_LEDGER_ROLES`（12 项，对齐后端白名单） |
+| 打开弹窗 — 币种 | `POST /api/currency/available?tenant_id=` | — |
+| 创建币种 | `POST /api/currency/add` | `{ tenantId, code }` |
+| 删除币种 | `POST /api/currency/delete?id=&tenantId=` | — |
+| 保存账号 | `POST /api/account/add` | `UserListDTO` camelCase（见下） |
+
+**`POST /api/account/add` body（与 Account List 一致）**
+
+```json
+{
+  "accountId": "STAFF01",
+  "name": "Sales A",
+  "role": "STAFF",
+  "password": "…",
+  "remark": "",
+  "paymentAlert": 0,
+  "alertDay": null,
+  "alertSpecificDate": null,
+  "alertAmount": null,
+  "scopeTenantId": 123,
+  "currencyIds": [1, 2]
+}
+```
+
+- `scopeTenantId` = C168 **`tenant.id`**（数字）。
+- **不再**调用 PHP `addaccountapi.php` / `account_currency_api.php` / `account_company_api.php`。
+- Spring create **单 tenant**；Share % 场景固定 C168，无 `company_ids[]` 多选。
+
+### 14.3 Share 卡片 role → account.role
+
+| Share % UI 卡片 | 新建账号默认 `role` | Share picker 过滤 |
+|-----------------|---------------------|-------------------|
+| Profit | `PROFIT` | `PROFIT` 或 account_id=`PROFIT` |
+| Sales / CS / IT | `STAFF` | `STAFF` / `AGENT` |
+
+Fee share 持久化仍用 `feeShareUiToSpring` 的 `shareType`（`SALES`/`CS`/`IT`/`PROFIT`）——与 **account.role** 是不同字段。
+
+### 14.4 改动文件
+
+| 文件 | 改动 |
+|------|------|
+| `domainApi.js` | `resolveShareLedgerTenantId` / `resolveShareLedgerTenantCode` |
+| `DomainPage.jsx` | 传 `shareLedgerTenantId/Code`（`resolveShareLedger*`） |
+| `AutoRenewPage.jsx` | 同上（共用 `CompanySettingsModal`） |
+| `DomainFormModal.jsx` | props 重命名并向下传递 |
+| `CompanySettingsModal.jsx` | Share 列表 + Add Account 使用 `shareLedgerTenantId` |
+| `AddAccountModal.jsx` | props `tenantId`/`tenantCode`；全 Spring account/currency API |
+
+### 14.5 验证清单
+
+1. Domain → Edit → Company Settings → Share % → **+** 打开 Add Account：**无** “Please select a company first”。
+2. Company pill 预选 **C168**（或当前 C168 tenant code）。
+3. Role 下拉含 `STAFF`/`PROFIT` 等；Profit 卡片默认 `PROFIT`，Sales 默认 `STAFF`。
+4. 保存后 `POST /api/account/add` 成功；Share % 下拉刷新可见新账号。
+5. Network 面板：**无** `api/accounts/*.php` 请求。
+
+### 14.6 Share % owner_type / Profit percentage 业务对齐（2026-07-20）
+
+> **背景**：Save 时 `feeShareUiToSpring` 之前把所有卡片都写成 `ownerType: "owner"`，且 Profit 卡片没有 % 输入框，导致存入 `tenant_fee_share_allocation` 的 Profit `percentage` 永远是 `0`。按用户业务定义修正：
+
+- **Profit** = C168 从 Domain fee 里留存的部分 → `ownerType: "owner"`。
+- **Sales / CS / IT** = 该公司内部人员从 C168 应付款中抽取的 Commission → `ownerType: "user"`。
+- **Profit 的 percentage** = `100 - (sales% + cs% + it%)`，多个 Profit 账号时按剩余份额均分；由新增的 `domainHelpers.distributeProfitPercentages(fsa)` 在 Save 时现算，`feeShareUiToSpring` 按行 index 对齐写入，不再依赖 UI 状态里从未被填写过的 `percentage` 字段。
+- 后端 `DomainServiceImpl.validateAndPrepareFeeShareRows` 新增一致性校验：`PROFIT` 行的 `owner_type` 必须是 `owner`；`SALES/CS/IT` 行必须是 `user`；不满足则 `BusinessException`（`owner_type: "group"` 仍保留用于未来跨 tenant 分账，不受此规则约束）。
+- **改动文件**：`Count-frontend/src/pages/domain/domainHelpers.js`（新增 `distributeProfitPercentages`，`computeShareTotals` 复用，重写 `feeShareUiToSpring`）；`backend/src/main/java/com/eazycount/service/impl/DomainServiceImpl.java`（`validateAndPrepareFeeShareRows`）。
+- **遗留待办**（未实现，仅存分配比例）：实际扣款/入账逻辑——从公司账户扣钱、按比例写入 Sales/CS/IT 及 C168 Profit 的交易台账。这是用户描述的完整业务闭环里尚未开发的部分。
 
 ---
 
@@ -953,6 +1075,7 @@ Count-frontend/src/utils/core/apiUrl.js          # PHP → Spring URL 重写表
 Count-frontend/src/utils/company/tenantAccessibleApi.js
 Count-frontend/src/utils/auth/sessionTenant.js
 Count-frontend/src/pages/domain/domainApi.js
+Count-frontend/src/pages/domain/components/AddAccountModal.jsx
 Count-frontend/src/pages/userlist/userListApi.js
 Count-frontend/src/pages/account/accountListApi.js
 Count-frontend/src/utils/api/currencyApi.js

@@ -240,6 +240,39 @@ tenant → tenant_feature_module
 
 GROUP 若无 featureModules，自动确保默认 module（id=1）。
 
+**Share % 业务语义**（`tenant_fee_share_allocation.owner_type`）：
+
+- `PROFIT`（Profit 卡片）= C168 留存的 Domain fee，`owner_type` 固定为 `"owner"`。
+- `SALES` / `CS` / `IT`（Commission 卡片）= 从当前公司应付款中扣给内部人员的佣金，`owner_type` 固定为 `"user"`。
+- Profit 卡片在前端没有百分比输入框（只显示只读金额），其 `percentage` = `100 - (sales% + cs% + it%)`，多个 Profit 账号时按剩余份额均分（`domainHelpers.distributeProfitPercentages`）。保存时前端会即时算出该值再写入 `feeShareUiToSpring` 的结果，**不是** 用户手填的原始值。
+- 后端 `DomainServiceImpl.validateAndPrepareFeeShareRows` 强制校验：`PROFIT` 只能是 `owner`，`SALES/CS/IT` 只能是 `user`（`group` + `partner_tenant_id` 仍保留给未来跨 tenant 分账场景，未与此规则冲突）。
+
+### 4.5.1 Domain Confirm "Charge on Save" → 写 `transactions`（2026-07-20）
+
+> 触发点是 **Domain 主弹窗 Confirm**（`DomainFormModal.handleSubmit` → `syncAllTenantSettings` → 逐 tenant 调 `PUT /update-setting`），**不是** Company Settings 弹窗内的 Save。Company Settings 的 Save 只把 `apply_commission_payments_on_domain_save`（Charge on Save 开关）和 `selectedPeriod` 记进本地 tempCompany/tempGroup 状态，随 Domain Confirm 一起提交。
+
+请求新增字段（`Tenant` 上的瞬态字段，**不落 `tenant` 表**，只用于这一次请求触发记账）：
+
+| JSON 字段 | 说明 |
+|---|---|
+| `chargeDomainFeeOnConfirm` | `true` 才记账；前端只在 `apply_commission_payments_on_domain_save` 为真时才带上此字段 |
+| `domainFeePeriod` | 续期周期 code（`7days`/`1month`/`3months`/`6months`/`1year`），用于查 `domain_list_fee_price` |
+
+**业务规则**（`DomainFeeChargeService` / `DomainFeeChargeServiceImpl`）：
+
+- 付款方 = 当前 tenant（如 `OK1`），记账金额 = `domain_list_fee_price`（按 tenant_type + period）。
+- 全部写在 **C168 ledger tenant**，币种固定 **MYR**（`currency.code = 'MYR'` under C168）。
+- 全部使用 `transaction_type = PAYMENT`（Cr/Dr 台账，**不是** WIN/LOSE）：每条一行，`account_id` = 付款方账号（To，Cr/Dr 为负），`from_account_id` = 收款方账号（From，Cr/Dr 为正），`amount` 存正数。
+- 付款方账号 = C168 ledger 下 `account_id` 等于付款 tenant code 的账号；C168（Profit）收款账号固定解析 code `"C168"`（fallback `"PROFIT"`）。
+- 无 Commission 时：一行 PAYMENT，付款方 → C168，`description = "Pay Domain Fee"`。
+- 有 Commission 时：每个 `SALES/CS/IT`（`percentage > 0`）一行 PAYMENT，付款方 → 对应 commission 账号，金额 = `domainFeeAmount × percentage / 100`，`description = "{SHARE_TYPE} COMMISSION FROM {付款方 code}"`；remainder 再一行 PAYMENT 付款方 → C168，`description = "NET PROFIT FROM {付款方 code}"`。
+- 若该 tenant 从未配置过 Profit（`tenant_fee_share_allocation` 无 `PROFIT` 行）→ 直接 `BusinessException`，**拒绝记账**（Save 时也已要求必须有 Profit）。
+- 记账成功后不需要显式"关闭"开关——`chargeDomainFeeOnConfirm` 从不落库，前端每次重新拉取 tenant 都不会带上一次的开关状态，天然默认关闭。
+
+**改动文件**：`entity/Tenant.java`（新增两个瞬态字段）、`service/DomainFeeChargeService.java` + `impl/DomainFeeChargeServiceImpl.java`（新建）、`service/impl/DomainServiceImpl.java`（`updateTenantDetailsSetting` 末尾调用 + 保留 `BusinessException` 原始 message）、`dao/DomainListFeePriceDao.java` + Mapper（`findPriceByTenantTypeAndPeriod`）、`dao/UserDao.java` + `AccountMapper.xml`（`findAccountIdByTenantIdAndCode`）；前端 `pages/domain/domainApi.js`（`updateTenantSetting` / `syncAllTenantSettings` 新增两个字段）。
+
+**遗留待办**：Sales/CS/IT 各 share_type 目前只保证「单个 share_type 总和 ≤100%」，未校验三者合计 + Profit 是否超过 100%（沿用 UI `computeShareTotals` 的既有 clamp 逻辑，Profit remainder 会被 clamp 到 0，不是新增限制）。
+
 ### 4.6 全局费用 `list-fee` / `add-fee`
 
 - 表：`domain_list_fee_price` + `renewal_period`

@@ -18,6 +18,9 @@ public interface UserDao {
 
     List<Integer> findTenantIdsByUserId(@Param("id") int id);
 
+    /** account.id for one tenant + account_id code (case-insensitive) — Domain Fee charge payer/profit account lookup. */
+    Integer findAccountIdByTenantIdAndCode(@Param("tenantId") int tenantId, @Param("code") String code);
+
     void addUserDetails(User user);
 
     void insertAccountTenantAccess(UserTenantAccess userTenantAccess);

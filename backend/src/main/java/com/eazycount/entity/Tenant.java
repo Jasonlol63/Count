@@ -48,6 +48,18 @@ public class Tenant {
 
     private TenantStatus status;
 
+    /**
+     * Domain Confirm "Charge on Save" trigger — not a column on {@code tenant}.
+     * When true on an {@code update-setting} request, the saved Share % allocation
+     * is charged against the Domain Fee for {@link #domainFeePeriod} and posted to
+     * the C168 ledger as {@code transactions}. Never persisted; always false again
+     * on the next read since it only exists for the duration of that one request.
+     */
+    private Boolean chargeDomainFeeOnConfirm;
+
+    /** Renewal period code (e.g. "1year") used to look up the Domain Fee price when charging. Not persisted. */
+    private String domainFeePeriod;
+
     private String createdBy;
 
     private LocalDateTime createdAt;

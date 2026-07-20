@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.TransactionDao">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO transactions (
+            tenant_id,
+            transaction_type,
+            account_id,
+            from_account_id,
+            currency_id,
+            amount,
+            transaction_date,
+            description,
+            remark,
+            created_by,
+            updated_by,
+            approval_status,
+            approved_by,
+            approved_at,
+            bank_process_posted_id
+        ) VALUES (
+            #{tenantId},
+            #{transactionType},
+            #{accountId},
+            #{fromAccountId},
+            #{currencyId},
+            #{amount},
+            #{transactionDate},
+            #{description},
+            #{remark},
+            #{createdBy},
+            #{updatedBy},
+            #{approvalStatus},
+            #{approvedBy},
+            #{approvedAt},
+            #{bankProcessPostedId}
+        )
+    </insert>
+
+    <select id="aggregateBankProcessWinLoss" resultType="com.eazycount.dto.TransactionDTO$SearchAggregateRow">
+        SELECT
+            a.id AS accountDbId,
+            a.account_id AS accountCode,
+            a.name AS accountName,
+            a.role AS role,
+            UPPER(c.code) AS currencyCode,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &lt; #{dateFrom} THEN
+                        CASE WHEN t.transaction_type = 'WIN' THEN t.amount ELSE -t.amount END
+                    ELSE 0
+                END
+            ), 0) AS bfAmount,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN
+                        CASE WHEN t.transaction_type = 'WIN' THEN t.amount ELSE -t.amount END
+                    ELSE 0
+                END
+            ), 0) AS winLossAmount,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN 1
+                    ELSE 0
+                END
+            ), 0) AS periodTxnCount
+        FROM transactions t
+        INNER JOIN account a ON a.id = t.account_id
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        WHERE t.tenant_id = #{tenantId}
+          AND t.bank_process_posted_id IS NOT NULL
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_type IN ('WIN', 'LOSE')
+        <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+            AND UPPER(c.code) IN
+            <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                UPPER(#{code})
+            </foreach>
+        </if>
+        <if test="categories != null and categories.size() &gt; 0">
+            AND UPPER(a.role) IN
+            <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                UPPER(#{cat})
+            </foreach>
+        </if>
+        GROUP BY a.id, a.account_id, a.name, a.role, c.code
+        ORDER BY currencyCode ASC, accountCode ASC
+    </select>
+
+    <select id="aggregateBankProcessBfByAccount" resultType="com.eazycount.dto.TransactionDTO$HistoryBfAggregateRow">
+        SELECT
+            UPPER(c.code) AS currencyCode,
+            COALESCE(SUM(
+                CASE WHEN t.transaction_type = 'WIN' THEN t.amount ELSE -t.amount END
+            ), 0) AS bfAmount
+        FROM transactions t
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        WHERE t.tenant_id = #{tenantId}
+          AND t.account_id = #{accountId}
+          AND t.bank_process_posted_id IS NOT NULL
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_type IN ('WIN', 'LOSE')
+          AND t.transaction_date &lt; #{dateFrom}
+        <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+            AND UPPER(c.code) IN
+            <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                UPPER(#{code})
+            </foreach>
+        </if>
+        GROUP BY c.code
+        ORDER BY currencyCode ASC
+    </select>
+
+    <select id="findBankProcessHistoryLines" resultType="com.eazycount.dto.TransactionDTO$HistoryLineRow">
+        SELECT
+            t.id AS id,
+            t.transaction_type AS transactionType,
+            t.amount AS amount,
+            t.transaction_date AS transactionDate,
+            t.description AS description,
+            t.remark AS remark,
+            t.created_by AS createdBy,
+            t.created_at AS createdAt,
+            UPPER(c.code) AS currencyCode,
+            bp.card_owner AS cardOwner
+        FROM transactions t
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        INNER JOIN bank_process_accounting_posted bpap ON bpap.id = t.bank_process_posted_id
+        INNER JOIN bank_process bp ON bp.id = bpap.bank_process_id
+        WHERE t.tenant_id = #{tenantId}
+          AND t.account_id = #{accountId}
+          AND t.bank_process_posted_id IS NOT NULL
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_type IN ('WIN', 'LOSE')
+          AND t.transaction_date &gt;= #{dateFrom}
+          AND t.transaction_date &lt;= #{dateTo}
+        <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+            AND UPPER(c.code) IN
+            <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                UPPER(#{code})
+            </foreach>
+        </if>
+        ORDER BY t.created_at ASC, t.id ASC
+    </select>
+
+</mapper>

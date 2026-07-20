@@ -43,4 +43,5 @@ public interface DomainDao {
     void deleteFeatureModulesByTenantId(@Param("tenantId") Integer tenantId);
 
     void batchInsertFeatureModules(@Param("list") List<TenantFeatureModule> list);
+
 }

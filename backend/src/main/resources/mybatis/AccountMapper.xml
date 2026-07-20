@@ -79,6 +79,15 @@
         WHERE account_id = #{id}
     </select>
 
+    <select id="findAccountIdByTenantIdAndCode" resultType="int">
+        SELECT a.id
+        FROM account a
+        INNER JOIN account_tenant_access ata ON ata.account_id = a.id
+        WHERE ata.tenant_id = #{tenantId}
+          AND UPPER(TRIM(a.account_id)) = UPPER(TRIM(#{code}))
+        LIMIT 1
+    </select>
+
     <insert id="addUserDetails" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO account (
             account_id, name, role, password, status, created_source,
