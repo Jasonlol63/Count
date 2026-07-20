@@ -19,4 +19,11 @@ public interface AccountingDueDao {
     void insertLedgerEntry(BkProcessAccountingPosted row);
 
     int deleteSkippedInRange(@Param("tenantId") Integer tenantId, @Param("fromDate") LocalDate fromDate, @Param("toDate") LocalDate toDate);
+
+    /** Count POSTED rows that are not compensation ({@code COMPENSATION}). */
+    int countNormalPosted(@Param("tenantId") Integer tenantId, @Param("bankProcessId") Integer bankProcessId);
+
+    /** Count compensation txn lines already written for this bank process (Case A or B). */
+    int countCompensationTransactions(@Param("tenantId") Integer tenantId,
+                                      @Param("bankProcessId") Integer bankProcessId);
 }

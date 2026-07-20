@@ -4,7 +4,7 @@
 > **后端契约说明**见同目录 [`login-to-business-pages.md`](./login-to-business-pages.md)。  
 > **前端仓库路径**：`../Count-frontend/`（与本 `Count/` 后端仓库并列）。
 
-**最后更新**：2026-07-15（Login/permission/logout：前端彻底去掉 PHP session 路径，统一 `utils/auth/authApi.js` → `/auth/*`）
+**最后更新**：2026-07-20（Account 页面全量 Spring + Transaction BP-only + UPLINE→SUPPLIER）
 
 ---
 
@@ -20,6 +20,9 @@
 8. [维护约定](#8-维护约定)
 9. [Process List 专项（2026-07-14）](#9-process-list-专项2026-07-14)
 10. [Bank Process List 专项（2026-07-15）](#10-bank-process-list-专项2026-07-15)
+11. [Transaction BP-only 列表（2026-07-20）](#11-transaction-bp-only-列表2026-07-20)
+12. [彻底去除 UPLINE 账户角色（2026-07-20）](#12-彻底去除-upline-账户角色2026-07-20)
+13. [Account List 全量 Spring（2026-07-20）](#13-account-list-全量-spring2026-07-20)
 
 ---
 
@@ -58,14 +61,14 @@ res.success === true || res.status === "success"
 | **Tenant 列表** | ✅ 已迁移 | `GET /auth/tenant-accessible` | `tenantAccessibleApi.js` |
 | **Domain** | ✅ 已迁移 | `/api/domain/*` | `domainApi.js` + `domainHelpers.js` |
 | **Admin (User List)** | ✅ 已迁移 | `/api/userlist/*` | `userListApi.js` |
-| **Account (Member)** | ✅ 已迁移 | `/api/account/*` | `accountListApi.js` |
+| **Account (Member)** | ✅ 全量已迁移 | `/api/account/*` + `/api/currency/*` | `accountListApi.js` + `currencyApi.js`；`AccountListPage` 直调 Spring |
 | **Currency** | ✅ 已迁移 | `/api/currency/*` | `currencyApi.js` |
 | **Announcement / Maintenance** | ✅ 已迁移 | `/api/announcement/*` | `apiUrl.js` 重写（页面仍写 PHP 路径） |
 | **Auto Renew** | ⚠️ 部分 | `/api/auto-renew/*` | 列表经 `apiUrl` 重写；reject 等已直调 Spring |
 | **Ownership** | ✅ API 已迁移 + **数据层已对齐 Spring** | `/api/ownership/*` | `apiUrl.js` 重写 + `ownershipRowHelpers` normalize |
 | **Process** | ⚠️ 部分 | `/api/process/*` | **列表 + description CRUD + add/update/status/delete + Edit 回填** 已 Spring；form meta（`addprocess_api`）等仍混用 PHP |
 | **Bank Process** | ⚠️ 部分 | `/api/bank-process/*`、`/api/bank-country-option/*`、`/api/account/*` | **列表（含 shares）+ catalog + Add/Update/Status/Delete/Remark + Edit list 回填** 已 Spring；Due 仍 PHP |
-| **Transaction / Report / Data Capture / Member** | ❌ 大多仍 PHP | — | 未系统迁移 |
+| **Transaction / Report / Data Capture / Member** | ⚠️ 部分 | `/api/transaction/search` + `/api/transaction/history` + Meta | **Search + Payment History（BP）已 Spring**；Submit/Contra/Member export 仍 PHP |
 
 ---
 
@@ -147,8 +150,27 @@ res.success === true || res.status === "success"
 
 | 文件 | 改动 |
 |------|------|
-| `pages/account/accountListApi.js` | `api/account/list|add|update|delete`；`normalizeAccountListItem` |
-| `pages/account/AccountListPage.jsx` | 客户端 search/status 过滤（Spring list 暂无对应 query） |
+| `pages/account/accountListApi.js` | `list/add/update/updateStatus/delete`；link `GET link/list`、`POST link`、`PUT link`、`DELETE link/pair`；`normalizeAccountListItem`、`filterAccountListRows`、`accountRowToEditForm` |
+| `pages/account/accountLogic.js` | `fetchMergedAccounts` → Spring 多 tenant merge；`deriveAccountRolesFromRows`；`resolveGroupCodeToTenantId` |
+| `pages/account/accountRoutePrefetch.js` | 预热改走 `fetchFilteredAccountListByTenantId` |
+| `pages/account/AccountListPage.jsx` | **全页**直调 Spring：列表/CRUD/状态/付款提醒/币种/链接；Edit 自 list 行回填；search/status **客户端**过滤 |
+
+**Spring 契约（Account List）**：
+
+| 操作 | API | 说明 |
+|------|-----|------|
+| List | `POST /api/account/list?tenant_id=` | `company.id` = `tenant.id`；无 search query → `filterAccountListRows` |
+| Add | `POST /api/account/add` | body `UserListDTO` camelCase；`currencyIds[]` 一并写入 |
+| Update | `POST /api/account/update` | 含 `currencyIds[]`（服务端先删后插 account_currency） |
+| Status | `POST /api/account/updateStatus` | `{ id, scopeTenantId }` |
+| Delete | `POST /api/account/delete` | 须 INACTIVE；多选前端循环 |
+| Payment alert | `POST /api/account/update` | 无独立 toggle；toggle 时带当前 `currencyIds` |
+| Currencies (modal) | `POST /api/currency/available?tenant_id=&account_id=` | `currencyApi.fetchAvailableCurrencies` |
+| Currency CRUD | `POST /api/currency/add|delete` | Setting / modal 创建删除 |
+| Currency bulk link | `POST /api/currency/account/linked-accounts-update` | Currency Setting 弹窗 |
+| Account link | `GET /api/account/link/list` + `POST/PUT/DELETE` | 使用 **session.tenant_id**；query `tenant_id` 做权限校验 |
+
+**已知缺口**：Spring create/update 仅写 **单个** `scopeTenantId`（无 PHP `company_ids[]` 多租户）；Group list 需 `resolveGroupCodeToTenantId` 将 group code → group tenant.id。
 
 ### 4.5 Currency
 
@@ -354,7 +376,7 @@ Group 候选完全依赖 Spring `GET /api/ownership/available-accounts`。
 - **Report**：`api/reports/*`
 - **Data Capture / Summary**：`api/datacapture/*`、`api/summary/*`
 - **Bank Process List**：列表已 Spring；**写操作 / 国家银行选择 / Accounting Due / 账户弹窗**仍混用 `api/bankprocesses/*`、`api/accounts/*` PHP
-- **Member Win/Loss**：`api/member/*`、`api/accounts/account_company_api.php`
+- **Member Win/Loss**：`api/member/*`（账户 meta 可复用 `/api/account/list`）
 - **Maintenance 业务页**（formula/transaction/payment 等）：仍 PHP
 - **User Access 部分接口**
 
@@ -597,10 +619,330 @@ URL **不**带 `tenant_id` / `id`。`ProcessListPage` 的 `loadFormMeta` / `relo
 
 ### 10.4 尚未 Spring（仍 PHP）
 
-- Accounting Due post-to-transaction
+- （Bank Process Accounting Due post-to-transaction 已迁 Spring，见 10.3.7）
+
+### 10.3.7 Accounting Due Post to Transaction（2026-07-20）
+
+| 项 | 约定 |
+|----|------|
+| API | `POST /api/bank-process/accounting-due/post`，body 与 skip 同形 |
+| 1st of every month | `FIRST_MONTH` / `PARTIAL_FIRST_MONTH` / `FULL_MONTH` / `DAY_END_TAIL`；Partial/Tail 按天数比例 |
+| Monthly | `MONTHLY` only；**全额** |
+| Week | `WEEKLY` only；**全额**；Description `WEEK (dd/MM/yyyy - dd/MM/yyyy) @ amt \| bank` |
+| Day | `DAILY` only；**全额**；Description `DAY (dd/MM/yyyy) @ amt \| bank` |
+| Once | `ONCE_ONE_OFF`；**全额**；Description `ONCE (dd/MM/yyyy) @ amt \| bank`；Post/Skip 后 → `INACTIVE` |
+| 1+1 / 1+2 / 1+3 | 非 ACTIVE Post → 赔款 ×1/×2/×3 + `COMPENSATION …`；Case B 额外 `periodType=COMPENSATION`（锚点 dayStart，txn=today） |
+| 金额 | Buy→Supplier(WIN)、Sell→Customer(LOSE)、Profit→Company(WIN)；PS 可选 |
+| 分层 | `TransactionDao` 写 `transactions`；`AccountingDueService` 编排；ledger 仍走 `AccountingDueDao` |
+| 前端 | `bankProcessListApi.postAccountingDue`；`useBankProcessListPage.postAccountingToTransaction` |
+| 不再走 | `api/processes/process_post_to_transaction_api.php`（上述范围） |
+| Resend 进账 | `periodType=RESEND_CONSOLIDATED`；窗口=用户补单日期；1st 按月切段加总金额、一律 PRORATED desc；Once 补单不改 status；Post 后清 `resend_schedule_*` |
 
 **Bank Process → Add Account 弹窗（2026-07-15）**：已走 Spring  
 `POST /api/account/add|update`（`accountListApi`）、`/api/currency/available|add|delete`、`POST /api/account/list` 刷新下拉；`scopeTenantId` = 页内 tenant 数字 id；不再走 `addaccountapi.php` / `account_company_api` / `account_currency_api`。
+
+---
+
+## 11. Transaction BP-only 列表（2026-07-20）
+
+> **范围**：Transaction Payment 主列表先展示 **Bank Process Post 进账**（`transactions.bank_process_posted_id IS NOT NULL`）。  
+> **不含**：Data Capture、RATE、手动 Payment/Contra/PROFIT、Domain 虚拟行、Type Search、Submit、Contra Inbox。  
+> **原则**：已迁 Spring 的 Meta API **直接复用**；仅新增 **Search**（+ 后续 History）。
+
+### 11.1 API 分工一览
+
+| 页面能力 | 旧 PHP | Spring（复用 / 新建） | 说明 |
+|----------|--------|----------------------|------|
+| 公司 / Group pill | `get_owner_companies_api.php` | ✅ `GET /auth/tenant-accessible` | 已有 `tenantAccessibleApi.js` / `fetchOwnerCompaniesAll` |
+| 账户下拉 / 列表 meta | `get_accounts_api.php` | ✅ `POST /api/account/list?tenant_id=` | 已有 `accountListApi.fetchAccountListByTenantId`；前端加 `normalizeTransactionAccountOption` |
+| 币种 pill / 列 | `get_company_currencies_api.php` | ✅ `POST /api/currency/list?tenant_id=` | 已有 `currencyApi.fetchCurrencyListByTenantId` + `normalizeCurrencyRow` |
+| Group scope 币种 | `get_scope_account_currencies_api.php` | ⚠️ v1 仍用 `currency/list`（单 tenant） | Group 聚合列后续再扩 |
+| Category 下拉 | `get_categories_api.php` | ⚠️ v1 **前端**从 account list 去重 `role` | 新 schema 无独立 `role` 字典表；顺序沿用旧 priority 常量 |
+| 用户币种排序 | `user_currency_order_api.php` | ⚠️ v1 **localStorage** | `currencyDisplayOrder.js`；新 schema 用 `account_currency.sort_order`（按账户链，非用户级） |
+| **主列表 Search** | `search_api.php` | ✅ `POST /api/transaction/search` | BP WIN/LOSE 汇总 |
+| Payment History | `history_api.php` | ✅ `POST /api/transaction/history` | v1：单账户 BP 明细 + BF + `created_at` 升序 |
+| 手动提交 / Contra | `submit_api.php`、`contra_*` | — | 本期不做 |
+
+### 11.2 Meta 层复用约定
+
+**租户 scope**
+
+- Query / body 统一 `tenant_id` = UI 公司 pill 的数字 id（= `tenant.id`）。
+- v1 仅 **单 company tenant**；`view_group` / `group_aggregate` / `subsidiary_accounts_only` 先忽略（PHP 仍传，Spring 可忽略）。
+
+**账户 — 复用 `POST /api/account/list`**
+
+```javascript
+// 建议：Count-frontend/src/pages/transaction/lib/transactionAccountHelpers.js
+import { fetchAccountListByTenantId, normalizeAccountListItem } from "../../account/accountListApi.js";
+
+export function normalizeTransactionAccountOption(row) {
+  const a = normalizeAccountListItem(row);
+  if (!a) return null;
+  const code = String(a.account_id || "").trim();
+  const name = String(a.name || "").trim();
+  return {
+    id: a.id,
+    account_id: code,
+    name,
+    display_text: name ? `${code} (${name})` : code,
+    role: String(a.role || "").toUpperCase(),
+    currency: null, // v1：列币种由 search 行 + currency/list 决定，非账户首币
+    status: a.status,
+  };
+}
+```
+
+- 客户端过滤：`status=active`、可选 `role`（Category）— 与 PHP `get_accounts_api` 行为对齐。
+- 不再走 `get_accounts_api.php`；**勿**为 Transaction 单独复制 Account CRUD。
+
+**币种 — 复用 `POST /api/currency/list`**
+
+```javascript
+import { fetchCurrencyListByTenantId, normalizeCurrencyRow } from "../../../utils/api/currencyApi.js";
+// rows → normalizeCurrencyRow → orderCurrencyRows(localStorage order)
+```
+
+- 返回 UI 需 `{ code }`（`normalizeCurrencyRow` 已提供 `id` + `code`）。
+- 不再走 `get_company_currencies_api.php` / `get_scope_account_currencies_api.php`（v1）。
+
+**Category — v1 无新 API**
+
+- 从 `fetchAccountListByTenantId` 结果取 `role` 去重 + 固定 priority（CAPITAL, BANK, …）排序。
+- 过滤 Search 时传 `categories[]=BANK` → 后端按 `account.role` 过滤。
+
+### 11.3 Search API 契约（已实现 2026-07-20）
+
+**`POST /api/transaction/search`**
+
+Request body（camelCase）：
+
+```json
+{
+  "tenantId": 95,
+  "dateFrom": "01/07/2026",
+  "dateTo": "20/07/2026",
+  "currencyCodes": ["MYR"],
+  "categories": ["BANK", "SUPPLIER"]
+}
+```
+
+Response `data`：
+
+```json
+{
+  "rows": [
+    {
+      "accountId": 12,
+      "accountCode": "SUP001",
+      "accountName": "Supplier A",
+      "role": "SUPPLIER",
+      "currencyCode": "MYR",
+      "bf": "0.00",
+      "winLoss": "1000.00",
+      "crDr": "0.00",
+      "balance": "1000.00",
+      "hasWinLossInPeriod": true
+    }
+  ],
+  "totals": { "bf": "0.00", "winLoss": "1000.00", "crDr": "0.00", "balance": "1000.00" },
+  "activeCurrencyCodes": ["MYR"]
+}
+```
+
+前端 `transactionSearchNormalize.js` 将 `rows` 拆成 `left_table` / `right_table`（按 balance 正负），表格层无需改。
+
+**Meta 已切 Spring（同任务）**
+
+| 旧 PHP | 现前端 |
+|--------|--------|
+| `get_accounts_api.php` | `fetchAccountListByTenantId` + `transactionAccountHelpers` |
+| `get_company_currencies_api.php` | `fetchCurrencyListByTenantId` |
+| `get_categories_api.php` | 固定 priority 列表 `deriveCategoryList()` |
+| `user_currency_order_api.php` | localStorage only |
+
+Type Search / Capture-only / show 0 balance 等 **v1 未实现**；Search 固定走 Spring `POST /api/transaction/search`。
+
+### 11.6 Payment History API（已实现 2026-07-20）
+
+**`POST /api/transaction/history`**
+
+Request body（camelCase）：
+
+```json
+{
+  "tenantId": 95,
+  "accountId": 12,
+  "dateFrom": "01/07/2026",
+  "dateTo": "20/07/2026",
+  "currencyCodes": ["MYR"]
+}
+```
+
+- `tenantId` = UI `company.id`；`accountId` = `account.id`（Payment History scope 的 `account_db_id`）
+- `currencyCodes` 空数组 = 该账户区间内全部币种
+- 数据源：`transactions.bank_process_posted_id IS NOT NULL` + `APPROVED` + `WIN`/`LOSE` only
+
+Response `data`：
+
+```json
+{
+  "account": { "id": 12, "accountId": "BKCOM", "name": "BK COMPANY ACC" },
+  "dateRange": { "from": "01/07/2026", "to": "20/07/2026" },
+  "history": [
+    {
+      "rowType": "bf",
+      "date": "01-07-2026",
+      "currency": "MYR",
+      "balance": "0.00",
+      "description": "OPENING BALANCE"
+    },
+    {
+      "id": 101,
+      "isBankProcessTransaction": true,
+      "cardOwner": "TRAVELMINI SDN BHD",
+      "currency": "MYR",
+      "winLoss": "1000.00",
+      "crDr": "0.00",
+      "balance": "1000.00",
+      "description": "...",
+      "createdBy": "admin1"
+    }
+  ]
+}
+```
+
+**排序与余额**
+
+| 项 | 约定 |
+|----|------|
+| BF 行 | 每个币种一行 `rowType=bf`，排在明细前 |
+| 明细排序 | `transactions.created_at ASC, id ASC`（最早在上） |
+| `winLoss` | WIN 正、LOSE 负；BP v1 `crDr=0.00` |
+| `balance` | 按币种逐行滚动（含 BF） |
+
+前端 `transactionHistoryNormalize.js` → `getHistory()`；`TransactionHistoryTable` 无需改列。
+
+**v1 不做**：手动 Payment/Contra/RATE；`pure_type_search`；Member PDF export（仍 `history_api.php`）。
+
+### 11.7 前端改动（History）
+
+| 文件 | 改动 |
+|------|------|
+| `transactionHistoryNormalize.js` | Spring `HistoryResult` → 表格 snake_case 行 |
+| `transactionApi.js` | `getHistory` → `POST /api/transaction/history` |
+
+### 11.4 前端改动清单（BP-only v1）
+
+| 文件 | 改动 |
+|------|------|
+| `transactionApi.js` | Meta → Spring；Search → `POST /api/transaction/search`；History → `POST /api/transaction/history` |
+| `transactionHistoryNormalize.js` | Spring history → BF + 明细行 |
+| `transactionSearchNormalize.js` | Spring `rows` → `left_table` / `right_table`（balance 正负分列） |
+| `transactionAccountHelpers.js` | 账户 Meta normalize + Category priority |
+| `useTransactionSearch.js` | v1 跳过 zero-balance / payment / capture 展示过滤，直接渲染 API 行 |
+
+### 11.5 本期明确不做
+
+- Data Capture 行合并进 Search
+- RATE / `transaction_entry`
+- 手动 Payment、Contra、ADJUSTMENT、Domain 虚拟行
+- `type_account_search` / `type_transaction_search`
+- Member / PDF export 的 `history_api.php`（主 Payment History 页已 Spring）
+- `user_currency_order_api` 服务端持久化
+
+---
+
+## 12. 彻底去除 UPLINE 账户角色（2026-07-20）
+
+> **背景**：旧版 PHP 账户 role 曾使用 `UPLINE` 表示供应商；UI 选项已统一为 **`SUPPLIER`**。  
+> **目标**：代码、样式、API 校验与数据库中 **不再保留 `UPLINE` 作为 account.role**；历史脏数据一次性迁移为 `SUPPLIER`。
+
+### 12.1 范围说明
+
+| 属于本项（account.role） | **不属于**本项 |
+|--------------------------|----------------|
+| `account.role` 字段读写与展示 | Data Capture 报表里的 **「Upline Payment」** 段落（Citibet 粘贴解析术语） |
+| Category 下拉、role badge CSS、Bank Process 选账户 role 列表 | 业务英文单词 upline（上下级关系描述） |
+
+### 12.2 数据库迁移（部署必跑）
+
+脚本：[`backend/src/main/resources/sql/migrate_upline_role_to_supplier.sql`](../backend/src/main/resources/sql/migrate_upline_role_to_supplier.sql)
+
+```sql
+UPDATE `account`
+SET `role` = 'SUPPLIER'
+WHERE UPPER(TRIM(`role`)) = 'UPLINE';
+```
+
+- 每个环境 **执行一次** 即可。
+- 迁移后：`SELECT DISTINCT role FROM account WHERE UPPER(role) LIKE '%UPLINE%'` 应无结果。
+
+### 12.3 后端约定
+
+| 项 | 约定 |
+|----|------|
+| 合法 role 白名单 | `UserServiceImpl.ALLOWED_ACCOUNT_LEDGER_ROLES` **不含** `UPLINE` |
+| 写入兼容（短期） | `POST/PUT /api/account/add|update` 若 body 仍传 `role=UPLINE`，**normalize 为 `SUPPLIER`** 再入库（防旧客户端） |
+| 读取 | 不再做 `UPLINE` → `SUPPLIER` 映射；依赖迁移保证 DB 干净 |
+| Transaction Search | `TransactionSearchServiceImpl` 直接返回 `account.role`（大写 trim） |
+
+### 12.4 前端约定
+
+| 区域 | 改动 |
+|------|------|
+| `accountLogic.js` | `ROLE_PRIORITY` / `getOrderedRoles` 仅 `SUPPLIER`，无 UPLINE 合并逻辑 |
+| `bankProcessHelpers.js` | `BANK_PICK_ACCOUNT_ROLES` 去掉 `UPLINE` |
+| `transactionPaymentLogic.js` | role CSS class：`supplier` → `transaction-role-supplier` |
+| `transactionAccountHelpers.js` | Category 列表无 UPLINE 过滤/映射 |
+| `AddAccountModal.jsx` | 默认 role 直接 `SUPPLIER`，不再写 `UPLINE` |
+| `accountTranslate.js` | 删除 `upline` i18n key（保留 `supplier`） |
+| CSS | `account-role-supplier`、`transaction-role-supplier`、`category-tag[data-category-value="SUPPLIER"]`；**删除** `*-upline` / `UPLINE` category 规则 |
+
+### 12.5 验证清单
+
+1. 跑完 SQL 迁移。
+2. Account List：role 列与编辑下拉 **只有 SUPPLIER**，无 UPLINE 文案。
+3. Bank Process Add/Edit：Supplier 账户 picker 的 role 过滤正常。
+4. Transaction 列表：SUPPLIER 账户行 role 色块为 supplier 样式。
+5. 新建账户选 Supplier → DB `account.role = 'SUPPLIER'`。
+6. （可选）旧客户端若仍 POST `role=UPLINE` → 库中仍为 `SUPPLIER`。
+
+### 12.6 勿再引入 UPLINE
+
+- 新代码 **禁止** 在 account role 枚举、Category、CSS class、API 文档示例中使用 `UPLINE`。
+- 若从旧 PHP 文档/脚本复制 role 列表，先替换为 `SUPPLIER` 再合入。
+
+---
+
+## 13. Account List 全量 Spring（2026-07-20）
+
+> **原则**：以 Spring `UserListDTO` / `UserLink` / `currencyApi` 为准；**不再**调用 `api/accounts/*` PHP。  
+> Edit 打开 **不** 调 `getaccount_api.php`，与 Process List 相同：用当前 list 行 + `/api/currency/available` 回填。
+
+### 13.1 列表与过滤
+
+| 项 | 约定 |
+|----|------|
+| 单公司 | `fetchFilteredAccountListByTenantId(company.id, filters)` |
+| Group-only | `resolveGroupCodeToTenantId(selectedGroup)` → 同上 |
+| All 模式 | `fetchMergedAccountLists({ tenantIds })` 去重后 `filterAccountListRows` |
+| 行字段 | `normalizeAccountListItem` → snake_case；`scope_tenant_id` 来自 `UserListDTO.scopeTenantId` |
+
+### 13.2 写操作 scope
+
+删除 / 状态 / 更新均带 **`scopeTenantId`**（行上 `scope_tenant_id` 或当前 pill `company.id`）。  
+Add/Update body 见 §4.4；校验错误直接展示 Spring `message`。
+
+### 13.3 币种与链接
+
+- Modal 币种：`fetchAvailableCurrencies`；保存时 `currencyIds` 随 add/update 一次提交。
+- Currency Setting：`fetchLinkedAccountsByCurrency` + `bulkUpdateAccountCurrency`。
+- Link modal：`fetchAccountLinkedAccounts` + `linkAccountPair` / `unlinkAccountPair` / `updateAccountLinkPair`。
+
+### 13.4 Roles meta
+
+无 Spring roles 接口；`deriveAccountRolesFromRows` 从当前 tenant list 提取 + `ROLE_PRIORITY` 排序。
 
 ---
 
@@ -627,4 +969,9 @@ Count-frontend/src/pages/bankprocesslist/bankProcessListApi.js      # list + add
 Count-frontend/src/pages/bankprocesslist/bankCountryOptionApi.js   # POST /api/bank-country-option/* (tenantId body)
 Count-frontend/src/pages/bankprocesslist/components/BankProcessStatusControl.jsx  # Spring update-status
 Count-frontend/src/pages/bankprocesslist/hooks/useBankProcessListPage.js
+Count-frontend/src/pages/transaction/lib/transactionApi.js          # 待拆：Meta → Spring 复用；Search → /api/transaction/search
+Count-frontend/src/pages/transaction/lib/transactionPaymentLogic.js # 仍消费 search_api 同形 left/right_table
+Count-frontend/src/pages/account/accountListApi.js                  # Transaction Meta 复用账户 list
+Count-frontend/src/utils/api/currencyApi.js                         # Transaction Meta 复用币种 list
+backend/src/main/resources/sql/migrate_upline_role_to_supplier.sql  # UPLINE → SUPPLIER 一次性迁移
 ```

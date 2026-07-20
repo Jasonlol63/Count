@@ -418,7 +418,7 @@ CREATE TABLE `transactions` (
     `approved_by_owner`               int(10) UNSIGNED DEFAULT NULL,
     `approved_at`                     timestamp NULL DEFAULT NULL,
     `source_bank_process_id`          int(11) DEFAULT NULL COMMENT 'FK bank_process.id',
-    `source_bank_process_period_type` varchar(32)  DEFAULT NULL COMMENT 'Bank process period type: monthly / partial_first_month / manual_inactive'
+    `source_bank_process_period_type` varchar(32)  DEFAULT NULL COMMENT 'Bank process period type: monthly / partial_first_month / compensation'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Transactions (related to company, scope, transaction type, account)';
 
 DROP TABLE IF EXISTS `transactions_deleted`;

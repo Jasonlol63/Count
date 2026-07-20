@@ -22,7 +22,7 @@ public class UserServiceImpl implements UserService {
 
     private static final Set<String> ALLOWED_ACCOUNT_LEDGER_ROLES = Set.of(
             "CAPITAL", "BANK", "CASH", "PROFIT", "EXPENSES", "COMPANY",
-            "PARTNER", "STAFF", "SUPPLIER", "UPLINE", "AGENT", "MEMBER", "DEBTOR");
+            "PARTNER", "STAFF", "SUPPLIER", "AGENT", "MEMBER", "DEBTOR");
 
     @Autowired
     private UserDao userDao;
@@ -48,6 +48,9 @@ public class UserServiceImpl implements UserService {
         String normalized = role.trim().toUpperCase(Locale.ROOT);
         if ("PARTHER".equals(normalized)) {
             normalized = "PARTNER";
+        }
+        if ("UPLINE".equals(normalized)) {
+            normalized = "SUPPLIER";
         }
         if (!ALLOWED_ACCOUNT_LEDGER_ROLES.contains(normalized)) {
             throw new BusinessException("Invalid role selected");

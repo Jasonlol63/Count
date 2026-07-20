@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
 
 /**
  * Maps to {@code bank_process_accounting_posted} — Accounting Due ledger for a {@link BankProcess}.
- * Records which billing period was posted, skipped, or dismissed so Due inbox can exclude settled periods.
+ * Records which billing period was posted or skipped so Due inbox can exclude settled periods.
  */
 @Getter
 @Setter
@@ -48,7 +48,7 @@ public class BkProcessAccountingPosted {
         FULL_MONTH,
         DAY_END_TAIL,
         ONCE_ONE_OFF,
-        MANUAL_INACTIVE,
+        COMPENSATION,
         RESEND_CONSOLIDATED,
         WEEKLY,
         DAILY,
@@ -58,7 +58,6 @@ public class BkProcessAccountingPosted {
     @Getter
     public enum Outcome {
         POSTED,
-        SKIPPED,
-        DISMISSED
+        SKIPPED
     }
 }

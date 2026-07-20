@@ -737,15 +737,15 @@ CREATE TABLE `bank_process_share` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Profit sharing lines (replaces profit_sharing TEXT)';
 
--- Accounting Due ledger: which period was posted / skipped / dismissed.
+-- Accounting Due ledger: which period was posted / skipped.
 -- One posted row can own many transactions via transactions.bank_process_posted_id (no single transaction_id).
 CREATE TABLE `bank_process_accounting_posted` (
   `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `tenant_id`       INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
   `bank_process_id` INT UNSIGNED NOT NULL COMMENT 'FK bank_process.id',
   `posted_date`     DATE NOT NULL COMMENT 'Due anchor date (billing due day)',
-  `period_type`     ENUM('MONTHLY', 'FIRST_MONTH', 'PARTIAL_FIRST_MONTH', 'FULL_MONTH', 'DAY_END_TAIL', 'ONCE_ONE_OFF', 'MANUAL_INACTIVE', 'RESEND_CONSOLIDATED', 'WEEKLY','DAILY', 'DAILY_CONSOLIDATED') NOT NULL DEFAULT 'MONTHLY',
-  `outcome`         ENUM('POSTED', 'SKIPPED', 'DISMISSED') NOT NULL DEFAULT 'POSTED' COMMENT 'Replaces old period_type *_skipped suffix',
+  `period_type`     ENUM('MONTHLY', 'FIRST_MONTH', 'PARTIAL_FIRST_MONTH', 'FULL_MONTH', 'DAY_END_TAIL', 'ONCE_ONE_OFF', 'COMPENSATION', 'RESEND_CONSOLIDATED', 'WEEKLY','DAILY', 'DAILY_CONSOLIDATED') NOT NULL DEFAULT 'MONTHLY',
+  `outcome`         ENUM('POSTED', 'SKIPPED') NOT NULL DEFAULT 'POSTED' COMMENT 'Replaces old period_type *_skipped suffix',
   `billing_start`   DATE DEFAULT NULL COMMENT 'Optional period start for display / clear',
   `billing_end`     DATE DEFAULT NULL COMMENT 'Optional period end for display / clear',
   `created_at`      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -760,7 +760,7 @@ CREATE TABLE `bank_process_accounting_posted` (
   CONSTRAINT `fk_bpap_bank_process`
       FOREIGN KEY (`bank_process_id`) REFERENCES `bank_process` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Bank Process Accounting Due ledger: posted / skipped / dismissed periods';
+  COMMENT='Bank Process Accounting Due ledger: posted / skipped periods';
 
 -- Same-day Resend lock after Post to Transaction (keyed by day_start only — frequency ignored).
 -- Written on Post success; cleared when Maintenance deletes that bank-process txn (or prune stale).

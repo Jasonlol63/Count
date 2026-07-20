@@ -16,6 +16,8 @@ public interface CurrencyDao {
 
     Currency findByIdAndTenantId(@Param("id") int id, @Param("tenantId") int tenantId);
 
+    Currency findByTenantIdAndCode(@Param("tenantId") int tenantId, @Param("code") String code);
+
     int findDuplicateByTenantIDAndCode(@Param("tenantId") int tenantId, @Param("code") String code);
 
     void addNewCurrency(Currency currency);

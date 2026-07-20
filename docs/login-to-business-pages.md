@@ -749,4 +749,15 @@ Process
   service/impl/ProcessServiceImpl.java
   dao/ProcessDao.java
   mybatis/ProcessMapper.xml
+
+Transaction (BP-only search, 2026-07-20)
+  controller/TransactionSearchController.java   → POST /api/transaction/search
+  service/impl/TransactionSearchServiceImpl.java
+  dto/TransactionDTO.java                       # SearchRequest / SearchRow / SearchResult …
+  dao/TransactionDao.java
+  mybatis/TransactionMapper.xml
+
+Account role UPLINE 移除 (2026-07-20)
+  sql/migrate_upline_role_to_supplier.sql
+  service/impl/UserServiceImpl.java             # 白名单无 UPLINE；写入 normalize → SUPPLIER
 ```

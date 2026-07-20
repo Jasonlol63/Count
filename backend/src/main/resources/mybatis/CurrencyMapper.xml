@@ -40,6 +40,14 @@
         LIMIT 1
     </select>
 
+    <select id="findByTenantIdAndCode" resultMap="CurrencyMap">
+        SELECT id, tenant_id, code, sync_source, status, created_at, updated_at
+        FROM currency
+        WHERE tenant_id = #{tenantId}
+          AND UPPER(TRIM(code)) = UPPER(TRIM(#{code}))
+        LIMIT 1
+    </select>
+
     <select id="findDuplicateByTenantIDAndCode" resultType="int">
         SELECT COUNT(*)
         FROM currency

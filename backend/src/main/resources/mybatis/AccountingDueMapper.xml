@@ -83,4 +83,23 @@
           AND outcome = 'SKIPPED'
     </delete>
 
+    <select id="countNormalPosted" resultType="int">
+        SELECT COUNT(*)
+        FROM bank_process_accounting_posted
+        WHERE tenant_id = #{tenantId}
+          AND bank_process_id = #{bankProcessId}
+          AND outcome = 'POSTED'
+          AND period_type &lt;&gt; 'COMPENSATION'
+    </select>
+
+    <select id="countCompensationTransactions" resultType="int">
+        SELECT COUNT(*)
+        FROM transactions t
+        INNER JOIN bank_process_accounting_posted p ON p.id = t.bank_process_posted_id
+        WHERE t.tenant_id = #{tenantId}
+          AND p.bank_process_id = #{bankProcessId}
+          AND p.outcome = 'POSTED'
+          AND t.description LIKE 'COMPENSATION %'
+    </select>
+
 </mapper>

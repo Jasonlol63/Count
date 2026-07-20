@@ -55,6 +55,20 @@ public class AccountingDueController {
         }
     }
 
+    @PostMapping("/post")
+    public ResponseEntity<Map<String, Object>> post(@RequestBody List<AccountingDueDTO> items) {
+        try {
+            int createdCount = accountingDueService.postToTransaction(items);
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "Posted to transaction, created " + createdCount + " line(s)");
+            body.put("data", Map.of("createdCount", createdCount));
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
     private static ResponseEntity<Map<String, Object>> error(BusinessException e) {
         final Map<String, Object> body = new LinkedHashMap<>();
         body.put("success", false);
