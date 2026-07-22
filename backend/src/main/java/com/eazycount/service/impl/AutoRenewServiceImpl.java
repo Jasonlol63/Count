@@ -3,6 +3,7 @@ package com.eazycount.service.impl;
 import com.eazycount.dao.AutoRenewDao;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.DomainDao;
+import com.eazycount.dao.DomainListFeePriceDao;
 import com.eazycount.dao.TenantDao;
 import com.eazycount.dao.UserDao;
 import com.eazycount.dto.AutoRenewDTO;
@@ -14,10 +15,14 @@ import com.eazycount.entity.User;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AutoRenewService;
+import com.eazycount.service.DomainFeeChargeService;
 import com.eazycount.service.DomainService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -25,9 +30,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
+import java.util.Set;
 
 @Service
 public class AutoRenewServiceImpl implements AutoRenewService {
+
+    private static final Set<String> ALLOWED_PERIODS = Set.of(
+            "7days", "1month", "3months", "6months", "1year");
 
     @Autowired
     private AutoRenewDao autoRenewDao;
@@ -37,6 +46,12 @@ public class AutoRenewServiceImpl implements AutoRenewService {
 
     @Autowired
     private DomainDao domainDao;
+
+    @Autowired
+    private DomainListFeePriceDao domainListFeePriceDao;
+
+    @Autowired
+    private DomainFeeChargeService domainFeeChargeService;
 
     @Autowired
     private TenantDao tenantDao;
@@ -49,10 +64,8 @@ public class AutoRenewServiceImpl implements AutoRenewService {
 
     @Override
     public Map<String, Object> getAutoRenewCounts(String tenantType, int windowDays) {
-        // 保证到期租户已加载进申请表
         autoRenewDao.syncWindowRequests(windowDays);
 
-        // 统一按当前页签过滤统计
         int pendingCnt = autoRenewDao.countRequestsByStatus("pending", tenantType, windowDays);
         int approvedCnt = autoRenewDao.countRequestsByStatus("approved", tenantType, windowDays);
         int rejectedCnt = autoRenewDao.countRequestsByStatus("rejected", tenantType, windowDays);
@@ -64,7 +77,6 @@ public class AutoRenewServiceImpl implements AutoRenewService {
         countsMap.put("rejected", rejectedCnt);
         countsMap.put("total", totalCnt);
 
-        // 统计 Company 与 Group 的各自 Pending 数量，用于页签红点徽章
         int pendingCompany = autoRenewDao.countPendingByTenantType("COMPANY", windowDays);
         int pendingGroup = autoRenewDao.countPendingByTenantType("GROUP", windowDays);
 
@@ -85,14 +97,10 @@ public class AutoRenewServiceImpl implements AutoRenewService {
         LocalDate dateFrom = parseLocalDate(dateFromStr);
         LocalDate dateTo = parseLocalDate(dateToStr);
         String statusFilter = "all".equalsIgnoreCase(status) ? null : status;
-
-        // 规范化 tenantType 传参 ("COMPANY" / "GROUP")
         String tenantTypeFilter = tenantType != null ? tenantType.toUpperCase() : "COMPANY";
 
-        // 同步数据
         autoRenewDao.syncWindowRequests(WINDOW_DAYS);
 
-        // 按当前页签类型查询列表
         List<AutoRenewDTO> rows = autoRenewDao.selectAutoRenewList(
                 statusFilter,
                 tenantTypeFilter,
@@ -100,7 +108,6 @@ public class AutoRenewServiceImpl implements AutoRenewService {
                 dateTo,
                 WINDOW_DAYS);
 
-        // 获取 C168 关联账户列表与默认账户配置，以适配前端 Approve 操作
         Tenant c168Tenant = tenantDao.findTenantByCode("C168");
         Integer c168TenantId = c168Tenant != null ? c168Tenant.getId() : null;
         List<UserListDTO> c168Users = new ArrayList<>();
@@ -119,9 +126,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
             }
         }
 
-        // 动态填充行属性 (entity_type, default accounts, codes 等)
         for (AutoRenewDTO row : rows) {
-            // 默认收款账户为 C168 账户中 code 为 "C168" 的账户
             Integer defaultToId = null;
             for (UserListDTO u : c168Users) {
                 if (u.getStatus() == User.AccountStatus.ACTIVE && "C168".equalsIgnoreCase(u.getAccountId())) {
@@ -134,7 +139,6 @@ public class AutoRenewServiceImpl implements AutoRenewService {
                 row.setToAccountId(defaultToId);
             }
 
-            // 默认扣款账户为 C168 账户中 code 匹配 companyCode 的账户，或匹配 owner_code_companyCode 遗留格式的账户
             Integer defaultFromId = null;
             String compCode = row.getCompanyCode();
             if (compCode != null && !compCode.trim().isEmpty()) {
@@ -165,7 +169,6 @@ public class AutoRenewServiceImpl implements AutoRenewService {
                 row.setFromAccountId(defaultFromId);
             }
 
-            // 映射账户 Code
             if (row.getFromAccountId() != null) {
                 for (UserListDTO u : c168Users) {
                     if (u.getId().equals(row.getFromAccountId())) {
@@ -183,7 +186,6 @@ public class AutoRenewServiceImpl implements AutoRenewService {
                 }
             }
 
-            // 动态设置前端逻辑需要的 can_approve & can_delete 标记
             boolean accountsResolved = row.getFromAccountId() != null && row.getToAccountId() != null
                     && !row.getFromAccountId().equals(row.getToAccountId());
             row.setCanApprove(
@@ -192,13 +194,9 @@ public class AutoRenewServiceImpl implements AutoRenewService {
                     && row.getRequestId() > 0 && row.getTransactionId() != null && !row.getIsPaymentDeleted());
         }
 
-        // 价格配置
         DomainFeeSettingsDTO feeSettings = domainService.findDomainFeeSettings();
-
-        // 计算当前页签的分类统计数和红点徽章统计数
         Map<String, Object> stats = this.getAutoRenewCounts(tenantTypeFilter, WINDOW_DAYS);
 
-        // 组合结果
         Map<String, Object> responseData = new HashMap<>();
         responseData.put("rows", rows);
         responseData.put("accounts", accountsList);
@@ -234,15 +232,90 @@ public class AutoRenewServiceImpl implements AutoRenewService {
 
         AutoRenewDTO request = autoRenewDao.selectRequestById(requestId);
         if (request == null) {
-            throw new RuntimeException("Auto renew request not found");
+            throw new BusinessException("Auto renew request not found");
         }
 
         if (!"pending".equalsIgnoreCase(request.getStatus())) {
-            throw new RuntimeException("Auto renew request is not pending");
+            throw new BusinessException("Auto renew request is not pending");
         }
 
         String processedBy = session.login_id != null ? session.login_id : "system";
-
         autoRenewDao.rejectRequest(requestId, processedBy);
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> approveRequest(Integer requestId, String periodRaw) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null || session.user_id == null) {
+            throw new BusinessException("Not logged in");
+        }
+
+        if (requestId == null || requestId <= 0) {
+            throw new BusinessException("Invalid request id");
+        }
+
+        String period = periodRaw != null ? periodRaw.trim() : "";
+        if (!ALLOWED_PERIODS.contains(period)) {
+            throw new BusinessException("Invalid renewal period");
+        }
+
+        AutoRenewDTO request = autoRenewDao.selectRequestById(requestId);
+        if (request == null) {
+            throw new BusinessException("Auto renew request not found");
+        }
+        if (!"pending".equalsIgnoreCase(request.getStatus())) {
+            throw new BusinessException("Auto renew request is not pending");
+        }
+
+        Tenant tenant = domainDao.findTenantById(request.getTenantId());
+        if (tenant == null || tenant.getId() == null) {
+            throw new BusinessException("Tenant not found for auto renew request");
+        }
+
+        Tenant.TenantType tenantType = tenant.getTenantType() != null
+                ? tenant.getTenantType()
+                : Tenant.TenantType.COMPANY;
+
+        BigDecimal price = domainListFeePriceDao.findPriceByTenantTypeAndPeriod(tenantType, period);
+        if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Domain fee price is not configured for period: " + period);
+        }
+        price = price.setScale(2, RoundingMode.HALF_UP);
+
+        // Option A: extend from current tenant expiration (fallback today if unset)
+        LocalDate baseExpiration = tenant.getExpirationDate() != null
+                ? tenant.getExpirationDate()
+                : LocalDate.now();
+        LocalDate newExpiration = addPeriod(baseExpiration, period);
+
+        // Same Domain Fee + Commission ledger postings as Domain Confirm Charge on Save
+        int txnCount = domainFeeChargeService.chargeDomainFee(tenant, period);
+
+        autoRenewDao.updateTenantExpiration(tenant.getId(), newExpiration);
+
+        String processedBy = session.login_id != null ? session.login_id : "system";
+        autoRenewDao.approveRequest(requestId, period, price, newExpiration, processedBy);
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("request_id", requestId);
+        data.put("tenant_id", tenant.getId());
+        data.put("period", period);
+        data.put("price", price);
+        data.put("new_expiration_date", newExpiration.toString());
+        data.put("transaction_count", txnCount);
+        return data;
+    }
+
+    /** Align with frontend calculateExpirationDate period math. */
+    static LocalDate addPeriod(LocalDate base, String period) {
+        return switch (period) {
+            case "7days" -> base.plusDays(7);
+            case "1month" -> base.plusMonths(1);
+            case "3months" -> base.plusMonths(3);
+            case "6months" -> base.plusMonths(6);
+            case "1year" -> base.plusYears(1);
+            default -> throw new BusinessException("Invalid renewal period");
+        };
     }
 }

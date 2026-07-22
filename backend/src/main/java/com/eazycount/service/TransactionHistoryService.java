@@ -4,5 +4,8 @@ import com.eazycount.dto.TransactionDTO;
 
 public interface TransactionHistoryService {
 
-    TransactionDTO.HistoryResult historyBankProcess(TransactionDTO.HistoryRequest request);
+    /**
+     * Payment History list for one account: Bank Process (Win/Loss) + Domain Payment (Cr/Dr).
+     */
+    TransactionDTO.HistoryResult historyList(TransactionDTO.HistoryRequest request);
 }

@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Transaction list search — Bank Process post lines only (v1).
+ * Transaction list search — Bank Process WIN/LOSE + Domain/Payment Cr/Dr.
  */
 public final class TransactionDTO {
 
@@ -46,6 +46,7 @@ public final class TransactionDTO {
         private String crDr;
         private String balance;
         private boolean hasWinLossInPeriod;
+        private boolean hasCrDrInPeriod;
     }
 
     @Getter
@@ -79,6 +80,7 @@ public final class TransactionDTO {
         private String currencyCode;
         private BigDecimal bfAmount;
         private BigDecimal winLossAmount;
+        private BigDecimal crDrAmount;
         private Integer periodTxnCount;
     }
 
@@ -133,6 +135,8 @@ public final class TransactionDTO {
         private Integer id;
         private String transactionType;
         private BigDecimal amount;
+        /** Signed amount for the viewed account (WIN/LOSE or PAYMENT Cr/Dr). */
+        private BigDecimal signedAmount;
         private java.time.LocalDate transactionDate;
         private String description;
         private String remark;
@@ -140,6 +144,15 @@ public final class TransactionDTO {
         private java.time.LocalDateTime createdAt;
         private String currencyCode;
         private String cardOwner;
+        private Boolean bankProcessLine;
+        /** PAYMENT leg: payer (To) account.id */
+        private Integer toAccountId;
+        /** PAYMENT leg: receiver (From) account.id */
+        private Integer fromAccountId;
+        /** PAYMENT leg: payer account code */
+        private String toAccountCode;
+        /** PAYMENT leg: receiver account code */
+        private String fromAccountCode;
     }
 
     @Getter
@@ -169,5 +182,47 @@ public final class TransactionDTO {
         private HistoryAccount account;
         private HistoryDateRange dateRange;
         private List<HistoryRow> history = new ArrayList<>();
+    }
+
+    @Getter
+    @Setter
+    public static class SubmitRequest {
+
+        private Integer tenantId;
+
+        /** Defaults to PAYMENT when omitted. Supported: PAYMENT, CLAIM, CLEAR, CONTRA, ADJUSTMENT. */
+        private String transactionType;
+
+        /** Inclusive; dd/MM/yyyy or yyyy-MM-dd. Defaults to today when omitted. */
+        private String transactionDate;
+
+        /** To Account — payer (maps to {@code transactions.account_id}). */
+        private Integer toAccountId;
+
+        /** From Account — receiver (maps to {@code transactions.from_account_id}). */
+        private Integer fromAccountId;
+
+        /** Either {@code currencyId} or {@code currencyCode} is required. */
+        private Integer currencyId;
+        private String currencyCode;
+
+        private BigDecimal amount;
+
+        private String remark;
+    }
+
+    @Getter
+    @Setter
+    public static class SubmitResult {
+
+        private Integer id;
+        private String transactionType;
+        private Integer tenantId;
+        private Integer toAccountId;
+        private Integer fromAccountId;
+        private String currencyCode;
+        private String amount;
+        private String transactionDate;
+        private String remark;
     }
 }

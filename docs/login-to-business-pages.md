@@ -16,8 +16,9 @@
 7. [Auto Renew 页面](#7-auto-renew-页面)
 8. [Ownership 页面](#8-ownership-页面)
 9. [Process 页面](#9-process-页面)
-10. [跨模块共性与缺口](#10-跨模块共性与缺口)
-11. [文件索引](#11-文件索引)
+10. [Transaction Payment 页面](#10-transaction-payment-页面)
+11. [跨模块共性与缺口](#11-跨模块共性与缺口)
+12. [文件索引](#12-文件索引)
 
 ---
 
@@ -159,7 +160,7 @@ tenant → tenant_feature_module
 | OWNERSHIP | `ownership` | Ownership | `/api/ownership` |
 | PROCESS | `process` | Process | `/api/process` |
 | DATACAPTURE | `datacapture` | Data Capture | 本文不展开 |
-| PAYMENT | `payment` | Payment | 本文不展开 |
+| PAYMENT | `payment` | Payment | `/api/transaction/*`（Search/History/Submit）；见 §10.6 |
 | REPORT | `report` | Report | 需租户有 **GAME** 功能 |
 | MAINTENANCE | `maintenance` | Maintenance | 本文不展开 |
 
@@ -258,20 +259,36 @@ GROUP 若无 featureModules，自动确保默认 module（id=1）。
 | `chargeDomainFeeOnConfirm` | `true` 才记账；前端只在 `apply_commission_payments_on_domain_save` 为真时才带上此字段 |
 | `domainFeePeriod` | 续期周期 code（`7days`/`1month`/`3months`/`6months`/`1year`），用于查 `domain_list_fee_price` |
 
-**业务规则**（`DomainFeeChargeService` / `DomainFeeChargeServiceImpl`）：
+**业务规则**（`DomainFeeChargeService` / `DomainFeeChargeServiceImpl`）— 资金流方案 A：
 
 - 付款方 = 当前 tenant（如 `OK1`），记账金额 = `domain_list_fee_price`（按 tenant_type + period）。
 - 全部写在 **C168 ledger tenant**，币种固定 **MYR**（`currency.code = 'MYR'` under C168）。
 - 全部使用 `transaction_type = PAYMENT`（Cr/Dr 台账，**不是** WIN/LOSE）：每条一行，`account_id` = 付款方账号（To，Cr/Dr 为负），`from_account_id` = 收款方账号（From，Cr/Dr 为正），`amount` 存正数。
-- 付款方账号 = C168 ledger 下 `account_id` 等于付款 tenant code 的账号；C168（Profit）收款账号固定解析 code `"C168"`（fallback `"PROFIT"`）。
-- 无 Commission 时：一行 PAYMENT，付款方 → C168，`description = "Pay Domain Fee"`。
-- 有 Commission 时：每个 `SALES/CS/IT`（`percentage > 0`）一行 PAYMENT，付款方 → 对应 commission 账号，金额 = `domainFeeAmount × percentage / 100`，`description = "{SHARE_TYPE} COMMISSION FROM {付款方 code}"`；remainder 再一行 PAYMENT 付款方 → C168，`description = "NET PROFIT FROM {付款方 code}"`。
+- 付款方账号 = C168 ledger 下 `account_id` 等于付款 tenant code 的账号；C168（Profit）账号固定解析 code `"C168"`（fallback `"PROFIT"`）。
+
+**固定两笔 + 按需 Commission（OK1 只扣一次全额）：**
+
+1. **永远有** `PAY DOMAIN FEE`：付款方 → C168，金额 = Domain Fee **全额**（如 2000）。这是付款公司**唯一被扣**的一笔。
+2. **有 Commission 时**：每个 `SALES/CS/IT`（`percentage > 0` 且有账号）一行 PAYMENT，**C168 → 对应 commission 账号**（从已收的 Fee 里再分出去），金额 = `domainFeeAmount × percentage / 100`，`description = "{SHARE_TYPE} COMMISSION FROM {付款方 code}"`。无该类型 / 0% / 无账号 → 不写。
+3. **永远有** `NET PROFIT FROM {付款方 code}`：金额 = 全额 − Σ Commission（C168 最终留存净利润）。因钱已通过第 1 步进 C168、第 2 步打出佣金后自然留在 C168，此行记为 **C168 → C168**（列表可见，余额净变动为 0，避免二次扣款）。金额 ≤ 0 时不写。
+
+**笔数：**
+
+| 场景 | 笔数 |
+|---|---|
+| 无 Commission | 2（PAY DOMAIN FEE + NET PROFIT） |
+| 1 / 2 / 3 种 Commission | 3 / 4 / 5 |
+
+**例（OK1，Fee=2000，Sales 10% + IT 10%）：** `PAY DOMAIN FEE 2000`（OK1→C168）+ `SALES COMMISSION 200`（C168→Sales）+ `IT COMMISSION 200`（C168→IT）+ `NET PROFIT FROM OK1 1600`（C168→C168）→ 余额：OK1 −2000，Sales +200，IT +200，C168 +1600。
+
 - 若该 tenant 从未配置过 Profit（`tenant_fee_share_allocation` 无 `PROFIT` 行）→ 直接 `BusinessException`，**拒绝记账**（Save 时也已要求必须有 Profit）。
 - 记账成功后不需要显式"关闭"开关——`chargeDomainFeeOnConfirm` 从不落库，前端每次重新拉取 tenant 都不会带上一次的开关状态，天然默认关闭。
 
 **改动文件**：`entity/Tenant.java`（新增两个瞬态字段）、`service/DomainFeeChargeService.java` + `impl/DomainFeeChargeServiceImpl.java`（新建）、`service/impl/DomainServiceImpl.java`（`updateTenantDetailsSetting` 末尾调用 + 保留 `BusinessException` 原始 message）、`dao/DomainListFeePriceDao.java` + Mapper（`findPriceByTenantTypeAndPeriod`）、`dao/UserDao.java` + `AccountMapper.xml`（`findAccountIdByTenantIdAndCode`）；前端 `pages/domain/domainApi.js`（`updateTenantSetting` / `syncAllTenantSettings` 新增两个字段）。
 
 **遗留待办**：Sales/CS/IT 各 share_type 目前只保证「单个 share_type 总和 ≤100%」，未校验三者合计 + Profit 是否超过 100%（沿用 UI `computeShareTotals` 的既有 clamp 逻辑，Profit remainder 会被 clamp 到 0，不是新增限制）。
+
+**复用入口（2026-07-22）：** Auto Renew `POST /api/auto-renew/approve` 调用同一套 `DomainFeeChargeService.chargeDomainFee(tenant, period)`（无 Charge on Save 开关）；到期日另按当前 `expiration_date` + period 延长。详见 §7。
 
 ### 4.6 全局费用 `list-fee` / `add-fee`
 
@@ -566,6 +583,7 @@ flowchart LR
 |------|------|------|
 | POST | `/list` | 列表 / 统计 / pending 数 |
 | POST | `/reject` | 拒绝续费申请 |
+| POST | `/approve` | 通过续费：写 Domain Fee 交易 + 从**当前**到期日延长 period |
 
 **`/list` 请求体字段：**
 
@@ -575,6 +593,23 @@ flowchart LR
 | `entity_type` | `company` 或 `group`（页签） |
 | `date_from` / `date_to` | 非 pending 时按处理日期过滤 |
 | `action=pending_count` | 只返回全局 pending 总数 |
+
+**`/approve` 请求体：**
+
+| 字段 | 说明 |
+|------|------|
+| `request_id` | 必填，pending 申请 id |
+| `period` | 必填：`7days` / `1month` / `3months` / `6months` / `1year` |
+
+**Approve 业务（与 Domain Charge on Save 同账，无开关）：**
+
+1. 校验 pending + period；查 `domain_list_fee_price`（按 tenant_type + period）
+2. 新到期日 = **当前** `tenant.expiration_date` + period（方案 A；无到期日则从今天起算）
+3. 调用 `DomainFeeChargeService.chargeDomainFee(tenant, period)`：读已存 Share %，写 `PAY DOMAIN FEE` / `{SALES\|CS\|IT} COMMISSION FROM {code}` / `NET PROFIT FROM {code}`（须已有 Profit 行，否则拒绝）
+4. 更新 `tenant.expiration_date`；申请标 `approved`，并写入 `period` / `price` / `new_expiration_date` / `processed_by`
+5. 同一 `@Transactional`：记账失败则到期日与状态都不改
+
+无 Charge on Save 开关；Comm 只预先存分成，Approve 触发记账。
 
 ### 7.2 列表逻辑（`AutoRenewServiceImpl.getAutoRenewList`）
 
@@ -596,8 +631,8 @@ flowchart LR
 
 ### 7.4 缺口
 
-- `AutoRenewDao.approveRequest` **存在**，但 **Controller 无 approve 接口**（审批可能走 Payment 或未实现）
 - 列表不校验 `permissions`
+- Delete / revert 交易回滚尚未接 Spring approve 写入的多笔 Domain Fee 行
 
 ---
 
@@ -694,9 +729,70 @@ flowchart LR
 
 ---
 
-## 10. 跨模块共性与缺口
+## 10. Transaction Payment 页面
 
-### 10.1 通用模式
+**前置：** `permissions` 含 `payment`。
+
+**前端：** `Count-frontend/src/pages/transaction/`（`TransactionPaymentPage.jsx`、`transactionApi.js`）
+
+**Base：** `/api/transaction`
+
+### 10.1 API 一览（2026-07-22）
+
+| 方法 | 路径 | 功能 | 状态 |
+|------|------|------|------|
+| POST | `/search` | 主列表（BP Win/Loss + Payment Cr/Dr 合并） | ✅ Spring |
+| POST | `/history` | 单账户 Payment History | ✅ Spring |
+| POST | `/submit` | 手动 **PAYMENT / CLAIM / CLEAR / CONTRA / ADJUSTMENT** | ✅ Spring |
+
+统一响应：`{ success, message, data }`；业务失败时多为 `success: false` 且 HTTP 200。
+
+### 10.2 手动 PAYMENT Submit
+
+**账户方向（与 Domain Fee、列表 Cr/Dr 一致）**
+
+| UI | DB 字段 | 含义 |
+|----|---------|------|
+| **To Account** | `account_id` | 付款方（Cr/Dr **−**） |
+| **From Account** | `from_account_id` | 收款方（Cr/Dr **+**） |
+
+**`POST /submit` 请求体（camelCase）**
+
+| 字段 | 说明 |
+|------|------|
+| `tenantId` | 当前公司 `tenant.id` |
+| `transactionType` | 默认 `PAYMENT`；transfer：`PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`；或 `ADJUSTMENT` |
+| `transactionDate` | `dd/MM/yyyy` 或 `yyyy-MM-dd`；可省略 → 当天 |
+| `toAccountId` / `fromAccountId` | `account.id`，须不同 |
+| `currencyCode` 或 `currencyId` | 租户币别；两账户均须在 `account_currency` 启用 |
+| `amount` | 正数 |
+| `remark` | 可选 |
+
+写入 `transactions`：`PAYMENT`、`approval_status=APPROVED`、`bank_process_posted_id=NULL`。提交后 Search / History 自动计入 Cr/Dr（与 Domain Fee 同路径）。
+
+**History 展示（收款方 / 付款方）：**
+
+| Type | 收款方 Description | 付款方 Description | Id Product |
+|------|-------------------|-------------------|------------|
+| PAYMENT | `PAYMENT TO {付款方}` | `PAYMENT FROM {收款方}` | `PAYMENT` |
+| CLAIM | `CLAIM TO {付款方}` | `CLAIM FROM {收款方}` | `CLAIM` |
+| CLEAR | `CLEAR TO {付款方}` | `CLEAR FROM {收款方}` | `CLEAR` |
+| CONTRA | `CONTRA TO {付款方}` | `CONTRA FROM {收款方}` | `CONTRA` |
+| ADJUSTMENT | —（仅 To） | — | `ADJUSTMENT` |
+
+**ADJUSTMENT：** 仅 `toAccountId`；signed `amount` → **Win/Loss**（非 Cr/Dr）；`description = ADJUSTMENT - WIN/LOSS`。
+
+**CONTRA Submit** 与 PAYMENT 相同：即时 `APPROVED` 进 Cr/Dr（Contra Inbox 审批 API 仍 PHP，未接）。
+
+**前端路由：** `transactionApi.submitTransaction` — `PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`/`ADJUSTMENT` → Spring JSON；RATE 等仍 `submit_api.php`。
+
+**后端：** `TransactionSubmitServiceImpl`；详见 `docs/frontend-springboot-migration.md` §11.7。
+
+---
+
+## 11. 跨模块共性与缺口
+
+### 11.1 通用模式
 
 | 模式 | 说明 |
 |------|------|
@@ -705,34 +801,34 @@ flowchart LR
 | tenant_id | 多由前端传 `session.tenant_id`，**多数 API 不强制一致** |
 | Permission | **侧边栏层**生效；**API 层一般不校验** `permissions` 是否含对应模块 |
 
-### 10.2 Domain ↔ Account 联动
+### 11.2 Domain ↔ Account 联动
 
 - Domain `add`/`update` 会在 **C168** 自动创建与 group/company code 同名的 ledger account（`createAccountTenantInC168`）
 - Auto Renew 审批依赖这些 C168 账户作 from/to
 
-### 10.3 Domain ↔ Auto Renew 联动
+### 11.3 Domain ↔ Auto Renew 联动
 
 - Auto Renew 列表附带 `fee_settings`（`domain_list_fee_price`）
 - 租户到期触发 `tenant_auto_renew_request`
 
-### 10.4 Admin ACL 写入 vs 业务读取
+### 11.4 Admin ACL 写入 vs 业务读取
 
 | ACL | 写入 | 业务 API 是否过滤 |
 |-----|------|-------------------|
 | `account_acl_mode` + `user_tenant_account_access` | Admin add/update | ❌ Account list 未过滤 |
 | `process_acl_mode` + `user_tenant_process_access` | Admin add/update | ❌ Process list 未过滤 |
 
-### 10.5 主要缺口汇总
+### 11.5 主要缺口汇总
 
 - API 层缺少 permission 模块校验（含 Admin `/api/userlist`）
 - Admin 请求体 `permissions` 未按人持久化（仅 role 模板）
-- Auto Renew 缺 approve API
+- Auto Renew Delete / 交易回滚未对接多笔 Domain Fee
 - Process / Account 缺 ACL 过滤
 - Member 用户无侧边栏 permissions，不走上述 Admin 页面体系
 
 ---
 
-## 11. 文件索引
+## 12. 文件索引
 
 ```
 认证
@@ -783,12 +879,15 @@ Process
   dao/ProcessDao.java
   mybatis/ProcessMapper.xml
 
-Transaction (BP-only search, 2026-07-20)
-  controller/TransactionSearchController.java   → POST /api/transaction/search
+Transaction (BP Win/Loss + Domain Payment Cr/Dr + 手动 PAYMENT Submit, 2026-07-22)
+  controller/TransactionController.java            → POST /api/transaction/search + /history + /submit
   service/impl/TransactionSearchServiceImpl.java
-  dto/TransactionDTO.java                       # SearchRequest / SearchRow / SearchResult …
+  service/impl/TransactionHistoryServiceImpl.java
+  service/TransactionSubmitService.java
+  service/impl/TransactionSubmitServiceImpl.java
+  dto/TransactionDTO.java                         # Search/History + SubmitRequest/SubmitResult
   dao/TransactionDao.java
-  mybatis/TransactionMapper.xml
+  mybatis/TransactionMapper.xml                   # aggregate* + history lines + insert
 
 Account role UPLINE 移除 (2026-07-20)
   sql/migrate_upline_role_to_supplier.sql

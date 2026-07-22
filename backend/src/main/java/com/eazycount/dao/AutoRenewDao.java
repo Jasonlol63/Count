@@ -3,6 +3,8 @@ package com.eazycount.dao;
 import com.eazycount.dto.AutoRenewDTO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -20,7 +22,12 @@ public interface AutoRenewDao {
 
     int countPendingByTenantType(@Param("tenantType") String tenantType, @Param("windowDays") int windowDays);
 
-    void approveRequest(@Param("requestId") Integer requestId, @Param("newExpirationDate") LocalDate newExpirationDate, @Param("processedBy") String processedBy);
+    void approveRequest(
+            @Param("requestId") Integer requestId,
+            @Param("period") String period,
+            @Param("price") BigDecimal price,
+            @Param("newExpirationDate") LocalDate newExpirationDate,
+            @Param("processedBy") String processedBy);
 
     void updateTenantExpiration(@Param("tenantId") Integer tenantId, @Param("newExpirationDate") LocalDate newExpirationDate);
 

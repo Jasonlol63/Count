@@ -80,4 +80,36 @@ public class AutoRenewController {
             return ResponseEntity.ok(body);
         }
     }
+
+    @PostMapping("/approve")
+    public ResponseEntity<Map<String, Object>> approve(@RequestBody Map<String, Object> requestParams) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        try {
+            Object idObj = requestParams.get("request_id");
+            if (idObj == null) {
+                idObj = requestParams.get("requestId");
+            }
+            if (idObj == null) {
+                throw new IllegalArgumentException("request_id is required");
+            }
+            Integer requestId = Integer.valueOf(idObj.toString());
+
+            Object periodObj = requestParams.get("period");
+            if (periodObj == null || String.valueOf(periodObj).trim().isEmpty()) {
+                throw new IllegalArgumentException("period is required");
+            }
+            String period = String.valueOf(periodObj).trim();
+
+            Map<String, Object> data = autoRenewService.approveRequest(requestId, period);
+            body.put("success", true);
+            body.put("message", "Auto renew request approved successfully");
+            body.put("data", data);
+            return ResponseEntity.ok(body);
+        } catch (Exception e) {
+            body.put("success", false);
+            body.put("message", e.getMessage() != null ? e.getMessage() : "Failed to approve auto renew request");
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        }
+    }
 }

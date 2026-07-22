@@ -4,5 +4,8 @@ import com.eazycount.dto.TransactionDTO;
 
 public interface TransactionSearchService {
 
-    TransactionDTO.SearchResult searchBankProcess(TransactionDTO.SearchRequest request);
+    /**
+     * Transaction search grid: Bank Process (Win/Loss) + Domain Payment (Cr/Dr).
+     */
+    TransactionDTO.SearchResult searchList(TransactionDTO.SearchRequest request);
 }

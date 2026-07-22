@@ -65,11 +65,11 @@ res.success === true || res.status === "success"
 | **Account (Member)** | ✅ 全量已迁移 | `/api/account/*` + `/api/currency/*` | `accountListApi.js` + `currencyApi.js`；`AccountListPage` 直调 Spring |
 | **Currency** | ✅ 已迁移 | `/api/currency/*` | `currencyApi.js` |
 | **Announcement / Maintenance** | ✅ 已迁移 | `/api/announcement/*` | `apiUrl.js` 重写（页面仍写 PHP 路径） |
-| **Auto Renew** | ⚠️ 部分 | `/api/auto-renew/*` | 列表经 `apiUrl` 重写；reject 等已直调 Spring |
+| **Auto Renew** | ⚠️ 部分 | `/api/auto-renew/*` + Domain Comm | 列表 / reject / **approve** 直调 Spring；Comm 用 `domain/list` + `update-setting` |
 | **Ownership** | ✅ API 已迁移 + **数据层已对齐 Spring** | `/api/ownership/*` | `apiUrl.js` 重写 + `ownershipRowHelpers` normalize |
 | **Process** | ⚠️ 部分 | `/api/process/*` | **列表 + description CRUD + add/update/status/delete + Edit 回填** 已 Spring；form meta（`addprocess_api`）等仍混用 PHP |
 | **Bank Process** | ⚠️ 部分 | `/api/bank-process/*`、`/api/bank-country-option/*`、`/api/account/*` | **列表（含 shares）+ catalog + Add/Update/Status/Delete/Remark + Edit list 回填** 已 Spring；Due 仍 PHP |
-| **Transaction / Report / Data Capture / Member** | ⚠️ 部分 | `/api/transaction/search` + `/api/transaction/history` + Meta | **Search + Payment History（BP）已 Spring**；Submit/Contra/Member export 仍 PHP |
+| **Transaction / Report / Data Capture / Member** | ⚠️ 部分 | `/api/transaction/search` + `/history` + `/submit` + Meta | **Submit**：`PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`/`ADJUSTMENT` 已 Spring；Contra Inbox / RATE 仍 PHP |
 
 ---
 
@@ -220,7 +220,12 @@ res.success === true || res.status === "success"
 
 | 文件 | 改动 |
 |------|------|
-| `pages/autorenew/autoRenewLogic.js` | 列表：`api/subscription/auto_renew_api.php` → `api/auto-renew/list`；`reject` 直调 `api/auto-renew/reject` |
+| `pages/autorenew/autoRenewLogic.js` | 列表：`api/subscription/auto_renew_api.php` → `api/auto-renew/list`；`reject` → `api/auto-renew/reject`；**`approve` → `api/auto-renew/approve`**（`request_id` + `period`） |
+| `pages/autorenew/autoRenewTenantSettings.js` | Comm 打开：`POST /api/domain/list?ownerId=`；费用预览 → `list-fee`；Save → `update-setting`（`commissionOnly`） |
+| `pages/autorenew/AutoRenewPage.jsx` | Comm 传 `ownerId`；Approve 只传 `requestId` + `period` |
+| `pages/domain/domainApi.js` | `fetchDomainList(ownerId?)` 支持可选 `?ownerId=` |
+
+**Approve 后端（本仓）：** `POST /api/auto-renew/approve` → 复用 `DomainFeeChargeService.chargeDomainFee`（与 Domain Charge on Save 同账）+ 从当前 `expiration_date` 加 period；无 Charge on Save 开关。
 
 ### 4.8 Ownership（详见第 5 节）
 
@@ -675,11 +680,16 @@ URL **不**带 `tenant_id` / `id`。`ProcessListPage` 的 `loadFormMeta` / `relo
 
 ---
 
-## 11. Transaction BP-only 列表（2026-07-20）
+## 11. Transaction 列表（BP Win/Loss + Domain Payment Cr/Dr）+ 手动转账 Submit（2026-07-22）
 
-> **范围**：Transaction Payment 主列表先展示 **Bank Process Post 进账**（`transactions.bank_process_posted_id IS NOT NULL`）。  
-> **不含**：Data Capture、RATE、手动 Payment/Contra/PROFIT、Domain 虚拟行、Type Search、Submit、Contra Inbox。  
-> **原则**：已迁 Spring 的 Meta API **直接复用**；仅新增 **Search**（+ 后续 History）。
+> **范围**：Transaction Payment 主列表展示 + 右侧表单 **PAYMENT / CLAIM / CLEAR / CONTRA** 提交  
+> 1. **Bank Process** Post（`bank_process_posted_id IS NOT NULL`，WIN/LOSE → **Win/Loss**）  
+> 2. **Domain Fee / Payment**（`PAYMENT` 且 `bank_process_posted_id IS NULL`，含 Domain Confirm Charge on Save + Auto Renew Approve → **Cr/Dr**）  
+> 3. **手动 PAYMENT / CLAIM / CLEAR / CONTRA Submit**（→ **Cr/Dr**）  
+> 4. **手动 ADJUSTMENT Submit**（→ **Win/Loss**；仅 To Account，signed amount）  
+> **不含**：RATE、Type Search 过滤开关、**Contra Inbox 审批**、其他 type Submit。  
+> **正负布局**：余额为正 → 左表；为负 → 右表（与既有一致）。  
+> **NET PROFIT（C168→C168，净 0.00）**：Capture Date **当期**仍展示（`hasCrDrInPeriod`）；隔日仅历史净 0、无当期动账的 Domain-only 行不展示。
 
 ### 11.1 API 分工一览
 
@@ -691,9 +701,11 @@ URL **不**带 `tenant_id` / `id`。`ProcessListPage` 的 `loadFormMeta` / `relo
 | Group scope 币种 | `get_scope_account_currencies_api.php` | ⚠️ v1 仍用 `currency/list`（单 tenant） | Group 聚合列后续再扩 |
 | Category 下拉 | `get_categories_api.php` | ⚠️ v1 **前端**从 account list 去重 `role` | 新 schema 无独立 `role` 字典表；顺序沿用旧 priority 常量 |
 | 用户币种排序 | `user_currency_order_api.php` | ⚠️ v1 **localStorage** | `currencyDisplayOrder.js`；新 schema 用 `account_currency.sort_order`（按账户链，非用户级） |
-| **主列表 Search** | `search_api.php` | ✅ `POST /api/transaction/search` | BP WIN/LOSE 汇总 |
-| Payment History | `history_api.php` | ✅ `POST /api/transaction/history` | v1：单账户 BP 明细 + BF + `created_at` 升序 |
-| 手动提交 / Contra | `submit_api.php`、`contra_*` | — | 本期不做 |
+| **主列表 Search** | `search_api.php` | ✅ `POST /api/transaction/search` | BP WIN/LOSE + Domain PAYMENT Cr/Dr 合并 |
+| Payment History | `history_api.php` | ✅ `POST /api/transaction/history` | BF（BP+Domain）+ 明细按 `created_at` 升序；BP→Win/Loss（Id Product=`cardOwner`），Domain→Cr/Dr；Id Product=`PAYMENT`/`COMMISSION`/`PROFIT`；**C168 仅展示 NET PROFIT，Cr/Dr=净利润金额** |
+| **手动 PAYMENT / CLAIM / CLEAR / CONTRA Submit** | `submit_api.php` | ✅ `POST /api/transaction/submit` | Cr/Dr transfer types；即时 `APPROVED` |
+| **手动 ADJUSTMENT Submit** | `submit_api.php` | ✅ `POST /api/transaction/submit` | 仅 `toAccountId`；signed amount → Win/Loss |
+| Contra Inbox / 审批 | `contra_*` | — | Submit 已 Spring（即时生效）；Inbox 仍 PHP |
 
 ### 11.2 Meta 层复用约定
 
@@ -743,7 +755,7 @@ import { fetchCurrencyListByTenantId, normalizeCurrencyRow } from "../../../util
 - 从 `fetchAccountListByTenantId` 结果取 `role` 去重 + 固定 priority（CAPITAL, BANK, …）排序。
 - 过滤 Search 时传 `categories[]=BANK` → 后端按 `account.role` 过滤。
 
-### 11.3 Search API 契约（已实现 2026-07-20）
+### 11.3 Search API 契约（已实现；2026-07-22 含 Domain Payment）
 
 **`POST /api/transaction/search`**
 
@@ -758,6 +770,14 @@ Request body（camelCase）：
   "categories": ["BANK", "SUPPLIER"]
 }
 ```
+
+合并规则：
+
+- BP：`WIN/LOSE` + `bank_process_posted_id` → `winLoss` / BF
+- Domain/Payment：`PAYMENT` + `bank_process_posted_id IS NULL` → `crDr` / BF（To −amount，From +amount）
+- `balance = bf + winLoss + crDr`
+- Domain-only 且 BF/CrDr 全 0、当期无 Payment 动账 → 不返回（隔日隐藏纯 NET PROFIT 0.00）
+- 当期有 Payment 动账（含 NET PROFIT 自转）→ `hasCrDrInPeriod=true`，即使 `crDr=0.00` 仍返回
 
 Response `data`：
 
@@ -813,7 +833,33 @@ Request body（camelCase）：
 
 - `tenantId` = UI `company.id`；`accountId` = `account.id`（Payment History scope 的 `account_db_id`）
 - `currencyCodes` 空数组 = 该账户区间内全部币种
-- 数据源：`transactions.bank_process_posted_id IS NOT NULL` + `APPROVED` + `WIN`/`LOSE` only
+- 数据源：**BP** `WIN`/`LOSE` + **手动 ADJUSTMENT** + **Domain / 手动转账** `PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`（`bank_process_posted_id IS NULL`），均 `APPROVED`
+
+**手动 PAYMENT / CLAIM / CLEAR / CONTRA History 展示**
+
+| Type | 当前查看账户 | Description | Id Product |
+|------|-------------|-------------|------------|
+| PAYMENT | 收款方（From） | `PAYMENT TO {付款方}` | `PAYMENT` |
+| PAYMENT | 付款方（To） | `PAYMENT FROM {收款方}` | `PAYMENT` |
+| CLAIM | 收款方（From） | `CLAIM TO {付款方}` | `CLAIM` |
+| CLAIM | 付款方（To） | `CLAIM FROM {收款方}` | `CLAIM` |
+| CLEAR | 收款方（From） | `CLEAR TO {付款方}` | `CLEAR` |
+| CLEAR | 付款方（To） | `CLEAR FROM {收款方}` | `CLEAR` |
+| CONTRA | 收款方（From） | `CONTRA TO {付款方}` | `CONTRA` |
+| CONTRA | 付款方（To） | `CONTRA FROM {收款方}` | `CONTRA` |
+
+**手动 ADJUSTMENT History 展示**
+
+| 项 | 值 |
+|----|-----|
+| 账户 | 仅 **To Account**（收款方） |
+| Win/Loss | signed `amount`（正=加，负=减） |
+| Cr/Dr | `0.00` |
+| Description | `ADJUSTMENT - WIN/LOSS` |
+| Id Product | `ADJUSTMENT` |
+
+- DB 写入时即存 `description = ADJUSTMENT - WIN/LOSS`；Search 合并进 BP Win/Loss 路径（`aggregateManualAdjustmentWinLoss`）
+- Domain Fee 行仍用库内 `description`（`PAY DOMAIN FEE` / `* COMMISSION` / `NET PROFIT`）→ Id Product 规则不变
 
 Response `data`：
 
@@ -855,20 +901,133 @@ Response `data`：
 
 前端 `transactionHistoryNormalize.js` → `getHistory()`；`TransactionHistoryTable` 无需改列。
 
-**v1 不做**：手动 Payment/Contra/RATE；`pure_type_search`；Member PDF export（仍 `history_api.php`）。
+**v1 不做（History）**：`pure_type_search`；Member PDF export（仍 `history_api.php`）。
 
-### 11.7 前端改动（History）
+### 11.7 手动 PAYMENT / CLAIM / CLEAR / CONTRA / ADJUSTMENT Submit API（已实现 2026-07-22）
+
+**`POST /api/transaction/submit`**
+
+**账户方向（与 Domain Fee / Search Cr/Dr 一致）**
+
+| UI / 请求字段 | DB `transactions` | 业务含义 | Cr/Dr 符号 |
+|---------------|-------------------|----------|------------|
+| **To Account** / `toAccountId` | `account_id` | 付款方（给钱） | **−amount** |
+| **From Account** / `fromAccountId` | `from_account_id` | 收款方（拿钱） | **+amount** |
+
+Request body（camelCase）：
+
+```json
+{
+  "tenantId": 95,
+  "transactionType": "PAYMENT",
+  "transactionDate": "22/07/2026",
+  "toAccountId": 12,
+  "fromAccountId": 8,
+  "currencyCode": "MYR",
+  "amount": 1000.00,
+  "remark": ""
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `tenantId` | UI 公司 pill 的 `tenant.id` |
+| `transactionType` | 可省略，默认 `PAYMENT`；transfer：`PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`；或 `ADJUSTMENT` |
+| `transactionDate` | `dd/MM/yyyy` 或 `yyyy-MM-dd`；可省略 → 服务器当天 |
+| `toAccountId` / `fromAccountId` | `account.id`；必须不同 |
+| `currencyId` 或 `currencyCode` | 二选一；须属于该 tenant |
+| `amount` | 正数，2 位小数 |
+| `remark` | 可选；写入 `transactions.remark` |
+
+写入规则：
+
+- `transaction_type = PAYMENT`
+- `approval_status = APPROVED`（即时生效，无 Contra 式 pending）
+- `bank_process_posted_id IS NULL`
+- `created_by` / `approved_by` = 当前 session `login_id`
+
+校验：
+
+- 已登录；`read_only` 用户拒绝提交
+- To / From 账户存在、`ACTIVE`、属于 tenant
+- 两账户均在 `account_currency` 中启用所选币别
+
+Response `data`：
+
+```json
+{
+  "id": 123,
+  "transactionType": "PAYMENT",
+  "tenantId": 95,
+  "toAccountId": 12,
+  "fromAccountId": 8,
+  "currencyCode": "MYR",
+  "amount": "1000.00",
+  "transactionDate": "22/07/2026",
+  "remark": ""
+}
+```
+
+提交成功后 **无需改 Search/History** — 与 Domain Fee 相同路径，自动计入 Cr/Dr。
+
+**后端文件**
+
+| 文件 | 说明 |
+|------|------|
+| `controller/TransactionController.java` | `POST /submit` |
+| `service/TransactionSubmitService.java` + `impl/TransactionSubmitServiceImpl.java` | 校验 + insert |
+| `dto/TransactionDTO.java` | `SubmitRequest` / `SubmitResult` |
+| `dao/TransactionDao.java` + `TransactionMapper.xml` | 复用既有 `insert` |
+
+**前端**
+
+**ADJUSTMENT 请求体（仅 To）**
+
+```json
+{
+  "tenantId": 95,
+  "transactionType": "ADJUSTMENT",
+  "transactionDate": "22/07/2026",
+  "toAccountId": 12,
+  "currencyCode": "MYR",
+  "amount": 100.00,
+  "remark": ""
+}
+```
+
+- 无 `fromAccountId`；`amount` 可正可负，**不可为 0**
+- 写入：`description = ADJUSTMENT - WIN/LOSS`；`from_account_id = NULL`
+- Search / History：**Win/Loss**（非 Cr/Dr）
+
+- `transactionApi.js`：`submitTransaction` — `PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`/`ADJUSTMENT` → Spring JSON；RATE 等仍 `submit_api.php`
+- `transactionSubmitNormalize.js`：`buildSpringSubmitRequest` / `normalizeSpringSubmitResponse`（旧 snake_case payload ↔ camelCase Spring）
+- `useTransactionForm.js`：**无需改**；仍组 legacy payload（`account_id`/`from_account_id`/`currency`/`sms`）
+
+Legacy payload → Spring 映射：
+
+| 旧 Form / payload | Spring body |
+|-------------------|-------------|
+| `company_id`（scope） | `tenantId` |
+| `account_id` | `toAccountId` |
+| `from_account_id` | `fromAccountId` |
+| `currency` | `currencyCode` |
+| `sms` | `remark` |
+| `transaction_date` | `transactionDate` |
+| `amount` | `amount` |
+
+### 11.8 前端改动（History）
 
 | 文件 | 改动 |
 |------|------|
 | `transactionHistoryNormalize.js` | Spring `HistoryResult` → 表格 snake_case 行 |
 | `transactionApi.js` | `getHistory` → `POST /api/transaction/history` |
 
-### 11.4 前端改动清单（BP-only v1）
+### 11.4 前端改动清单
 
 | 文件 | 改动 |
 |------|------|
-| `transactionApi.js` | Meta → Spring；Search → `POST /api/transaction/search`；History → `POST /api/transaction/history` |
+| `transactionApi.js` | Meta → Spring；Search → `/search`；History → `/history`；**PAYMENT/CLAIM/CLEAR/CONTRA/ADJUSTMENT Submit → `/submit`** |
+| `transactionSubmitNormalize.js` | **新建** — Submit request/response 适配 |
 | `transactionHistoryNormalize.js` | Spring history → BF + 明细行 |
 | `transactionSearchNormalize.js` | Spring `rows` → `left_table` / `right_table`（balance 正负分列） |
 | `transactionAccountHelpers.js` | 账户 Meta normalize + Category priority |
@@ -878,7 +1037,7 @@ Response `data`：
 
 - Data Capture 行合并进 Search
 - RATE / `transaction_entry`
-- 手动 Payment、Contra、ADJUSTMENT、Domain 虚拟行
+- **Contra Inbox** 审批、PROFIT 等手动 type（仍 PHP 或尚未实现）
 - `type_account_search` / `type_transaction_search`
 - Member / PDF export 的 `history_api.php`（主 Payment History 页已 Spring）
 - `user_currency_order_api` 服务端持久化
@@ -1092,8 +1251,9 @@ Count-frontend/src/pages/bankprocesslist/bankProcessListApi.js      # list + add
 Count-frontend/src/pages/bankprocesslist/bankCountryOptionApi.js   # POST /api/bank-country-option/* (tenantId body)
 Count-frontend/src/pages/bankprocesslist/components/BankProcessStatusControl.jsx  # Spring update-status
 Count-frontend/src/pages/bankprocesslist/hooks/useBankProcessListPage.js
-Count-frontend/src/pages/transaction/lib/transactionApi.js          # 待拆：Meta → Spring 复用；Search → /api/transaction/search
-Count-frontend/src/pages/transaction/lib/transactionPaymentLogic.js # 仍消费 search_api 同形 left/right_table
+Count-frontend/src/pages/transaction/lib/transactionApi.js          # Meta/Search/History/Submit(PAYMENT→Spring)
+Count-frontend/src/pages/transaction/lib/transactionSubmitNormalize.js  # PAYMENT submit 请求/响应适配
+Count-frontend/src/pages/transaction/lib/transactionPaymentLogic.js # 仍消费 search 同形 left/right_table
 Count-frontend/src/pages/account/accountListApi.js                  # Transaction Meta 复用账户 list
 Count-frontend/src/utils/api/currencyApi.js                         # Transaction Meta 复用币种 list
 backend/src/main/resources/sql/migrate_upline_role_to_supplier.sql  # UPLINE → SUPPLIER 一次性迁移

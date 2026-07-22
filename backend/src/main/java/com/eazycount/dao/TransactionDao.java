@@ -20,13 +20,58 @@ public interface TransactionDao {
             @Param("currencyCodes") List<String> currencyCodes,
             @Param("categories") List<String> categories);
 
+    /** Manual ADJUSTMENT Win/Loss aggregate (signed amount on To account only). */
+    List<TransactionDTO.SearchAggregateRow> aggregateManualAdjustmentWinLoss(
+            @Param("tenantId") Integer tenantId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("currencyCodes") List<String> currencyCodes,
+            @Param("categories") List<String> categories);
+
+    /**
+     * Manual transfer Cr/Dr aggregate (PAYMENT / CLAIM / CLEAR / CONTRA; no bank_process_posted_id).
+     * To ({@code account_id}) = −amount; From ({@code from_account_id}) = +amount.
+     */
+    List<TransactionDTO.SearchAggregateRow> aggregateDomainPaymentCrDr(
+            @Param("tenantId") Integer tenantId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("currencyCodes") List<String> currencyCodes,
+            @Param("categories") List<String> categories);
+
     List<TransactionDTO.HistoryBfAggregateRow> aggregateBankProcessBfByAccount(
             @Param("tenantId") Integer tenantId,
             @Param("accountId") Integer accountId,
             @Param("dateFrom") LocalDate dateFrom,
             @Param("currencyCodes") List<String> currencyCodes);
 
+    List<TransactionDTO.HistoryBfAggregateRow> aggregateDomainPaymentBfByAccount(
+            @Param("tenantId") Integer tenantId,
+            @Param("accountId") Integer accountId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("currencyCodes") List<String> currencyCodes);
+
     List<TransactionDTO.HistoryLineRow> findBankProcessHistoryLines(
+            @Param("tenantId") Integer tenantId,
+            @Param("accountId") Integer accountId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("currencyCodes") List<String> currencyCodes);
+
+    List<TransactionDTO.HistoryLineRow> findDomainPaymentHistoryLines(
+            @Param("tenantId") Integer tenantId,
+            @Param("accountId") Integer accountId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("currencyCodes") List<String> currencyCodes);
+
+    List<TransactionDTO.HistoryBfAggregateRow> aggregateManualAdjustmentBfByAccount(
+            @Param("tenantId") Integer tenantId,
+            @Param("accountId") Integer accountId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("currencyCodes") List<String> currencyCodes);
+
+    List<TransactionDTO.HistoryLineRow> findManualAdjustmentHistoryLines(
             @Param("tenantId") Integer tenantId,
             @Param("accountId") Integer accountId,
             @Param("dateFrom") LocalDate dateFrom,

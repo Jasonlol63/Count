@@ -37,10 +37,6 @@ public class BankProcess {
 
     private LocalDate dayEnd;
 
-    /**
-     * 1st of every month only. {@code true} = last month uses {@code DAY_END_TAIL} through dayEnd;
-     * {@code false} = last month uses {@code FULL_MONTH} through month end.
-     */
     private Boolean dayEndMonthlyCapEnabled;
 
     private Frequency frequency;

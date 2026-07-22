@@ -26,14 +26,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Domain Confirm "Charge on Save" (see {@code docs/login-to-business-pages.md} §4.5.1).
- * <p>
- * Posts {@code PAYMENT} rows (Cr/Dr ledger — not WIN/LOSE): {@code account_id} = payer
- * (To, debited), {@code from_account_id} = recipient (From, credited). Sales/CS/IT
- * commission + C168 Profit remainder are separate PAYMENT transfers from the payer;
- * no Commission → one PAYMENT payer→C168 with description {@code Pay Domain Fee}.
- */
 @Service
 public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
 
@@ -69,6 +61,15 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
         if (tenant == null || !Boolean.TRUE.equals(tenant.getChargeDomainFeeOnConfirm())) {
             return 0;
         }
+        return chargeDomainFee(tenant, tenant.getDomainFeePeriod());
+    }
+
+    @Override
+    @Transactional
+    public int chargeDomainFee(Tenant tenant, String periodCode) {
+        if (tenant == null) {
+            throw new BusinessException("Invalid tenant for domain fee charge");
+        }
 
         SessionUser session = SecurityUtils.currentUser();
         if (session == null) {
@@ -81,7 +82,7 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
             throw new BusinessException("Invalid tenant for domain fee charge");
         }
 
-        String period = tenant.getDomainFeePeriod() != null ? tenant.getDomainFeePeriod().trim() : "";
+        String period = periodCode != null ? periodCode.trim() : "";
         if (period.isEmpty()) {
             throw new BusinessException("Domain fee period is required to charge the domain fee");
         }
@@ -137,6 +138,9 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
 
         List<Transaction> lines = new ArrayList<>();
 
+        lines.add(buildPaymentLine(c168TenantId, payerAccountId, profitAccountId, currencyId,
+                domainFeeAmount, transactionDate, "PAY DOMAIN FEE", createdBy, approvedAt));
+
         BigDecimal commissionTotal = BigDecimal.ZERO;
         for (TenantFeeShareAllocate row : allocations) {
             if (row == null || row.getShareType() == TenantFeeShareAllocate.ShareType.PROFIT) {
@@ -157,22 +161,18 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
             }
 
             commissionTotal = commissionTotal.add(amount);
-            lines.add(buildPaymentLine(c168TenantId, payerAccountId, row.getAccountId(), currencyId,
+            lines.add(buildPaymentLine(c168TenantId, profitAccountId, row.getAccountId(), currencyId,
                     amount, transactionDate,
                     row.getShareType().name() + " COMMISSION FROM " + payerCode,
                     createdBy, approvedAt));
         }
 
-        // Remainder → C168 (= Profit). No Commission rows → single payer→C168 "Pay Domain Fee".
         BigDecimal profitAmount = scaleMoney(domainFeeAmount.subtract(commissionTotal));
         if (profitAmount.compareTo(BigDecimal.ZERO) < 0) {
             profitAmount = BigDecimal.ZERO;
         }
-        if (lines.isEmpty()) {
-            lines.add(buildPaymentLine(c168TenantId, payerAccountId, profitAccountId, currencyId,
-                    domainFeeAmount, transactionDate, "PAY DOMAIN FEE", createdBy, approvedAt));
-        } else if (profitAmount.compareTo(BigDecimal.ZERO) > 0) {
-            lines.add(buildPaymentLine(c168TenantId, payerAccountId, profitAccountId, currencyId,
+        if (profitAmount.compareTo(BigDecimal.ZERO) > 0) {
+            lines.add(buildPaymentLine(c168TenantId, profitAccountId, profitAccountId, currencyId,
                     profitAmount, transactionDate, "NET PROFIT FROM " + payerCode, createdBy, approvedAt));
         }
 
@@ -182,7 +182,7 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
         return lines.size();
     }
 
-    /** C168's own account under its ledger — the fixed Profit recipient regardless of allocation account_id. */
+    /* C168's own account under its ledger — the fixed Profit recipient regardless of allocation account_id. */
     private Integer resolveProfitAccountId(Integer c168TenantId) {
         for (String code : PROFIT_ACCOUNT_CODES) {
             Integer id = userDao.findAccountIdByTenantIdAndCode(c168TenantId, code);
@@ -193,10 +193,7 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
         return null;
     }
 
-    /**
-     * One {@code PAYMENT} transfer: To ({@code toAccountId}) −amount Cr/Dr,
-     * From ({@code fromAccountId}) +amount Cr/Dr — same convention as manual Payment submit.
-     */
+    /* Build Payment Details Use */
     private Transaction buildPaymentLine(Integer tenantId, Integer toAccountId, Integer fromAccountId,
             Integer currencyId, BigDecimal amount, LocalDate transactionDate, String description,
             String createdBy, LocalDateTime approvedAt) {
