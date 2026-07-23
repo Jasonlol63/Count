@@ -75,19 +75,29 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
                 tenantId, dateFrom, dateTo, currencyCodes, categories);
         List<TransactionDTO.SearchAggregateRow> adjustmentRows = transactionDao.aggregateManualAdjustmentWinLoss(
                 tenantId, dateFrom, dateTo, currencyCodes, categories);
+        List<TransactionDTO.SearchAggregateRow> profitRows = transactionDao.aggregateManualProfitWinLoss(
+                tenantId, dateFrom, dateTo, currencyCodes, categories);
+        List<TransactionDTO.SearchAggregateRow> rateMiddlemanRows = transactionDao.aggregateManualRateMiddlemanWinLoss(
+                tenantId, dateFrom, dateTo, currencyCodes, categories);
         if (bankRows == null) {
             bankRows = List.of();
         }
         if (adjustmentRows == null) {
             adjustmentRows = List.of();
         }
+        if (profitRows == null) {
+            profitRows = List.of();
+        }
+        if (rateMiddlemanRows == null) {
+            rateMiddlemanRows = List.of();
+        }
         List<TransactionDTO.SearchAggregateRow> combined = mergeWinLossAggregateRows(bankRows, adjustmentRows);
+        combined = mergeWinLossAggregateRows(combined, profitRows);
+        combined = mergeWinLossAggregateRows(combined, rateMiddlemanRows);
         return new SearchSlice(combined, true);
     }
 
-    private static List<TransactionDTO.SearchAggregateRow> mergeWinLossAggregateRows(
-            List<TransactionDTO.SearchAggregateRow> first,
-            List<TransactionDTO.SearchAggregateRow> second) {
+    private static List<TransactionDTO.SearchAggregateRow> mergeWinLossAggregateRows(List<TransactionDTO.SearchAggregateRow> first, List<TransactionDTO.SearchAggregateRow> second) {
         Map<String, TransactionDTO.SearchAggregateRow> merged = new HashMap<>();
         for (TransactionDTO.SearchAggregateRow row : first) {
             absorbWinLossAggregate(merged, row);
@@ -104,9 +114,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
                 .toList();
     }
 
-    private static void absorbWinLossAggregate(
-            Map<String, TransactionDTO.SearchAggregateRow> merged,
-            TransactionDTO.SearchAggregateRow row) {
+    private static void absorbWinLossAggregate(Map<String, TransactionDTO.SearchAggregateRow> merged, TransactionDTO.SearchAggregateRow row) {
         if (row == null || row.getAccountDbId() == null) {
             return;
         }
@@ -137,14 +145,8 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
     }
 
     // ── Domain Payment (Cr/Dr) ────────────────────────────────────────────────
-    private SearchSlice buildDomainPaymentSearchSlice(
-            Integer tenantId,
-            LocalDate dateFrom,
-            LocalDate dateTo,
-            List<String> currencyCodes,
-            List<String> categories) {
-        List<TransactionDTO.SearchAggregateRow> domainRows = transactionDao.aggregateDomainPaymentCrDr(
-                tenantId, dateFrom, dateTo, currencyCodes, categories);
+    private SearchSlice buildDomainPaymentSearchSlice(Integer tenantId, LocalDate dateFrom, LocalDate dateTo, List<String> currencyCodes, List<String> categories) {
+        List<TransactionDTO.SearchAggregateRow> domainRows = transactionDao.aggregateDomainPaymentCrDr(tenantId, dateFrom, dateTo, currencyCodes, categories);
         if (domainRows == null) {
             domainRows = List.of();
         }
@@ -152,10 +154,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
     }
 
     // ── Merge / present ───────────────────────────────────────────────────────
-    private TransactionDTO.SearchResult mergeSearchSlices(
-            Integer tenantId,
-            SearchSlice bank,
-            SearchSlice domain) {
+    private TransactionDTO.SearchResult mergeSearchSlices(Integer tenantId, SearchSlice bank, SearchSlice domain) {
         Map<String, MergedAccount> merged = new HashMap<>();
         applyBankAggregates(merged, bank.aggregates());
         applyDomainAggregates(merged, domain.aggregates());
@@ -214,9 +213,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         return result;
     }
 
-    private static void applyBankAggregates(
-            Map<String, MergedAccount> merged,
-            List<TransactionDTO.SearchAggregateRow> bankRows) {
+    private static void applyBankAggregates(Map<String, MergedAccount> merged, List<TransactionDTO.SearchAggregateRow> bankRows) {
         for (TransactionDTO.SearchAggregateRow agg : bankRows) {
             if (agg == null || agg.getAccountDbId() == null) {
                 continue;
@@ -229,9 +226,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         }
     }
 
-    private static void applyDomainAggregates(
-            Map<String, MergedAccount> merged,
-            List<TransactionDTO.SearchAggregateRow> domainRows) {
+    private static void applyDomainAggregates(Map<String, MergedAccount> merged, List<TransactionDTO.SearchAggregateRow> domainRows) {
         for (TransactionDTO.SearchAggregateRow agg : domainRows) {
             if (agg == null || agg.getAccountDbId() == null) {
                 continue;

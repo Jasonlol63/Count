@@ -64,6 +64,9 @@ public class Transaction {
      */
     private Integer bankProcessPostedId;
 
+    /** RATE only: shared by leg1+leg2; null for other types. */
+    private String rateGroupId;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;
@@ -78,7 +81,8 @@ public class Transaction {
         CLAIM,
         RATE,
         CLEAR,
-        ADJUSTMENT
+        ADJUSTMENT,
+        PROFIT
     }
 
     @Getter

@@ -743,7 +743,7 @@ flowchart LR
 |------|------|------|------|
 | POST | `/search` | 主列表（BP Win/Loss + Payment Cr/Dr 合并） | ✅ Spring |
 | POST | `/history` | 单账户 Payment History | ✅ Spring |
-| POST | `/submit` | 手动 **PAYMENT / CLAIM / CLEAR / CONTRA / ADJUSTMENT** | ✅ Spring |
+| POST | `/submit` | 手动 **PAYMENT / CLAIM / CLEAR / CONTRA / ADJUSTMENT / PROFIT / RATE** | ✅ Spring |
 
 统一响应：`{ success, message, data }`；业务失败时多为 `success: false` 且 HTTP 200。
 
@@ -761,7 +761,7 @@ flowchart LR
 | 字段 | 说明 |
 |------|------|
 | `tenantId` | 当前公司 `tenant.id` |
-| `transactionType` | 默认 `PAYMENT`；transfer：`PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`；或 `ADJUSTMENT` |
+| `transactionType` | 默认 `PAYMENT`；transfer：`PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`；或 `ADJUSTMENT` / `PROFIT` / `RATE` |
 | `transactionDate` | `dd/MM/yyyy` 或 `yyyy-MM-dd`；可省略 → 当天 |
 | `toAccountId` / `fromAccountId` | `account.id`，须不同 |
 | `currencyCode` 或 `currencyId` | 租户币别；两账户均须在 `account_currency` 启用 |
@@ -779,12 +779,18 @@ flowchart LR
 | CLEAR | `CLEAR TO {付款方}` | `CLEAR FROM {收款方}` | `CLEAR` |
 | CONTRA | `CONTRA TO {付款方}` | `CONTRA FROM {收款方}` | `CONTRA` |
 | ADJUSTMENT | —（仅 To） | — | `ADJUSTMENT` |
+| PROFIT | `PROFIT TO {付款方}` | `PROFIT FROM {收款方}` | `PROFIT` |
+| RATE | `EXCH RATE {rate} {ccy1} {amt} > {ccy2} \| TO {付款方}` | `EXCH RATE {rate} {ccy1} {amt} > {ccy2} \| FROM {收款方}` | `RATE` |
 
 **ADJUSTMENT：** 仅 `toAccountId`；signed `amount` → **Win/Loss**（非 Cr/Dr）；`description = ADJUSTMENT - WIN/LOSS`。
 
+**PROFIT：** `fromAccountId` + `toAccountId`；正数 `amount` → **Win/Loss**（From + / To −）；History desc 派生；Id Product=`PROFIT`。
+
+**RATE：** … Fee 份额仅 middleman **+Win/Loss**（不对 leg2 付款方记 −WL，因手续费已含在第一币金额）；Rate Multiplier 仍 To−/From+。
+
 **CONTRA Submit** 与 PAYMENT 相同：即时 `APPROVED` 进 Cr/Dr（Contra Inbox 审批 API 仍 PHP，未接）。
 
-**前端路由：** `transactionApi.submitTransaction` — `PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`/`ADJUSTMENT` → Spring JSON；RATE 等仍 `submit_api.php`。
+**前端路由：** `transactionApi.submitTransaction` — `PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`/`ADJUSTMENT`/`PROFIT`/`RATE` → Spring JSON。
 
 **后端：** `TransactionSubmitServiceImpl`；详见 `docs/frontend-springboot-migration.md` §11.7。
 

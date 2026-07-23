@@ -401,7 +401,7 @@ CREATE TABLE `transactions` (
     `company_id`                      int(11) DEFAULT NULL,
     `scope_type`                      enum('company','group') NOT NULL DEFAULT 'company' COMMENT 'Tenant scope: company or group ledger',
     `scope_id`                        bigint UNSIGNED DEFAULT NULL COMMENT 'Numeric scope: company.id or groups.id',
-    `transaction_type`                enum('WIN','LOSE','PAYMENT','RECEIVE','CONTRA','CLAIM','RATE','CLEAR','ADJUSTMENT') NOT NULL,
+    `transaction_type`                enum('WIN','LOSE','PAYMENT','RECEIVE','CONTRA','CLAIM','RATE','CLEAR','ADJUSTMENT','PROFIT') NOT NULL,
     `account_id`                      int(11) DEFAULT NULL,
     `from_account_id`                 int(11) DEFAULT NULL,
     `currency_id`                     int(11) DEFAULT NULL COMMENT 'Currency ID',

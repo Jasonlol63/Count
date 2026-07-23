@@ -86,6 +86,10 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
                 tenantId, accountId, dateFrom, currencyCodes));
         addBfRows(bfByCurrency, transactionDao.aggregateManualAdjustmentBfByAccount(
                 tenantId, accountId, dateFrom, currencyCodes));
+        addBfRows(bfByCurrency, transactionDao.aggregateManualProfitBfByAccount(
+                tenantId, accountId, dateFrom, currencyCodes));
+        addBfRows(bfByCurrency, transactionDao.aggregateManualRateMiddlemanBfByAccount(
+                tenantId, accountId, dateFrom, currencyCodes));
 
         List<TransactionDTO.HistoryLineRow> lines = new ArrayList<>();
         List<TransactionDTO.HistoryLineRow> bankLines = transactionDao.findBankProcessHistoryLines(
@@ -97,6 +101,17 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
                 tenantId, accountId, dateFrom, dateTo, currencyCodes);
         if (adjustmentLines != null) {
             lines.addAll(adjustmentLines);
+        }
+        List<TransactionDTO.HistoryLineRow> profitLines = transactionDao.findManualProfitHistoryLines(
+                tenantId, accountId, dateFrom, dateTo, currencyCodes);
+        if (profitLines != null) {
+            for (TransactionDTO.HistoryLineRow line : profitLines) {
+                if (line == null) {
+                    continue;
+                }
+                applyManualTransferHistoryPresentation(line, accountId);
+                lines.add(line);
+            }
         }
         return new HistorySlice(bfByCurrency, lines);
     }
@@ -124,7 +139,17 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
                     // Retained profit as Cr/Dr (not self-leg net 0).
                     line.setSignedAmount(TransactionMoneyFormat.nz(line.getAmount()));
                 }
-                applyManualTransferHistoryPresentation(line, accountId);
+                // Middle-Man double-entry To side (rate multiplier): hide leg2 payer.
+                // Fee is middleman-only (from NULL) — always show for that account.
+                if (Boolean.TRUE.equals(line.getRateMiddlemanFee())
+                        && line.getFromAccountId() != null
+                        && line.getToAccountId() != null
+                        && accountId.equals(line.getToAccountId())) {
+                    continue;
+                }
+                if (!applyRateHistoryPresentation(line, accountId)) {
+                    applyManualTransferHistoryPresentation(line, accountId);
+                }
                 lines.add(line);
             }
         }
@@ -217,6 +242,8 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
 
         boolean isBank = Boolean.TRUE.equals(line.getBankProcessLine());
         boolean isAdjustment = isManualAdjustmentLine(line);
+        boolean isProfit = isManualProfitLine(line);
+        boolean isRateMiddlemanFee = Boolean.TRUE.equals(line.getRateMiddlemanFee());
 
         TransactionDTO.HistoryRow row = new TransactionDTO.HistoryRow();
         row.setId(line.getId());
@@ -225,12 +252,16 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         row.setCardOwner(trimToEmpty(line.getCardOwner()));
         if (isAdjustment) {
             row.setProduct("ADJUSTMENT");
+        } else if (isProfit) {
+            row.setProduct("PROFIT");
+        } else if (isRateMiddlemanFee) {
+            row.setProduct("RATE");
         } else if (!isBank) {
             row.setProduct(resolveDomainHistoryProduct(line));
         }
         row.setCurrency(currency);
         row.setRate("-");
-        if (isBank || isAdjustment) {
+        if (isBank || isAdjustment || isProfit || isRateMiddlemanFee) {
             row.setWinLoss(TransactionMoneyFormat.formatMoney(signed));
             row.setCrDr(TransactionMoneyFormat.formatMoney(BigDecimal.ZERO));
         } else {
@@ -276,6 +307,13 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         return "ADJUSTMENT".equalsIgnoreCase(line.getTransactionType().trim());
     }
 
+    static boolean isManualProfitLine(TransactionDTO.HistoryLineRow line) {
+        if (line == null || line.getTransactionType() == null) {
+            return false;
+        }
+        return "PROFIT".equalsIgnoreCase(line.getTransactionType().trim());
+    }
+
     /** Domain History Id Product: PAYMENT / COMMISSION / PROFIT / CLAIM / CLEAR / CONTRA. */
     static String domainProductFromDescription(String description) {
         String d = description != null ? description.trim().toUpperCase(Locale.ROOT) : "";
@@ -294,9 +332,13 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         if (d.contains("COMMISSION")) {
             return "COMMISSION";
         }
-        if (d.startsWith("NET PROFIT")) {
+        if (d.startsWith("NET PROFIT") || d.startsWith("PROFIT FROM ") || d.startsWith("PROFIT TO ")) {
             return "PROFIT";
         }
+        if (d.startsWith("EXCH RATE ")) {
+            return "RATE";
+        }
+
         return "";
     }
 
@@ -311,15 +353,149 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         String type = line.getTransactionType() != null
                 ? line.getTransactionType().trim().toUpperCase(Locale.ROOT)
                 : "";
-        if ("PAYMENT".equals(type) || "CLAIM".equals(type) || "CLEAR".equals(type) || "CONTRA".equals(type)) {
+        if ("PAYMENT".equals(type) || "CLAIM".equals(type) || "CLEAR".equals(type)
+                || "CONTRA".equals(type) || "PROFIT".equals(type) || "RATE".equals(type)) {
             return type;
         }
         return "";
     }
 
+    /*
+     * RATE History description:
+     * Transfer legs: {@code EXCH RATE {rate} {ccy1} {amount} > {ccy2} | FROM|TO {account}}
+     * Middle-Man fee leg: {@code MARKUP {rate} {ccy1} {amt} > {ccy2} | FROM {leg1 To}} — middleman account only.
+     * Direction follows leg1→leg2 currencies. FROM on payer (To), TO on receiver (From) — same as PAYMENT.
+     */
+    static boolean applyRateHistoryPresentation(
+            TransactionDTO.HistoryLineRow line,
+            Integer viewedAccountId) {
+        if (line == null || viewedAccountId == null || viewedAccountId <= 0) {
+            return false;
+        }
+        String type = line.getTransactionType() != null
+                ? line.getTransactionType().trim().toUpperCase(Locale.ROOT)
+                : "";
+        if (!"RATE".equals(type)) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(line.getRateMiddlemanFee())) {
+            applyRateMiddlemanHistoryPresentation(line, viewedAccountId);
+            return true;
+        }
+        if (!isManualTransferLine(line.getDescription())) {
+            return true;
+        }
+        String rate = trimToEmpty(line.getRateExpression());
+        String ccy1 = trimToEmpty(line.getRateCurrencyFromCode()).toUpperCase(Locale.ROOT);
+        String ccy2 = trimToEmpty(line.getRateCurrencyToCode()).toUpperCase(Locale.ROOT);
+        String amountText = formatRateHistoryAmount(line.getRateAmountFrom());
+        if (rate.isEmpty() || ccy1.isEmpty() || ccy2.isEmpty()) {
+            // Fallback to PAYMENT-style if FX header missing
+            applyManualTransferHistoryPresentation(line, viewedAccountId);
+            return true;
+        }
+        String prefix = "EXCH RATE " + rate + " " + ccy1 + " " + amountText + " > " + ccy2;
+        String payerCode = trimToEmpty(line.getToAccountCode()).toUpperCase(Locale.ROOT);
+        String receiverCode = trimToEmpty(line.getFromAccountCode()).toUpperCase(Locale.ROOT);
+        // Receiver (From): TO {payer}; payer (To): FROM {receiver} — same as PAYMENT.
+        if (line.getFromAccountId() != null && viewedAccountId.equals(line.getFromAccountId())) {
+            line.setDescription(prefix + " | TO " + payerCode);
+            return true;
+        }
+        if (line.getToAccountId() != null && viewedAccountId.equals(line.getToAccountId())) {
+            line.setDescription(prefix + " | FROM " + receiverCode);
+            return true;
+        }
+        return true;
+    }
+
     /**
-     * Manual PAYMENT / CLAIM / CLEAR / CONTRA rows have no stored description.
+     * Middle-Man History (middleman / From leg only):
+     * Rate: {@code MARKUP {rate} {ccy1} {amt} > {ccy2} | FROM {leg1 To}}
+     * Fee:  {@code MARKUP X {ccy1} {amt} > {ccy2} | FROM {leg1 To}}
+     */
+    static void applyRateMiddlemanHistoryPresentation(
+            TransactionDTO.HistoryLineRow line,
+            Integer viewedAccountId) {
+        boolean middlemanView;
+        if (line.getFromAccountId() != null) {
+            middlemanView = viewedAccountId.equals(line.getFromAccountId());
+        } else {
+            // Fee single-sided: account_id = middleman
+            middlemanView = line.getToAccountId() != null
+                    && viewedAccountId.equals(line.getToAccountId());
+        }
+        if (!middlemanView) {
+            return;
+        }
+        line.setDescription(formatRateMiddlemanMarkupDescription(line));
+        // Service-fee CHARGE remark belongs on toAccount1 (leg1) only — not middleman History.
+        line.setRemark(null);
+    }
+
+    static String formatRateMiddlemanMarkupDescription(TransactionDTO.HistoryLineRow line) {
+        boolean feeKind = isRateMiddlemanFeeKind(line);
+        String rateToken = feeKind
+                ? "X"
+                : formatRateHistoryDecimal(line.getRateMiddlemanRate(), 6);
+        String ccy1 = trimToEmpty(line.getRateCurrencyFromCode()).toUpperCase(Locale.ROOT);
+        String ccy2 = trimToEmpty(line.getRateCurrencyToCode()).toUpperCase(Locale.ROOT);
+        String amountText = formatRateHistoryDecimal(line.getRateAmountFrom(), 6);
+        String leg1ToCode = trimToEmpty(line.getRateLeg1ToAccountCode()).toUpperCase(Locale.ROOT);
+
+        StringBuilder sb = new StringBuilder("MARKUP");
+        if (!rateToken.isEmpty()) {
+            sb.append(' ').append(rateToken);
+        }
+        if (!ccy1.isEmpty() && !ccy2.isEmpty()) {
+            sb.append(' ').append(ccy1);
+            if (!amountText.isEmpty()) {
+                sb.append(' ').append(amountText);
+            }
+            sb.append(" > ").append(ccy2);
+        }
+        if (!leg1ToCode.isEmpty()) {
+            sb.append(" | FROM ").append(leg1ToCode);
+        }
+        return sb.toString();
+    }
+
+    static boolean isRateMiddlemanFeeKind(TransactionDTO.HistoryLineRow line) {
+        if (line == null) {
+            return false;
+        }
+        String kind = trimToEmpty(line.getRateMiddlemanKind()).toUpperCase(Locale.ROOT);
+        if ("FEE".equals(kind)) {
+            return true;
+        }
+        if ("RATE".equals(kind)) {
+            return false;
+        }
+        String desc = trimToEmpty(line.getDescription()).toUpperCase(Locale.ROOT);
+        return "RATE_MIDDLEMAN_FEE".equals(desc);
+    }
+
+    static String formatRateHistoryDecimal(BigDecimal amount, int maxScale) {
+        if (amount == null) {
+            return "";
+        }
+        return amount.setScale(maxScale, java.math.RoundingMode.HALF_UP)
+                .stripTrailingZeros()
+                .toPlainString();
+    }
+
+    static String formatRateHistoryAmount(BigDecimal amount) {
+        String money = TransactionMoneyFormat.formatMoney(amount);
+        if (money.endsWith(".00")) {
+            return money.substring(0, money.length() - 3);
+        }
+        return money;
+    }
+
+    /**
+     * Manual PAYMENT / CLAIM / CLEAR / CONTRA / PROFIT rows have no stored description.
      * Receiver (From leg): {TYPE} TO {payer}; payer (To leg): {TYPE} FROM {receiver}.
+     * RATE uses {@link #applyRateHistoryPresentation} instead.
      */
     static void applyManualTransferHistoryPresentation(
             TransactionDTO.HistoryLineRow line,
@@ -333,7 +509,8 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         String type = line.getTransactionType() != null
                 ? line.getTransactionType().trim().toUpperCase(Locale.ROOT)
                 : "";
-        if (!"PAYMENT".equals(type) && !"CLAIM".equals(type) && !"CLEAR".equals(type) && !"CONTRA".equals(type)) {
+        if (!"PAYMENT".equals(type) && !"CLAIM".equals(type) && !"CLEAR".equals(type)
+                && !"CONTRA".equals(type) && !"PROFIT".equals(type) && !"RATE".equals(type)) {
             return;
         }
         String payerCode = trimToEmpty(line.getToAccountCode()).toUpperCase(Locale.ROOT);

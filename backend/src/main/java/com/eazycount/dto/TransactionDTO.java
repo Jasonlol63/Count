@@ -135,7 +135,6 @@ public final class TransactionDTO {
         private Integer id;
         private String transactionType;
         private BigDecimal amount;
-        /** Signed amount for the viewed account (WIN/LOSE or PAYMENT Cr/Dr). */
         private BigDecimal signedAmount;
         private java.time.LocalDate transactionDate;
         private String description;
@@ -145,14 +144,20 @@ public final class TransactionDTO {
         private String currencyCode;
         private String cardOwner;
         private Boolean bankProcessLine;
-        /** PAYMENT leg: payer (To) account.id */
         private Integer toAccountId;
-        /** PAYMENT leg: receiver (From) account.id */
         private Integer fromAccountId;
-        /** PAYMENT leg: payer account code */
         private String toAccountCode;
-        /** PAYMENT leg: receiver account code */
         private String fromAccountCode;
+
+        private String rateGroupId;
+        private String rateExpression;
+        private String rateCurrencyFromCode;
+        private BigDecimal rateAmountFrom;
+        private String rateCurrencyToCode;
+        private Boolean rateMiddlemanFee;
+        private String rateLeg1ToAccountCode;
+        private BigDecimal rateMiddlemanRate;
+        private String rateMiddlemanKind;
     }
 
     @Getter
@@ -190,7 +195,7 @@ public final class TransactionDTO {
 
         private Integer tenantId;
 
-        /** Defaults to PAYMENT when omitted. Supported: PAYMENT, CLAIM, CLEAR, CONTRA, ADJUSTMENT. */
+        /** Defaults to PAYMENT when omitted. Supported: PAYMENT, CLAIM, CLEAR, CONTRA, ADJUSTMENT, PROFIT, RATE. */
         private String transactionType;
 
         /** Inclusive; dd/MM/yyyy or yyyy-MM-dd. Defaults to today when omitted. */
@@ -209,6 +214,31 @@ public final class TransactionDTO {
         private BigDecimal amount;
 
         private String remark;
+
+        // ── RATE (ignored for other types) ────────────────────────────────────
+
+        /** Leg1 To (payer, first currency). */
+        private Integer leg1ToAccountId;
+        /** Leg1 From (receiver, first currency). */
+        private Integer leg1FromAccountId;
+        private Integer leg1CurrencyId;
+        private String leg1CurrencyCode;
+        private BigDecimal leg1Amount;
+
+        /** Leg2 To (payer, second currency). */
+        private Integer leg2ToAccountId;
+        /** Leg2 From (receiver, second currency). */
+        private Integer leg2FromAccountId;
+        private Integer leg2CurrencyId;
+        private String leg2CurrencyCode;
+        private BigDecimal leg2Amount;
+
+        private BigDecimal exchangeRate;
+
+        private String rateExpression;
+        private Integer middlemanAccountId;
+        private BigDecimal middlemanRate;
+        private BigDecimal middlemanAmount;
     }
 
     @Getter
@@ -224,5 +254,15 @@ public final class TransactionDTO {
         private String amount;
         private String transactionDate;
         private String remark;
+
+        /* RATE only. */
+        private String rateGroupId;
+        private Integer leg1Id;
+        private Integer leg2Id;
+        private Integer middlemanId;
+        private Integer middlemanRateId;
+        private Integer middlemanFeeId;
+        private String exchangeRate;
+        private String rateExpression;
     }
 }

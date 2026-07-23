@@ -69,7 +69,7 @@ res.success === true || res.status === "success"
 | **Ownership** | ✅ API 已迁移 + **数据层已对齐 Spring** | `/api/ownership/*` | `apiUrl.js` 重写 + `ownershipRowHelpers` normalize |
 | **Process** | ⚠️ 部分 | `/api/process/*` | **列表 + description CRUD + add/update/status/delete + Edit 回填** 已 Spring；form meta（`addprocess_api`）等仍混用 PHP |
 | **Bank Process** | ⚠️ 部分 | `/api/bank-process/*`、`/api/bank-country-option/*`、`/api/account/*` | **列表（含 shares）+ catalog + Add/Update/Status/Delete/Remark + Edit list 回填** 已 Spring；Due 仍 PHP |
-| **Transaction / Report / Data Capture / Member** | ⚠️ 部分 | `/api/transaction/search` + `/history` + `/submit` + Meta | **Submit**：`PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`/`ADJUSTMENT` 已 Spring；Contra Inbox / RATE 仍 PHP |
+| **Transaction / Report / Data Capture / Member** | ⚠️ 部分 | `/api/transaction/search` + `/history` + `/submit` + Meta | **Submit**：`PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`/`ADJUSTMENT`/`PROFIT`/`RATE` 已 Spring；Contra Inbox 仍 PHP |
 
 ---
 
@@ -687,7 +687,9 @@ URL **不**带 `tenant_id` / `id`。`ProcessListPage` 的 `loadFormMeta` / `relo
 > 2. **Domain Fee / Payment**（`PAYMENT` 且 `bank_process_posted_id IS NULL`，含 Domain Confirm Charge on Save + Auto Renew Approve → **Cr/Dr**）  
 > 3. **手动 PAYMENT / CLAIM / CLEAR / CONTRA Submit**（→ **Cr/Dr**）  
 > 4. **手动 ADJUSTMENT Submit**（→ **Win/Loss**；仅 To Account，signed amount）  
-> **不含**：RATE、Type Search 过滤开关、**Contra Inbox 审批**、其他 type Submit。  
+> 5. **手动 PROFIT Submit**（→ **Win/Loss**；From + To；正数 amount；From + / To −）  
+> 6. **手动 RATE Submit**（→ transfer **Cr/Dr** + 可选 Middle-Man fee **Win/Loss**；两腿 + `transactions_rate`；Middle-Man 账户+rate 成对）  
+> **不含**：Type Search 过滤开关、**Contra Inbox 审批**、其他 type Submit。  
 > **正负布局**：余额为正 → 左表；为负 → 右表（与既有一致）。  
 > **NET PROFIT（C168→C168，净 0.00）**：Capture Date **当期**仍展示（`hasCrDrInPeriod`）；隔日仅历史净 0、无当期动账的 Domain-only 行不展示。
 
@@ -705,6 +707,8 @@ URL **不**带 `tenant_id` / `id`。`ProcessListPage` 的 `loadFormMeta` / `relo
 | Payment History | `history_api.php` | ✅ `POST /api/transaction/history` | BF（BP+Domain）+ 明细按 `created_at` 升序；BP→Win/Loss（Id Product=`cardOwner`），Domain→Cr/Dr；Id Product=`PAYMENT`/`COMMISSION`/`PROFIT`；**C168 仅展示 NET PROFIT，Cr/Dr=净利润金额** |
 | **手动 PAYMENT / CLAIM / CLEAR / CONTRA Submit** | `submit_api.php` | ✅ `POST /api/transaction/submit` | Cr/Dr transfer types；即时 `APPROVED` |
 | **手动 ADJUSTMENT Submit** | `submit_api.php` | ✅ `POST /api/transaction/submit` | 仅 `toAccountId`；signed amount → Win/Loss |
+| **手动 PROFIT Submit** | `submit_api.php` | ✅ `POST /api/transaction/submit` | From + To；正数 amount；Win/Loss（From + / To −） |
+| **手动 RATE Submit** | `submit_api.php` | ✅ `POST /api/transaction/submit` | 两腿 Cr/Dr + 可选 Middle-Man Win/Loss + `transactions_rate`；账户+rate 成对 |
 | Contra Inbox / 审批 | `contra_*` | — | Submit 已 Spring（即时生效）；Inbox 仍 PHP |
 
 ### 11.2 Meta 层复用约定
@@ -833,7 +837,7 @@ Request body（camelCase）：
 
 - `tenantId` = UI `company.id`；`accountId` = `account.id`（Payment History scope 的 `account_db_id`）
 - `currencyCodes` 空数组 = 该账户区间内全部币种
-- 数据源：**BP** `WIN`/`LOSE` + **手动 ADJUSTMENT** + **Domain / 手动转账** `PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`（`bank_process_posted_id IS NULL`），均 `APPROVED`
+- 数据源：**BP** `WIN`/`LOSE` + **手动 ADJUSTMENT** + **手动 PROFIT** + **Domain / 手动转账** `PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`（`bank_process_posted_id IS NULL`），均 `APPROVED`
 
 **手动 PAYMENT / CLAIM / CLEAR / CONTRA History 展示**
 
@@ -860,6 +864,32 @@ Request body（camelCase）：
 
 - DB 写入时即存 `description = ADJUSTMENT - WIN/LOSS`；Search 合并进 BP Win/Loss 路径（`aggregateManualAdjustmentWinLoss`）
 - Domain Fee 行仍用库内 `description`（`PAY DOMAIN FEE` / `* COMMISSION` / `NET PROFIT`）→ Id Product 规则不变
+
+**手动 PROFIT History 展示**
+
+| 当前查看账户 | Win/Loss | Description | Id Product |
+|-------------|---------|-------------|------------|
+| 收款方（From） | **+amount** | `PROFIT TO {付款方}` | `PROFIT` |
+| 付款方（To） | **−amount** | `PROFIT FROM {收款方}` | `PROFIT` |
+
+- 入库：`description` 空；History 派生（同 transfer 规则）；`Cr/Dr = 0.00`
+- Search 合并进 BP Win/Loss（`aggregateManualProfitWinLoss`：From + / To −）
+
+**手动 RATE History 展示**
+
+| 当前查看账户 | Description | Id Product | 列 |
+|-------------|-------------|------------|----|
+| 收款方（From）transfer | `EXCH RATE {rate} {ccy1} {amt} > {ccy2} \| TO {付款方}` | `RATE` | Cr/Dr |
+| 付款方（To）transfer | `EXCH RATE {rate} {ccy1} {amt} > {ccy2} \| FROM {收款方}` | `RATE` | Cr/Dr |
+| Middle-Man Rate Multiplier（仅 middleman 可见） | `MARKUP {rate} {ccy1} {amt} > {ccy2} \| FROM {leg1 To}` | `RATE` | Win/Loss（第二币） |
+| Middle-Man Fee（仅 middleman 可见） | `MARKUP X {ccy1} {amt} > {ccy2} \| FROM {leg1 To}` | `RATE` | Win/Loss（第二币） |
+| leg2 付款方（Middle-Man To 侧） | **不展示** | — | — |
+
+例：`EXCH RATE 1.7 MYR 1000 > CNY | TO TEST1` / `EXCH RATE 1.7 MYR 1000 > CNY | FROM TEST5`  
+- `{rate}` 优先 `rate_expression`（如 `1.7` / `/1.7`），否则 `exchange_rate`  
+- `{ccy1} > {ccy2}` = leg1→leg2（先 CNY 则 `CNY > MYR`）  
+- 两腿共用同一 FX 前缀；`| TO/FROM` 按**该腿** From/To 相对当前账户（同 PAYMENT）  
+- Middle-Man：第二币 Win/Loss；Rate Multiplier 与 Fee **各一行**（可只填其一或都填）；Fee 为第一币输入 × 主汇率换算；`FROM` = 第一个 To Account
 
 Response `data`：
 
@@ -903,7 +933,7 @@ Response `data`：
 
 **v1 不做（History）**：`pure_type_search`；Member PDF export（仍 `history_api.php`）。
 
-### 11.7 手动 PAYMENT / CLAIM / CLEAR / CONTRA / ADJUSTMENT Submit API（已实现 2026-07-22）
+### 11.7 手动 PAYMENT / CLAIM / CLEAR / CONTRA / ADJUSTMENT / PROFIT Submit API（已实现 2026-07-22；PROFIT 2026-07-23）
 
 **`POST /api/transaction/submit`**
 
@@ -932,7 +962,7 @@ Request body（camelCase）：
 | 字段 | 说明 |
 |------|------|
 | `tenantId` | UI 公司 pill 的 `tenant.id` |
-| `transactionType` | 可省略，默认 `PAYMENT`；transfer：`PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`；或 `ADJUSTMENT` |
+| `transactionType` | 可省略，默认 `PAYMENT`；transfer：`PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`；或 `ADJUSTMENT` / `PROFIT` |
 | `transactionDate` | `dd/MM/yyyy` 或 `yyyy-MM-dd`；可省略 → 服务器当天 |
 | `toAccountId` / `fromAccountId` | `account.id`；必须不同 |
 | `currencyId` 或 `currencyCode` | 二选一；须属于该 tenant |
@@ -999,9 +1029,63 @@ Response `data`：
 - 写入：`description = ADJUSTMENT - WIN/LOSS`；`from_account_id = NULL`
 - Search / History：**Win/Loss**（非 Cr/Dr）
 
-- `transactionApi.js`：`submitTransaction` — `PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`/`ADJUSTMENT` → Spring JSON；RATE 等仍 `submit_api.php`
-- `transactionSubmitNormalize.js`：`buildSpringSubmitRequest` / `normalizeSpringSubmitResponse`（旧 snake_case payload ↔ camelCase Spring）
-- `useTransactionForm.js`：**无需改**；仍组 legacy payload（`account_id`/`from_account_id`/`currency`/`sms`）
+**PROFIT 请求体（From + To）**
+
+```json
+{
+  "tenantId": 95,
+  "transactionType": "PROFIT",
+  "transactionDate": "23/07/2026",
+  "toAccountId": 12,
+  "fromAccountId": 8,
+  "currencyCode": "MYR",
+  "amount": 100.00,
+  "remark": ""
+}
+```
+
+- `fromAccountId` / `toAccountId` 必填且不同；`amount` **正数**
+- 写入：单行 `PROFIT`；`description` 空；From = 收款方（Win/Loss **+**），To = 付款方（Win/Loss **−**）
+- Search / History：**Win/Loss**（非 Cr/Dr）；Id Product=`PROFIT`；desc=`PROFIT FROM {收款方}` / `PROFIT TO {付款方}`
+- DB：`transactions.transaction_type` ENUM 需含 `PROFIT` — 脚本 [`migrate_transaction_type_add_profit.sql`](../backend/src/main/resources/sql/migrate_transaction_type_add_profit.sql)
+
+**RATE 请求体（两腿 + 汇率；可选 Middle-Man）**
+
+```json
+{
+  "tenantId": 95,
+  "transactionType": "RATE",
+  "transactionDate": "23/07/2026",
+  "leg1ToAccountId": 12,
+  "leg1FromAccountId": 8,
+  "leg1CurrencyCode": "MYR",
+  "leg1Amount": 1000.00,
+  "leg2ToAccountId": 8,
+  "leg2FromAccountId": 12,
+  "leg2CurrencyCode": "CNY",
+  "leg2Amount": 2900.00,
+  "exchangeRate": 3.0,
+  "rateExpression": "3.0",
+  "middlemanAccountId": 20,
+  "middlemanRate": 0.1,
+  "middlemanAmount": 10.00,
+  "remark": ""
+}
+```
+
+- 除法 UI `/1.7`：`rateExpression="/1.7"`，`exchangeRate` 传归一乘数 `1/1.7`
+- **无 Middle-Man**：`leg2Amount ≈ leg1Amount × exchangeRate`（容差 0.02）；不传 middleman 字段
+- **有 Middle-Man**：`middlemanAccountId` +（`middlemanRate` 和/或 `middlemanAmount`）  
+  - `middlemanAmount` = **Fee 第一币输入**（例 10 MYR）；后端换算 `fee × exchangeRate` 成第二币  
+  - Rate 份额 = `leg1Amount × middlemanRate`（第二币）  
+  - 可只填 Rate、只填 Fee、或都填；account 且无 rate/fee → 拒绝；无 account 且无 rate/fee → 普通 RATE  
+  - 写入：2 行 transfer Cr/Dr + Rate 份额（To−/From+）+ Fee 份额（**仅 middleman +WL**，不对 leg2 付款方记 −WL）+ `transactions_rate`；`leg2Amount ≈ gross − (rate份额 + fee份额)`  
+  - History：Rate → `MARKUP {rate} …`；Fee → `MARKUP X …`（仅 middleman）；有 Fee 时 leg1 remark = `CHARGE …`- History desc（Middle-Man）：见上；leg2 付款方 fee/rate 行不展示
+- DB：[`migrate_rate_tables_optimized.sql`](../backend/src/main/resources/sql/migrate_rate_tables_optimized.sql)
+
+- `transactionApi.js`：`submitTransaction` — `PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`/`ADJUSTMENT`/`PROFIT`/`RATE` → Spring JSON
+- `transactionSubmitNormalize.js`：`buildSpringSubmitRequest` / `normalizeSpringSubmitResponse`（含 RATE `leg1*`/`leg2*`/`exchangeRate`/`rateExpression`/`middleman*`）
+- `useTransactionForm.js`：RATE Middle-Man 支持 Fee 和/或 Rate Multiplier
 
 Legacy payload → Spring 映射：
 
@@ -1026,7 +1110,7 @@ Legacy payload → Spring 映射：
 
 | 文件 | 改动 |
 |------|------|
-| `transactionApi.js` | Meta → Spring；Search → `/search`；History → `/history`；**PAYMENT/CLAIM/CLEAR/CONTRA/ADJUSTMENT Submit → `/submit`** |
+| `transactionApi.js` | Meta → Spring；Search → `/search`；History → `/history`；**PAYMENT/CLAIM/CLEAR/CONTRA/ADJUSTMENT/PROFIT Submit → `/submit`** |
 | `transactionSubmitNormalize.js` | **新建** — Submit request/response 适配 |
 | `transactionHistoryNormalize.js` | Spring history → BF + 明细行 |
 | `transactionSearchNormalize.js` | Spring `rows` → `left_table` / `right_table`（balance 正负分列） |
@@ -1036,8 +1120,9 @@ Legacy payload → Spring 映射：
 ### 11.5 本期明确不做
 
 - Data Capture 行合并进 Search
-- RATE / `transaction_entry`
-- **Contra Inbox** 审批、PROFIT 等手动 type（仍 PHP 或尚未实现）
+- RATE legacy `transaction_entry` / `transactions_rate_details`（已用优化表）
+- RATE Middle-Man 的 Service Fees remark 展示（History MARKUP 已支持）
+- **Contra Inbox** 审批（仍 PHP）
 - `type_account_search` / `type_transaction_search`
 - Member / PDF export 的 `history_api.php`（主 Payment History 页已 Spring）
 - `user_currency_order_api` 服务端持久化

@@ -29,6 +29,26 @@ public interface TransactionDao {
             @Param("categories") List<String> categories);
 
     /**
+     * Manual PROFIT Win/Loss aggregate (From +amount, To −amount; no bank_process_posted_id).
+     */
+    List<TransactionDTO.SearchAggregateRow> aggregateManualProfitWinLoss(
+            @Param("tenantId") Integer tenantId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("currencyCodes") List<String> currencyCodes,
+            @Param("categories") List<String> categories);
+
+    /**
+     * RATE Middle-Man fee Win/Loss (From/middleman +, To/leg2-payer −; same rate_group, not leg1/leg2).
+     */
+    List<TransactionDTO.SearchAggregateRow> aggregateManualRateMiddlemanWinLoss(
+            @Param("tenantId") Integer tenantId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("currencyCodes") List<String> currencyCodes,
+            @Param("categories") List<String> categories);
+
+    /**
      * Manual transfer Cr/Dr aggregate (PAYMENT / CLAIM / CLEAR / CONTRA; no bank_process_posted_id).
      * To ({@code account_id}) = −amount; From ({@code from_account_id}) = +amount.
      */
@@ -72,6 +92,25 @@ public interface TransactionDao {
             @Param("currencyCodes") List<String> currencyCodes);
 
     List<TransactionDTO.HistoryLineRow> findManualAdjustmentHistoryLines(
+            @Param("tenantId") Integer tenantId,
+            @Param("accountId") Integer accountId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("currencyCodes") List<String> currencyCodes);
+
+    List<TransactionDTO.HistoryBfAggregateRow> aggregateManualProfitBfByAccount(
+            @Param("tenantId") Integer tenantId,
+            @Param("accountId") Integer accountId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("currencyCodes") List<String> currencyCodes);
+
+    List<TransactionDTO.HistoryBfAggregateRow> aggregateManualRateMiddlemanBfByAccount(
+            @Param("tenantId") Integer tenantId,
+            @Param("accountId") Integer accountId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("currencyCodes") List<String> currencyCodes);
+
+    List<TransactionDTO.HistoryLineRow> findManualProfitHistoryLines(
             @Param("tenantId") Integer tenantId,
             @Param("accountId") Integer accountId,
             @Param("dateFrom") LocalDate dateFrom,

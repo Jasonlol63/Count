@@ -1,0 +1,6 @@
+-- RATE optimized DDL is now in:
+--   schema.sql          (full create)
+--   migrate_rate_tables_optimized.sql  (ALTER existing DB)
+--
+-- Model: 2x transactions (RATE legs) + optional Middle-Man fee RATE row + 1x transactions_rate (FX header).
+-- Not in new schema: transactions_rate_details, transaction_entry.

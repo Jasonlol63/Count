@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.TransactionRateDao">
+
+    <resultMap id="TransactionRateMap" type="com.eazycount.entity.TransactionRate">
+        <id column="id" property="id"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="rate_group_id" property="rateGroupId"/>
+        <result column="leg1_transaction_id" property="leg1TransactionId"/>
+        <result column="leg2_transaction_id" property="leg2TransactionId"/>
+        <result column="exchange_rate" property="exchangeRate"/>
+        <result column="rate_expression" property="rateExpression"/>
+        <result column="currency_from_id" property="currencyFromId"/>
+        <result column="amount_from" property="amountFrom"/>
+        <result column="currency_to_id" property="currencyToId"/>
+        <result column="amount_to" property="amountTo"/>
+        <result column="middleman_account_id" property="middlemanAccountId"/>
+        <result column="middleman_rate" property="middlemanRate"/>
+        <result column="middleman_amount" property="middlemanAmount"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO transactions_rate (
+            tenant_id,
+            rate_group_id,
+            leg1_transaction_id,
+            leg2_transaction_id,
+            exchange_rate,
+            rate_expression,
+            currency_from_id,
+            amount_from,
+            currency_to_id,
+            amount_to,
+            middleman_account_id,
+            middleman_rate,
+            middleman_amount
+        ) VALUES (
+            #{tenantId},
+            #{rateGroupId},
+            #{leg1TransactionId},
+            #{leg2TransactionId},
+            #{exchangeRate},
+            #{rateExpression},
+            #{currencyFromId},
+            #{amountFrom},
+            #{currencyToId},
+            #{amountTo},
+            #{middlemanAccountId},
+            #{middlemanRate},
+            #{middlemanAmount}
+        )
+    </insert>
+
+    <select id="findByTenantIdAndRateGroupId" resultMap="TransactionRateMap">
+        SELECT
+            id,
+            tenant_id,
+            rate_group_id,
+            leg1_transaction_id,
+            leg2_transaction_id,
+            exchange_rate,
+            rate_expression,
+            currency_from_id,
+            amount_from,
+            currency_to_id,
+            amount_to,
+            middleman_account_id,
+            middleman_rate,
+            middleman_amount,
+            created_at,
+            updated_at
+        FROM transactions_rate
+        WHERE tenant_id = #{tenantId}
+          AND rate_group_id = #{rateGroupId}
+        LIMIT 1
+    </select>
+
+</mapper>
