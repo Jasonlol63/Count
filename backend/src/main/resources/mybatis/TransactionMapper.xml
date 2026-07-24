@@ -111,6 +111,14 @@
         )
     </sql>
 
+    <!-- RATE Middle-Man fee leg (legacy RATE_MIDDLEMAN_FEE or stored MARKUP X … text). -->
+    <sql id="rateMiddlemanFeeDescription">
+        (
+            t.description = 'RATE_MIDDLEMAN_FEE'
+            OR t.description LIKE 'MARKUP X %'
+        )
+    </sql>
+
     <!-- RATE Middle-Man fee leg: same rate_group, not leg1/leg2. -->
     <sql id="rateMiddlemanFeeLeg">
         EXISTS (
@@ -341,7 +349,7 @@
             CASE
                 WHEN t.account_id = #{accountId}
                  AND t.from_account_id IS NULL
-                 AND t.description = 'RATE_MIDDLEMAN_FEE'
+                 AND <include refid="rateMiddlemanFeeDescription"/>
                 THEN t.amount
                 WHEN t.account_id = #{accountId} AND t.from_account_id = #{accountId} THEN 0
                 WHEN t.account_id = #{accountId} THEN -t.amount
@@ -377,8 +385,9 @@
             UPPER(leg1_to.account_id) AS rateLeg1ToAccountCode,
             tr.middleman_rate AS rateMiddlemanRate,
             CASE
-                WHEN t.description = 'RATE_MIDDLEMAN_FEE' THEN 'FEE'
-                WHEN t.description = 'RATE_MIDDLEMAN_RATE' THEN 'RATE'
+                WHEN t.description = 'RATE_MIDDLEMAN_FEE' OR t.description LIKE 'MARKUP X %' THEN 'FEE'
+                WHEN t.description = 'RATE_MIDDLEMAN_RATE'
+                  OR (t.description LIKE 'MARKUP %' AND t.description NOT LIKE 'MARKUP X %') THEN 'RATE'
                 WHEN tr.middleman_rate IS NOT NULL AND tr.middleman_rate &gt; 0 THEN 'RATE'
                 ELSE 'FEE'
             END AS rateMiddlemanKind
@@ -750,7 +759,7 @@
               AND t.approval_status = 'APPROVED'
               AND t.transaction_type = 'RATE'
               AND t.from_account_id IS NULL
-              AND t.description = 'RATE_MIDDLEMAN_FEE'
+              AND <include refid="rateMiddlemanFeeDescription"/>
               AND <include refid="rateMiddlemanFeeLeg"/>
             <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
                 AND UPPER(c.code) IN
@@ -872,7 +881,7 @@
             WHERE t.tenant_id = #{tenantId}
               AND t.account_id = #{accountId}
               AND t.from_account_id IS NULL
-              AND t.description = 'RATE_MIDDLEMAN_FEE'
+              AND <include refid="rateMiddlemanFeeDescription"/>
               AND t.bank_process_posted_id IS NULL
               AND t.approval_status = 'APPROVED'
               AND t.transaction_type = 'RATE'

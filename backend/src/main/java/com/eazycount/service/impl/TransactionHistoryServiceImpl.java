@@ -361,8 +361,8 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
     }
 
     /*
-     * RATE History description:
-     * Transfer legs: {@code EXCH RATE {rate} {ccy1} {amount} > {ccy2} | FROM|TO {account}}
+     * RATE History description (display only — always rebuilt; DB may store audit text with both FROM+TO):
+     * Transfer legs: {@code EXCH RATE {rate} {ccy1} {amount} > {ccy2} | FROM|TO {accountCode}}
      * Middle-Man fee leg: {@code MARKUP {rate} {ccy1} {amt} > {ccy2} | FROM {leg1 To}} — middleman account only.
      * Direction follows leg1→leg2 currencies. FROM on payer (To), TO on receiver (From) — same as PAYMENT.
      */
@@ -382,9 +382,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             applyRateMiddlemanHistoryPresentation(line, viewedAccountId);
             return true;
         }
-        if (!isManualTransferLine(line.getDescription())) {
-            return true;
-        }
+        // Always rebuild viewpoint text so stored audit descriptions do not change History UI.
         String rate = trimToEmpty(line.getRateExpression());
         String ccy1 = trimToEmpty(line.getRateCurrencyFromCode()).toUpperCase(Locale.ROOT);
         String ccy2 = trimToEmpty(line.getRateCurrencyToCode()).toUpperCase(Locale.ROOT);
@@ -472,7 +470,10 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             return false;
         }
         String desc = trimToEmpty(line.getDescription()).toUpperCase(Locale.ROOT);
-        return "RATE_MIDDLEMAN_FEE".equals(desc);
+        if (desc.startsWith("MARKUP X ") || "RATE_MIDDLEMAN_FEE".equals(desc)) {
+            return true;
+        }
+        return false;
     }
 
     static String formatRateHistoryDecimal(BigDecimal amount, int maxScale) {
@@ -485,17 +486,12 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
     }
 
     static String formatRateHistoryAmount(BigDecimal amount) {
-        String money = TransactionMoneyFormat.formatMoney(amount);
-        if (money.endsWith(".00")) {
-            return money.substring(0, money.length() - 3);
-        }
-        return money;
+        return TransactionMoneyFormat.formatMoney(amount);
     }
 
     /**
-     * Manual PAYMENT / CLAIM / CLEAR / CONTRA / PROFIT rows have no stored description.
-     * Receiver (From leg): {TYPE} TO {payer}; payer (To leg): {TYPE} FROM {receiver}.
-     * RATE uses {@link #applyRateHistoryPresentation} instead.
+     * Manual PAYMENT / CLAIM / CLEAR / CONTRA / PROFIT History display (viewpoint text).
+     * Domain / system lines with other descriptions are left as stored.
      */
     static void applyManualTransferHistoryPresentation(
             TransactionDTO.HistoryLineRow line,
@@ -503,14 +499,14 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         if (line == null || viewedAccountId == null || viewedAccountId <= 0) {
             return;
         }
-        if (!isManualTransferLine(line.getDescription())) {
-            return;
-        }
         String type = line.getTransactionType() != null
                 ? line.getTransactionType().trim().toUpperCase(Locale.ROOT)
                 : "";
         if (!"PAYMENT".equals(type) && !"CLAIM".equals(type) && !"CLEAR".equals(type)
                 && !"CONTRA".equals(type) && !"PROFIT".equals(type) && !"RATE".equals(type)) {
+            return;
+        }
+        if (!shouldRewriteManualTransferHistoryDescription(line.getDescription(), type)) {
             return;
         }
         String payerCode = trimToEmpty(line.getToAccountCode()).toUpperCase(Locale.ROOT);
@@ -522,6 +518,23 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         if (line.getToAccountId() != null && viewedAccountId.equals(line.getToAccountId())) {
             line.setDescription(type + " FROM " + receiverCode);
         }
+    }
+
+    /**
+     * Blank (legacy) or stored audit {@code TYPE FROM … TO …} → rewrite for History.
+     * Other stored text (e.g. domain {@code PAY DOMAIN FEE}) is kept.
+     */
+    static boolean shouldRewriteManualTransferHistoryDescription(String description, String type) {
+        if (description == null || description.isBlank()) {
+            return true;
+        }
+        String d = description.trim();
+        String typeToken = type != null ? type.trim().toUpperCase(Locale.ROOT) : "";
+        if (typeToken.isEmpty()) {
+            return false;
+        }
+        String upper = d.toUpperCase(Locale.ROOT);
+        return upper.startsWith(typeToken + " FROM ") && upper.contains(" TO ");
     }
 
     static boolean isManualTransferLine(String description) {

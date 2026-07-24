@@ -42,7 +42,7 @@
   - `FULL_MONTH` / `FIRST_MONTH`：比例 = 1（全额）
   - `PARTIAL_FIRST_MONTH` / `DAY_END_TAIL`：比例 = 闭区间天数 / 该自然月总天数  
     例：`7/15–7/31` → 17/31；尾段 `9/1–9/9` → 9/30
-- Buy / Sell / Profit / PS（若有）共用同一比例；金额截断到 2 位小数（不四舍五入）。
+- Buy / Sell / Profit / PS（若有）共用同一比例；进账金额按 [transaction-amount-precision.md](./transaction-amount-precision.md)：普通交易最多 **6** 位小数、**不** round-to-2；系统折算仅当结果超过 6 位时才 HALF_UP 到 6 位。API / 库为真值，UI 展示再 round 2。
 - 写入顺序：先 `bank_process_accounting_posted`（`outcome=POSTED`）→ 再写 N 条 `transactions`（共用 `bank_process_posted_id`）。
 - `transaction_date` = 该行 `postedDate`；审批一律 `APPROVED`。
 - Description（每行金额 = 该行实际进账金额；银行名 = Bank Name）：

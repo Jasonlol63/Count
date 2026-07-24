@@ -19,6 +19,7 @@ import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AccountingDueService;
 import com.eazycount.service.BankProcessResendService;
+import com.eazycount.util.TransactionMoneyFormat;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,9 +51,6 @@ public class AccountingDueServiceImpl implements AccountingDueService {
             BkProcessAccountingPosted.PeriodType.PARTIAL_FIRST_MONTH,
             BkProcessAccountingPosted.PeriodType.FULL_MONTH,
             BkProcessAccountingPosted.PeriodType.DAY_END_TAIL);
-
-    private static final int MONEY_SCALE = 2;
-    private static final RoundingMode MONEY_ROUNDING = RoundingMode.DOWN;
 
     @Autowired
     private BankProcessDao bankProcessDao;
@@ -1117,7 +1115,7 @@ public class AccountingDueServiceImpl implements AccountingDueService {
 
     /* Description amount: drop trailing zeros (200.00 → 200). */
     private static String formatDescriptionAmount(BigDecimal value) {
-        return scaleMoney(value).stripTrailingZeros().toPlainString();
+        return TransactionMoneyFormat.formatMoney(value);
     }
 
     private Integer resolveCurrencyId(Integer tenantId, Integer countryId) {
@@ -1160,8 +1158,9 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         return value != null ? value : BigDecimal.ZERO;
     }
 
+    /** Store computed due amounts without round-to-2; cap at normal amount max scale. */
     private static BigDecimal scaleMoney(BigDecimal value) {
-        return value.setScale(MONEY_SCALE, MONEY_ROUNDING);
+        return TransactionMoneyFormat.normalizeComputedNormal(value);
     }
 
 

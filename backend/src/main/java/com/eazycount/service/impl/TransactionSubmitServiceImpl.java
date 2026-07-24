@@ -21,7 +21,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Locale;
@@ -32,16 +31,10 @@ import java.util.concurrent.ThreadLocalRandom;
 public class TransactionSubmitServiceImpl implements TransactionSubmitService {
 
     static final String ADJUSTMENT_DESCRIPTION = "ADJUSTMENT - WIN/LOSS";
-    /** Stored on RATE Middle-Man multiplier leg; History rewrites to MARKUP {rate}…. */
-    static final String RATE_MIDDLEMAN_RATE_DESCRIPTION = "RATE_MIDDLEMAN_RATE";
-    /** Stored on RATE Middle-Man fee leg; History rewrites to MARKUP X…. */
-    static final String RATE_MIDDLEMAN_FEE_DESCRIPTION = "RATE_MIDDLEMAN_FEE";
 
-    private static final int MONEY_SCALE = 2;
-    private static final int RATE_SCALE = 8;
-    private static final RoundingMode MONEY_ROUNDING = RoundingMode.HALF_UP;
-    /** Max |leg2 − leg1×rate| allowed after 2dp rounding. */
-    private static final BigDecimal RATE_AMOUNT_TOLERANCE = new BigDecimal("0.02");
+    /** Max |leg2 − leg1×rate| (and middleman net) allowed at RATE amount precision. */
+    private static final BigDecimal RATE_AMOUNT_TOLERANCE =
+            BigDecimal.ONE.movePointLeft(TransactionMoneyFormat.RATE_AMOUNT_SCALE);
 
     private static final Set<String> TRANSFER_TYPES = Set.of(
             Transaction.TransactionType.PAYMENT.name(),
@@ -109,10 +102,12 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
                 request.getCurrencyId(), request.getCurrencyCode(),
                 tenantId, "To account", "From account");
         BigDecimal amount = parsePositiveAmount(request.getAmount(), "Amount");
+        String description = formatTransferDescription(
+                transactionType.name(), accounts.fromAccount(), accounts.toAccount());
         return insertAndBuildResult(
                 session, tenantId, transactionType, accounts.toAccountId(), accounts.fromAccountId(),
                 accounts.currency(), amount, resolveTransactionDate(request),
-                trimToNull(request.getRemark()), null, null);
+                trimToNull(request.getRemark()), description, null);
     }
 
     private TransactionDTO.SubmitResult submitProfit(
@@ -124,10 +119,12 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
                 request.getCurrencyId(), request.getCurrencyCode(),
                 tenantId, "To account", "From account");
         BigDecimal amount = parsePositiveAmount(request.getAmount(), "Amount");
+        String description = formatTransferDescription(
+                Transaction.TransactionType.PROFIT.name(), accounts.fromAccount(), accounts.toAccount());
         return insertAndBuildResult(
                 session, tenantId, Transaction.TransactionType.PROFIT,
                 accounts.toAccountId(), accounts.fromAccountId(), accounts.currency(),
-                amount, resolveTransactionDate(request), trimToNull(request.getRemark()), null, null);
+                amount, resolveTransactionDate(request), trimToNull(request.getRemark()), description, null);
     }
 
     private TransactionDTO.SubmitResult submitAdjustment(
@@ -174,16 +171,17 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
             throw new BusinessException("RATE leg1 and leg2 currencies must be different");
         }
 
-        BigDecimal amountFrom = parsePositiveAmount(request.getLeg1Amount(), "Leg1 amount");
-        BigDecimal amountTo = parsePositiveAmount(request.getLeg2Amount(), "Leg2 amount");
+        BigDecimal amountFrom = parsePositiveRateAmount(request.getLeg1Amount(), "Leg1 amount");
+        BigDecimal amountTo = parsePositiveRateAmount(request.getLeg2Amount(), "Leg2 amount");
         BigDecimal exchangeRate = parsePositiveExchangeRate(request.getExchangeRate());
-        BigDecimal grossTo = amountFrom.multiply(exchangeRate).setScale(MONEY_SCALE, MONEY_ROUNDING);
+        BigDecimal grossTo = TransactionMoneyFormat.normalizeComputedRate(amountFrom.multiply(exchangeRate));
 
         MiddlemanSpec middleman = resolveMiddleman(request, tenantId, leg2, amountFrom, exchangeRate, grossTo);
         if (middleman == null) {
             validateRateAmounts(amountFrom, amountTo, exchangeRate);
         } else {
-            BigDecimal expectedNet = grossTo.subtract(middleman.totalLeg2()).setScale(MONEY_SCALE, MONEY_ROUNDING);
+            BigDecimal expectedNet = TransactionMoneyFormat.normalizeComputedRate(
+                    grossTo.subtract(middleman.totalLeg2()));
             BigDecimal delta = expectedNet.subtract(amountTo).abs();
             if (delta.compareTo(RATE_AMOUNT_TOLERANCE) > 0) {
                 throw new BusinessException(
@@ -200,6 +198,19 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         String leg1Ccy = leg1.currency().getCode() != null
                 ? leg1.currency().getCode().trim().toUpperCase(Locale.ROOT)
                 : "";
+        String leg2Ccy = leg2.currency().getCode() != null
+                ? leg2.currency().getCode().trim().toUpperCase(Locale.ROOT)
+                : "";
+        String rateToken = rateExpression != null
+                ? rateExpression
+                : exchangeRate.stripTrailingZeros().toPlainString();
+        String exchPrefix = "EXCH RATE " + rateToken + " " + leg1Ccy + " "
+                + TransactionMoneyFormat.formatMoney(amountFrom) + " > " + leg2Ccy;
+        String leg1Description = exchPrefix + " | FROM " + accountDisplayName(leg1.fromAccount())
+                + " TO " + accountDisplayName(leg1.toAccount());
+        String leg2Description = exchPrefix + " | FROM " + accountDisplayName(leg2.fromAccount())
+                + " TO " + accountDisplayName(leg2.toAccount());
+
         // When Fee is used: leg1 (toAccount1) History remark = CHARGE {ccy1} {feeInput} SERVICE FEES
         String serviceFeeRemark = null;
         if (middleman != null && middleman.feeInput() != null) {
@@ -210,31 +221,37 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         Transaction leg1Txn = insertApproved(
                 session, tenantId, Transaction.TransactionType.RATE,
                 leg1.toAccountId(), leg1.fromAccountId(), leg1.currency().getId(),
-                amountFrom, transactionDate, leg1Remark, null, rateGroupId);
+                amountFrom, transactionDate, leg1Remark, leg1Description, rateGroupId);
         Transaction leg2Txn = insertApproved(
                 session, tenantId, Transaction.TransactionType.RATE,
                 leg2.toAccountId(), leg2.fromAccountId(), leg2.currency().getId(),
-                amountTo, transactionDate, remark, null, rateGroupId);
+                amountTo, transactionDate, remark, leg2Description, rateGroupId);
 
         Integer middlemanRateTxnId = null;
         Integer middlemanFeeTxnId = null;
         if (middleman != null) {
+            String leg1ToName = accountDisplayName(leg1.toAccount());
+            String amountText = TransactionMoneyFormat.formatMoney(amountFrom);
             // From=middleman (+WL), To=leg2 payer (−WL) — same signs as PROFIT; second currency.
             if (middleman.ratePortion() != null) {
+                String rateMarkup = formatMiddlemanMarkupDescription(
+                        false, middleman.rate(), leg1Ccy, amountText, leg2Ccy, leg1ToName);
                 Transaction rateTxn = insertApproved(
                         session, tenantId, Transaction.TransactionType.RATE,
                         leg2.toAccountId(), middleman.accountId(), leg2.currency().getId(),
                         middleman.ratePortion(), transactionDate, remark,
-                        RATE_MIDDLEMAN_RATE_DESCRIPTION, rateGroupId);
+                        rateMarkup, rateGroupId);
                 middlemanRateTxnId = rateTxn.getId();
             }
             if (middleman.feePortion() != null) {
                 // Fee: middleman-only +Win/Loss (no −WL on leg2 payer — fee already in leg1 amount).
+                String feeMarkup = formatMiddlemanMarkupDescription(
+                        true, null, leg1Ccy, amountText, leg2Ccy, leg1ToName);
                 Transaction feeTxn = insertApproved(
                         session, tenantId, Transaction.TransactionType.RATE,
                         middleman.accountId(), null, leg2.currency().getId(),
                         middleman.feePortion(), transactionDate, remark,
-                        RATE_MIDDLEMAN_FEE_DESCRIPTION, rateGroupId);
+                        feeMarkup, rateGroupId);
                 middlemanFeeTxnId = feeTxn.getId();
             }
         }
@@ -303,10 +320,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         }
     }
 
-    /**
-     * Middle-Man account required when rate and/or fee is set; either or both allowed.
-     * Fee input is first-currency; converted as fee×exchangeRate for the fee leg.
-     */
+    /* Middle Man account function set. Middle-Man account is required when rate and/or fee are set; either or both are allowed.*/
     private MiddlemanSpec resolveMiddleman(
             TransactionDTO.SubmitRequest request,
             Integer tenantId,
@@ -338,8 +352,9 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         BigDecimal rate = null;
         BigDecimal ratePortion = null;
         if (hasRate) {
-            rate = request.getMiddlemanRate().setScale(RATE_SCALE, MONEY_ROUNDING);
-            ratePortion = amountFrom.multiply(rate).setScale(MONEY_SCALE, MONEY_ROUNDING);
+            rate = TransactionMoneyFormat.requireMaxScale(
+                    request.getMiddlemanRate(), TransactionMoneyFormat.RATE_AMOUNT_SCALE, "Middle-Man rate");
+            ratePortion = TransactionMoneyFormat.normalizeComputedRate(amountFrom.multiply(rate));
             if (ratePortion.compareTo(BigDecimal.ZERO) <= 0) {
                 throw new BusinessException("Middle-Man rate amount must be greater than zero");
             }
@@ -348,8 +363,8 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         BigDecimal feeInput = null;
         BigDecimal feePortion = null;
         if (hasFee) {
-            feeInput = request.getMiddlemanAmount().setScale(MONEY_SCALE, MONEY_ROUNDING);
-            feePortion = feeInput.multiply(exchangeRate).setScale(MONEY_SCALE, MONEY_ROUNDING);
+            feeInput = parsePositiveRateAmount(request.getMiddlemanAmount(), "Middle-Man fee");
+            feePortion = TransactionMoneyFormat.normalizeComputedRate(feeInput.multiply(exchangeRate));
             if (feePortion.compareTo(BigDecimal.ZERO) <= 0) {
                 throw new BusinessException("Middle-Man fee must be greater than zero");
             }
@@ -381,6 +396,51 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         return "CHARGE " + ccy + " " + feeDisplay + " SERVICE FEES";
     }
 
+    /* Type Format Description Only except "ADJUSTMENT", "RATE". E.g. {CONTRA FROM {fromName} TO {toName}} */
+    static String formatTransferDescription(String type, UserListDTO fromAccount, UserListDTO toAccount) {
+        String typeToken = type != null ? type.trim().toUpperCase(Locale.ROOT) : "";
+        return typeToken + " FROM " + accountDisplayName(fromAccount) + " TO " + accountDisplayName(toAccount);
+    }
+
+    /* Middle man description only. Fee: {MARKUP X MYR 1010 > SGD | FROM {leg1ToName}}, Rate:{MARKUP {rate} MYR 1010 > SGD | FROM {leg1ToName}}*/
+    static String formatMiddlemanMarkupDescription(
+            boolean feeKind,
+            BigDecimal middlemanRate,
+            String ccy1,
+            String amountText,
+            String ccy2,
+            String leg1ToName) {
+        String rateToken = feeKind
+                ? "X"
+                : (middlemanRate != null ? middlemanRate.stripTrailingZeros().toPlainString() : "");
+        StringBuilder sb = new StringBuilder("MARKUP");
+        if (!rateToken.isEmpty()) {
+            sb.append(' ').append(rateToken);
+        }
+        if (ccy1 != null && !ccy1.isBlank() && ccy2 != null && !ccy2.isBlank()) {
+            sb.append(' ').append(ccy1.trim().toUpperCase(Locale.ROOT));
+            if (amountText != null && !amountText.isBlank()) {
+                sb.append(' ').append(amountText.trim());
+            }
+            sb.append(" > ").append(ccy2.trim().toUpperCase(Locale.ROOT));
+        }
+        if (leg1ToName != null && !leg1ToName.isBlank()) {
+            sb.append(" | FROM ").append(leg1ToName.trim());
+        }
+        return sb.toString();
+    }
+
+    static String accountDisplayName(UserListDTO account) {
+        if (account == null) {
+            return "";
+        }
+        String name = account.getName() != null ? account.getName().trim() : "";
+        if (!name.isEmpty()) {
+            return name;
+        }
+        return account.getAccountId() != null ? account.getAccountId().trim() : "";
+    }
+
     private FromToAccounts requireFromToAccounts(
             Integer toAccountId,
             Integer fromAccountId,
@@ -402,10 +462,15 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         Currency currency = resolveCurrency(tenantId, currencyId, currencyCode);
         requireAccountCurrency(tenantId, toAccountId, currency.getId(), toAccount.getAccountId());
         requireAccountCurrency(tenantId, fromAccountId, currency.getId(), fromAccount.getAccountId());
-        return new FromToAccounts(toAccountId, fromAccountId, currency);
+        return new FromToAccounts(toAccountId, fromAccountId, currency, toAccount, fromAccount);
     }
 
-    private record FromToAccounts(Integer toAccountId, Integer fromAccountId, Currency currency) {
+    private record FromToAccounts(
+            Integer toAccountId,
+            Integer fromAccountId,
+            Currency currency,
+            UserListDTO toAccount,
+            UserListDTO fromAccount) {
     }
 
     private TransactionDTO.SubmitResult insertAndBuildResult(
@@ -522,10 +587,15 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
     }
 
     private static BigDecimal parsePositiveAmount(BigDecimal raw, String label) {
-        if (raw == null) {
-            throw new BusinessException(label + " is required");
+        BigDecimal amount = TransactionMoneyFormat.requireNormalAmount(raw, label);
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(label + " must be greater than zero");
         }
-        BigDecimal amount = raw.setScale(MONEY_SCALE, MONEY_ROUNDING);
+        return amount;
+    }
+
+    private static BigDecimal parsePositiveRateAmount(BigDecimal raw, String label) {
+        BigDecimal amount = TransactionMoneyFormat.requireRateAmount(raw, label);
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(label + " must be greater than zero");
         }
@@ -533,10 +603,8 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
     }
 
     private static BigDecimal parsePositiveExchangeRate(BigDecimal raw) {
-        if (raw == null) {
-            throw new BusinessException("Exchange rate is required");
-        }
-        BigDecimal rate = raw.setScale(RATE_SCALE, MONEY_ROUNDING);
+        BigDecimal rate = TransactionMoneyFormat.requireMaxScale(
+                raw, TransactionMoneyFormat.RATE_AMOUNT_SCALE, "Exchange rate");
         if (rate.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException("Exchange rate must be greater than zero");
         }
@@ -544,7 +612,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
     }
 
     private static void validateRateAmounts(BigDecimal amountFrom, BigDecimal amountTo, BigDecimal exchangeRate) {
-        BigDecimal expected = amountFrom.multiply(exchangeRate).setScale(MONEY_SCALE, MONEY_ROUNDING);
+        BigDecimal expected = TransactionMoneyFormat.normalizeComputedRate(amountFrom.multiply(exchangeRate));
         BigDecimal delta = expected.subtract(amountTo).abs();
         if (delta.compareTo(RATE_AMOUNT_TOLERANCE) > 0) {
             throw new BusinessException(
@@ -554,10 +622,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
     }
 
     private static BigDecimal parseSignedNonZeroAmount(BigDecimal raw) {
-        if (raw == null) {
-            throw new BusinessException("Amount is required");
-        }
-        BigDecimal amount = raw.setScale(MONEY_SCALE, MONEY_ROUNDING);
+        BigDecimal amount = TransactionMoneyFormat.requireNormalAmount(raw, "Amount");
         if (amount.compareTo(BigDecimal.ZERO) == 0) {
             throw new BusinessException("Adjustment amount must be non-zero");
         }

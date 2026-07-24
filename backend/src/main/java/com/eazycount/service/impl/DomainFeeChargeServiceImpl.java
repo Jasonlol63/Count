@@ -14,6 +14,7 @@ import com.eazycount.entity.Transaction;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.DomainFeeChargeService;
+import com.eazycount.util.TransactionMoneyFormat;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -33,9 +34,6 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
     private static final String[] PROFIT_ACCOUNT_CODES = {"C168", "PROFIT"};
 
     private static final String LEDGER_CURRENCY_CODE = "MYR";
-
-    private static final int MONEY_SCALE = 2;
-    private static final RoundingMode MONEY_ROUNDING = RoundingMode.HALF_UP;
 
     @Autowired
     private DomainDao domainDao;
@@ -155,7 +153,10 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
             }
 
             BigDecimal amount = scaleMoney(
-                    domainFeeAmount.multiply(percentage).divide(new BigDecimal("100")));
+                    domainFeeAmount.multiply(percentage)
+                            .divide(new BigDecimal("100"),
+                                    TransactionMoneyFormat.NORMAL_AMOUNT_SCALE,
+                                    RoundingMode.HALF_UP));
             if (amount.compareTo(BigDecimal.ZERO) <= 0) {
                 continue;
             }
@@ -217,6 +218,6 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
     }
 
     private static BigDecimal scaleMoney(BigDecimal value) {
-        return value.setScale(MONEY_SCALE, MONEY_ROUNDING);
+        return TransactionMoneyFormat.normalizeComputedNormal(value);
     }
 }
