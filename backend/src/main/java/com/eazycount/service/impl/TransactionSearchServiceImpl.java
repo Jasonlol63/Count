@@ -61,7 +61,8 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         SearchSlice bank = buildBankProcessSearchSlice(tenantId, dateFrom, dateTo, currencyCodes, categories);
         SearchSlice domain = buildDomainPaymentSearchSlice(tenantId, dateFrom, dateTo, currencyCodes, categories);
 
-        return mergeSearchSlices(tenantId, bank, domain);
+        boolean showAllZeroBalance = Boolean.TRUE.equals(request.getShowAllZeroBalance());
+        return mergeSearchSlices(tenantId, bank, domain, currencyCodes, categories, showAllZeroBalance);
     }
 
     // ── Bank Process (Win/Loss) ───────────────────────────────────────────────
@@ -154,10 +155,22 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
     }
 
     // ── Merge / present ───────────────────────────────────────────────────────
-    private TransactionDTO.SearchResult mergeSearchSlices(Integer tenantId, SearchSlice bank, SearchSlice domain) {
+    private TransactionDTO.SearchResult mergeSearchSlices(
+            Integer tenantId,
+            SearchSlice bank,
+            SearchSlice domain,
+            List<String> currencyCodes,
+            List<String> categories,
+            boolean showAllZeroBalance) {
         Map<String, MergedAccount> merged = new HashMap<>();
         applyBankAggregates(merged, bank.aggregates());
         applyDomainAggregates(merged, domain.aggregates());
+
+        if (showAllZeroBalance) {
+            List<TransactionDTO.SearchAggregateRow> shells = transactionDao.findAccountCurrencyShells(
+                    tenantId, currencyCodes, categories);
+            applyNeverTransactedShells(merged, shells);
+        }
 
         List<TransactionDTO.SearchRow> rows = new ArrayList<>();
         BigDecimal totalBf = BigDecimal.ZERO;
@@ -166,7 +179,9 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
 
         for (MergedAccount agg : merged.values()) {
             // Domain-only all-zero with no period activity (e.g. only historical NET PROFIT) → hide
+            // Never-transacted shells are kept when showAllZeroBalance requested them.
             if (!agg.fromBank
+                    && !agg.neverTransacted
                     && agg.periodCrDrCount <= 0
                     && agg.bf.compareTo(BigDecimal.ZERO) == 0
                     && agg.crDr.compareTo(BigDecimal.ZERO) == 0) {
@@ -188,6 +203,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
             row.setHasWinLossInPeriod(agg.periodWinLossCount > 0);
             // Includes NET PROFIT self-leg (period count > 0 even when Cr/Dr nets to 0.00)
             row.setHasCrDrInPeriod(agg.periodCrDrCount > 0);
+            row.setNeverTransacted(agg.neverTransacted);
             rows.add(row);
 
             totalBf = totalBf.add(agg.bf);
@@ -211,6 +227,26 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         result.setTotals(totals);
         result.setActiveCurrencyCodes(resolveActiveCurrencyCodes(tenantId, rows));
         return result;
+    }
+
+    private static void applyNeverTransactedShells(
+            Map<String, MergedAccount> merged,
+            List<TransactionDTO.SearchAggregateRow> shells) {
+        if (shells == null) {
+            return;
+        }
+        for (TransactionDTO.SearchAggregateRow shell : shells) {
+            if (shell == null || shell.getAccountDbId() == null) {
+                continue;
+            }
+            String key = mergeKey(shell);
+            if (merged.containsKey(key)) {
+                continue;
+            }
+            MergedAccount row = baseMerged(shell);
+            row.neverTransacted = true;
+            merged.put(key, row);
+        }
     }
 
     private static void applyBankAggregates(Map<String, MergedAccount> merged, List<TransactionDTO.SearchAggregateRow> bankRows) {
@@ -313,5 +349,6 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         private int periodCrDrCount;
         private boolean fromBank;
         private boolean fromDomain;
+        private boolean neverTransacted;
     }
 }

@@ -30,6 +30,12 @@ public final class TransactionDTO {
 
         /** account.role filters; empty = all. */
         private List<String> categories;
+
+        /**
+         * When true, include account×currency shells with no approved transaction history
+         * (never-transacted), so Show all 0 balance can union them on the client.
+         */
+        private Boolean showAllZeroBalance;
     }
 
     @Getter
@@ -47,6 +53,8 @@ public final class TransactionDTO {
         private String balance;
         private boolean hasWinLossInPeriod;
         private boolean hasCrDrInPeriod;
+        /** True when row is a zero shell for an account×currency with no approved txn history. */
+        private boolean neverTransacted;
     }
 
     @Getter
@@ -158,6 +166,133 @@ public final class TransactionDTO {
         private String rateLeg1ToAccountCode;
         private BigDecimal rateMiddlemanRate;
         private String rateMiddlemanKind;
+    }
+
+    /** Payment Maintenance list request. */
+    @Getter
+    @Setter
+    public static class PaymentMaintenanceRequest {
+
+        private Integer tenantId;
+
+        /** Inclusive; dd/MM/yyyy or yyyy-MM-dd. */
+        private String dateFrom;
+        private String dateTo;
+
+        /** Optional; empty = all payment-maintenance types. */
+        private String transactionType;
+
+        /** Empty = all tenant currencies. */
+        private List<String> currencyCodes;
+
+        /** Optional text filter on To/From account, description, remark, submitter. */
+        private String q;
+    }
+
+    /** Bank Process Maintenance list request (posted WIN/LOSE only). */
+    @Getter
+    @Setter
+    public static class BankProcessMaintenanceRequest {
+
+        private Integer tenantId;
+
+        /** Inclusive; dd/MM/yyyy or yyyy-MM-dd. */
+        private String dateFrom;
+        private String dateTo;
+
+        /** Empty = all tenant currencies. */
+        private List<String> currencyCodes;
+
+        /** Optional text filter on Account / From / card_owner / description / remark / submitter. */
+        private String q;
+    }
+
+    /** Payment Maintenance soft-delete request (archive then remove from {@code transactions}). */
+    @Getter
+    @Setter
+    public static class PaymentMaintenanceDeleteRequest {
+
+        private Integer tenantId;
+
+        /** Live {@code transactions.id} values to soft-delete. */
+        private List<Integer> transactionIds;
+    }
+
+    /** Bank Process Maintenance soft-delete request (posted WIN/LOSE lines). */
+    @Getter
+    @Setter
+    public static class BankProcessMaintenanceDeleteRequest {
+
+        private Integer tenantId;
+
+        /** Live {@code transactions.id} values to soft-delete. */
+        private List<Integer> transactionIds;
+    }
+
+    @Getter
+    @Setter
+    public static class PaymentMaintenanceDeleteResult {
+
+        /** Rows archived into {@code transactions_deleted} and removed from {@code transactions}. */
+        private int deleted;
+    }
+
+    /**
+     * MyBatis Payment Maintenance list row — manual / Domain / Renew bills
+     * ({@code bank_process_posted_id IS NULL}), not Bank Process lines.
+     */
+    @Getter
+    @Setter
+    public static class PaymentMaintenanceRow {
+
+        /** Live {@code transactions.id}, or original id when from {@code transactions_deleted}. */
+        private Integer id;
+        private String transactionType;
+        private java.time.LocalDateTime createdAt;
+        private String toAccountCode;
+        private String fromAccountCode;
+        private BigDecimal amount;
+        private String currencyCode;
+        private String description;
+        private String remark;
+        private String createdBy;
+
+        /** False = live row; true = archived soft-delete row. */
+        private Boolean deleted;
+        private String deletedBy;
+        private java.time.LocalDateTime deletedAt;
+    }
+
+    /**
+     * Bank Process Maintenance list row — posted WIN/LOSE
+     * ({@code bank_process_posted_id IS NOT NULL}).
+     */
+    @Getter
+    @Setter
+    public static class BankProcessMaintenanceRow {
+
+        private Integer id;
+        private String transactionType;
+        private java.time.LocalDateTime createdAt;
+        private String toAccountCode;
+        private String fromAccountCode;
+        private BigDecimal amount;
+        private String currencyCode;
+        private String description;
+        private String remark;
+        private String createdBy;
+        private Boolean deleted;
+        private String deletedBy;
+        private java.time.LocalDateTime deletedAt;
+
+        /** {@code bank_process.id} — batch select/delete grouping. */
+        private Integer bankProcessId;
+
+        /** {@code bank_process_accounting_posted.period_type}. */
+        private String periodType;
+
+        /** {@code transactions.transaction_date}. */
+        private java.time.LocalDate transactionDate;
     }
 
     @Getter

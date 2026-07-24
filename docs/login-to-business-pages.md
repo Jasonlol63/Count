@@ -128,7 +128,7 @@ flowchart TB
 | `tenant_id` / `tenant_code` | 当前会话租户 |
 | `permissions` | 侧边栏模块，**小写**，如 `["home","admin","account","process"]` |
 | `is_current_tenant_c168` | 是否 C168 |
-| `tenant_has_game` / `tenant_has_bank` | 租户功能模块 |
+| `tenant_has_game` / `tenant_has_bank` | 租户功能模块（Maintenance 子菜单、Process 路由；见 [`maintenance-navigation.md`](./maintenance-navigation.md)） |
 | `read_only` | Admin 只读标记 |
 | `needs_user_secondary` / `needs_owner_secondary` | 二级密码 |
 

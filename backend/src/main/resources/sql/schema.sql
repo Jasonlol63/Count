@@ -791,7 +791,7 @@ CREATE TABLE `transactions` (
     `id`                     INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `tenant_id`              INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
 
-    `transaction_type`       ENUM('WIN', 'LOSE', 'PAYMENT', 'RECEIVE', 'CONTRA','CLAIM', 'RATE', 'CLEAR', 'ADJUSTMENT', 'PROFIT') NOT NULL,
+    `transaction_type`       ENUM('WIN', 'LOSE', 'PAYMENT', 'CONTRA','CLAIM', 'RATE', 'CLEAR', 'ADJUSTMENT', 'PROFIT') NOT NULL,
     `account_id`             INT UNSIGNED NOT NULL COMMENT 'FK account.id (To / payer → −amount for transfer-style)',
     `from_account_id`        INT UNSIGNED DEFAULT NULL COMMENT 'FK account.id (From / receiver → +amount); transfer-style only',
     `currency_id`            INT UNSIGNED DEFAULT NULL COMMENT 'FK currency.id (currency.tenant_id = tenant_id)',
@@ -882,3 +882,30 @@ CREATE TABLE `transactions_rate` (
         FOREIGN KEY (`middleman_account_id`) REFERENCES `account` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='RATE group header: exchange_rate + leg txn links; Cr/Dr from transactions only';
+
+DROP TABLE IF EXISTS `transactions_deleted`;
+
+CREATE TABLE `transactions_deleted` (
+    `id`                       int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `tenant_id`                int(11) NOT NULL COMMENT 'Tenant (replaces company_id)',
+    `transaction_id`           int(11) NOT NULL COMMENT 'Original transactions.id',
+    `transaction_type`         enum('WIN', 'LOSE', 'PAYMENT', 'CONTRA', 'CLAIM', 'RATE', 'CLEAR', 'ADJUSTMENT', 'PROFIT') NOT NULL,
+    `account_id`               int(11) NOT NULL COMMENT 'To account',
+    `from_account_id`          int(11) DEFAULT NULL COMMENT 'From account',
+    `currency_id`              int(11) DEFAULT NULL,
+    `amount`                   decimal(25, 8) NOT NULL,
+    `transaction_date`         date NOT NULL,
+    `description`              varchar(500) DEFAULT NULL,
+    `remark`                   varchar(500) DEFAULT NULL COMMENT 'Replaces sms',
+    `created_by`               varchar(100) DEFAULT NULL COMMENT 'Submitter login_id',
+    `created_at`               timestamp NULL DEFAULT NULL,
+    `deleted_by`               varchar(100) DEFAULT NULL COMMENT 'Deleter login_id',
+    `deleted_at`               timestamp NULL DEFAULT NULL,
+    `bank_process_posted_id`   int(11) DEFAULT NULL COMMENT 'NULL = Payment Maintenance; set for BP Maintenance',
+    `rate_group_id`            varchar(50) DEFAULT NULL COMMENT 'RATE group when applicable',
+    INDEX `idx_tenant_date` (`tenant_id`, `transaction_date`),
+    INDEX `idx_transaction_id` (`transaction_id`),
+    INDEX `idx_deleted_at` (`deleted_at`),
+    INDEX `idx_bp_posted` (`tenant_id`, `bank_process_posted_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Archived soft-deleted transactions (Payment + Bank Process Maintenance)';

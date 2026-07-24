@@ -31,4 +31,13 @@
           AND outcome = 'SKIPPED'
     </delete>
 
+    <delete id="deleteDailyGuardByTenantAndBankProcessIds">
+        DELETE FROM bank_process_resend_daily_guard
+        WHERE tenant_id = #{tenantId}
+          AND bank_process_id IN
+        <foreach collection="bankProcessIds" item="bankProcessId" open="(" separator="," close=")">
+            #{bankProcessId}
+        </foreach>
+    </delete>
+
 </mapper>

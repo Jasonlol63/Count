@@ -401,7 +401,7 @@ CREATE TABLE `transactions` (
     `company_id`                      int(11) DEFAULT NULL,
     `scope_type`                      enum('company','group') NOT NULL DEFAULT 'company' COMMENT 'Tenant scope: company or group ledger',
     `scope_id`                        bigint UNSIGNED DEFAULT NULL COMMENT 'Numeric scope: company.id or groups.id',
-    `transaction_type`                enum('WIN','LOSE','PAYMENT','RECEIVE','CONTRA','CLAIM','RATE','CLEAR','ADJUSTMENT','PROFIT') NOT NULL,
+    `transaction_type`                enum('WIN','LOSE','PAYMENT','CONTRA','CLAIM','RATE','CLEAR','ADJUSTMENT','PROFIT') NOT NULL,
     `account_id`                      int(11) DEFAULT NULL,
     `from_account_id`                 int(11) DEFAULT NULL,
     `currency_id`                     int(11) DEFAULT NULL COMMENT 'Currency ID',
@@ -424,28 +424,32 @@ CREATE TABLE `transactions` (
 DROP TABLE IF EXISTS `transactions_deleted`;
 
 CREATE TABLE `transactions_deleted` (
-    `id`                              int(255) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    `transaction_id`                  int(11) NOT NULL,
-    `company_id`                      int(11) NOT NULL,
-    `scope_type`                      enum('company','group') NOT NULL DEFAULT 'company' COMMENT 'Tenant scope: company or group ledger',
-    `scope_id`                        bigint UNSIGNED DEFAULT NULL COMMENT 'Numeric scope: company.id or groups.id',
-    `transaction_type`                enum('WIN','LOSE','PAYMENT','RECEIVE','CONTRA','RATE','ADJUSTMENT') NOT NULL,
-    `account_id`                      int(11) NOT NULL COMMENT 'To Account - To account ID',
-    `from_account_id`                 int(11) DEFAULT NULL COMMENT 'From Account - From account ID',
-    `amount`                          decimal(25, 8) NOT NULL,
-    `currency_id`                     int(11) DEFAULT NULL,
-    `transaction_date`                date           NOT NULL COMMENT 'Transaction date',
-    `description`                     varchar(500) DEFAULT NULL COMMENT 'Description',
-    `sms`                             varchar(500) DEFAULT NULL COMMENT 'SMS description',
-    `created_by`                      int(11) DEFAULT NULL COMMENT 'Created by user ID',
-    `created_by_owner`                int(11) DEFAULT NULL COMMENT 'Created by owner ID',
-    `created_at`                      timestamp NULL DEFAULT NULL COMMENT 'Created at',
-    `deleted_by_user_id`              int(11) DEFAULT NULL COMMENT 'Deleted by user ID',
-    `deleted_by_owner_id`             int(11) DEFAULT NULL COMMENT 'Deleted by owner ID',
-    `deleted_at`                      timestamp NULL DEFAULT NULL COMMENT 'Deleted at',
-    `source_bank_process_id`          int(11) DEFAULT NULL,
-    `source_bank_process_period_type` varchar(64)  DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Payment Maintenance deleted transactions (related to company, scope, transaction type, account)';
+    `id`                     int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `transaction_id`         int(11) NOT NULL COMMENT 'Original transactions.id',
+    `tenant_id`              int(11) NOT NULL COMMENT 'Tenant (replaces company_id)',
+    `transaction_type`       enum(
+                                 'WIN','LOSE','PAYMENT','CONTRA',
+                                 'CLAIM','RATE','CLEAR','ADJUSTMENT','PROFIT'
+                             ) NOT NULL,
+    `account_id`             int(11) NOT NULL COMMENT 'To account',
+    `from_account_id`        int(11) DEFAULT NULL COMMENT 'From account',
+    `currency_id`            int(11) DEFAULT NULL,
+    `amount`                 decimal(25, 8) NOT NULL,
+    `transaction_date`       date NOT NULL,
+    `description`            varchar(500) DEFAULT NULL,
+    `remark`                 varchar(500) DEFAULT NULL COMMENT 'Replaces sms',
+    `created_by`             varchar(100) DEFAULT NULL COMMENT 'Submitter login_id',
+    `created_at`             timestamp NULL DEFAULT NULL,
+    `deleted_by`             varchar(100) DEFAULT NULL COMMENT 'Deleter login_id',
+    `deleted_at`             timestamp NULL DEFAULT NULL,
+    `bank_process_posted_id` int(11) DEFAULT NULL COMMENT 'NULL = Payment Maintenance; set for BP Maintenance',
+    `rate_group_id`          varchar(50) DEFAULT NULL COMMENT 'RATE group when applicable',
+    INDEX `idx_tenant_date` (`tenant_id`, `transaction_date`),
+    INDEX `idx_transaction_id` (`transaction_id`),
+    INDEX `idx_deleted_at` (`deleted_at`),
+    INDEX `idx_bp_posted` (`tenant_id`, `bank_process_posted_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Archived soft-deleted transactions (Payment + Bank Process Maintenance)';
 
 DROP TABLE IF EXISTS `transactions_rate`;
 

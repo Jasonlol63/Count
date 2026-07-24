@@ -2,8 +2,118 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.eazycount.dao.TransactionDao">
 
+    <!-- Manual transfer Cr/Dr types: PAYMENT / CLAIM / CLEAR / CONTRA / RATE (To −, From +); bank_process_posted_id IS NULL -->
+    <sql id="manualCrDrTransactionTypes">
+        'PAYMENT', 'CLAIM', 'CLEAR', 'CONTRA', 'RATE'
+    </sql>
+
+    <!-- Payment Maintenance: manual Cr/Dr + ADJUSTMENT / PROFIT (Domain/Renew are PAYMENT). No WIN/LOSE. -->
+    <sql id="paymentMaintenanceTransactionTypes">
+        'PAYMENT', 'CLAIM', 'CLEAR', 'CONTRA', 'RATE', 'ADJUSTMENT', 'PROFIT'
+    </sql>
+
+    <!-- Bank Process Maintenance: posted WIN/LOSE lines only. -->
+    <sql id="bankProcessMaintenanceTransactionTypes">
+        'WIN', 'LOSE'
+    </sql>
+
+    <!-- RATE transfer legs only (exclude Middle-Man fee row in the same rate_group). -->
+    <sql id="rateTransferLegOnly">
+        (
+            t.transaction_type &lt;&gt; 'RATE'
+            OR EXISTS (
+            SELECT 1
+            FROM transactions_rate tr
+            WHERE tr.tenant_id = t.tenant_id
+            AND tr.rate_group_id = t.rate_group_id
+            AND (t.id = tr.leg1_transaction_id OR t.id = tr.leg2_transaction_id)
+            )
+        )
+    </sql>
+
+    <!-- RATE Middle-Man fee leg (legacy RATE_MIDDLEMAN_FEE or stored MARKUP X … text). -->
+    <sql id="rateMiddlemanFeeDescription">
+        (
+            t.description = 'RATE_MIDDLEMAN_FEE'
+            OR t.description LIKE 'MARKUP X %'
+        )
+    </sql>
+
+    <!-- RATE Middle-Man fee leg: same rate_group, not leg1/leg2. -->
+    <sql id="rateMiddlemanFeeLeg">
+        EXISTS (
+            SELECT 1
+            FROM transactions_rate tr
+            WHERE tr.tenant_id = t.tenant_id
+              AND tr.rate_group_id = t.rate_group_id
+              AND tr.middleman_account_id IS NOT NULL
+              AND t.id &lt;&gt; tr.leg1_transaction_id
+              AND t.id &lt;&gt; tr.leg2_transaction_id
+        )
+    </sql>
+
     <insert id="insert" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
         INSERT INTO transactions (
+            tenant_id,transaction_type,account_id,from_account_id,currency_id,amount,transaction_date,description,remark,created_by, updated_by,approval_status,approved_by,approved_at,bank_process_posted_id,rate_group_id)
+        VALUES (
+                #{tenantId}, #{transactionType}, #{accountId},  #{fromAccountId},  #{currencyId}, #{amount},#{transactionDate},#{description}, #{remark}, #{createdBy}, #{updatedBy}, #{approvalStatus}, #{approvedBy}, #{approvedAt}, #{bankProcessPostedId}, #{rateGroupId}
+               )
+    </insert>
+
+    <select id="findByIdsAndTenantId" resultType="com.eazycount.entity.Transaction">
+        SELECT
+            t.id AS id,
+            t.tenant_id AS tenantId,
+            t.transaction_type AS transactionType,
+            t.account_id AS accountId,
+            t.from_account_id AS fromAccountId,
+            t.currency_id AS currencyId,
+            t.amount AS amount,
+            t.transaction_date AS transactionDate,
+            t.description AS description,
+            t.remark AS remark,
+            t.created_by AS createdBy,
+            t.updated_by AS updatedBy,
+            t.approval_status AS approvalStatus,
+            t.approved_by AS approvedBy,
+            t.approved_at AS approvedAt,
+            t.bank_process_posted_id AS bankProcessPostedId,
+            t.rate_group_id AS rateGroupId,
+            t.created_at AS createdAt,
+            t.updated_at AS updatedAt
+        FROM transactions t
+        WHERE t.tenant_id = #{tenantId}
+          AND t.id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <delete id="deleteByIdAndTenantId">
+        DELETE FROM transactions WHERE id = #{id} AND tenant_id = #{tenantId}
+    </delete>
+
+    <delete id="deleteByIdsAndTenantId">
+        DELETE FROM transactions
+        WHERE tenant_id = #{tenantId}
+          AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+    <insert id="insertTransactionDeleted" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO transactions_deleted (
+            transaction_id,tenant_id,transaction_type,account_id,from_account_id,currency_id,amount,transaction_date,description,remark,created_by,created_at,deleted_by, deleted_at,bank_process_posted_id,rate_group_id)
+        VALUES (
+            #{transactionId},#{tenantId}, #{transactionType},#{accountId},#{fromAccountId},#{currencyId},#{amount}, #{transactionDate},#{description},#{remark},#{createdBy}, #{createdAt}, #{deletedBy}, #{deletedAt},#{bankProcessPostedId}, #{rateGroupId}
+        )
+    </insert>
+
+    <!-- Copy live Payment Maintenance rows into archive (excludes Bank Process posted lines). -->
+    <insert id="archivePaymentMaintenanceToDeleted">
+        INSERT INTO transactions_deleted (
+            transaction_id,
             tenant_id,
             transaction_type,
             account_id,
@@ -14,31 +124,126 @@
             description,
             remark,
             created_by,
-            updated_by,
-            approval_status,
-            approved_by,
-            approved_at,
+            created_at,
+            deleted_by,
+            deleted_at,
             bank_process_posted_id,
             rate_group_id
-        ) VALUES (
-            #{tenantId},
-            #{transactionType},
-            #{accountId},
-            #{fromAccountId},
-            #{currencyId},
-            #{amount},
-            #{transactionDate},
-            #{description},
-            #{remark},
-            #{createdBy},
-            #{updatedBy},
-            #{approvalStatus},
-            #{approvedBy},
-            #{approvedAt},
-            #{bankProcessPostedId},
-            #{rateGroupId}
         )
+        SELECT
+            t.id,
+            t.tenant_id,
+            t.transaction_type,
+            t.account_id,
+            t.from_account_id,
+            t.currency_id,
+            t.amount,
+            t.transaction_date,
+            t.description,
+            t.remark,
+            t.created_by,
+            t.created_at,
+            #{deletedBy},
+            NOW(),
+            t.bank_process_posted_id,
+            t.rate_group_id
+        FROM transactions t
+        WHERE t.tenant_id = #{tenantId}
+          AND t.bank_process_posted_id IS NULL
+          AND t.transaction_type IN (<include refid="paymentMaintenanceTransactionTypes"/>)
+          AND t.id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
     </insert>
+
+    <!-- Copy live Bank Process Maintenance rows into archive (posted WIN/LOSE only). -->
+    <insert id="archiveBankProcessMaintenanceToDeleted">
+        INSERT INTO transactions_deleted (
+            transaction_id,
+            tenant_id,
+            transaction_type,
+            account_id,
+            from_account_id,
+            currency_id,
+            amount,
+            transaction_date,
+            description,
+            remark,
+            created_by,
+            created_at,
+            deleted_by,
+            deleted_at,
+            bank_process_posted_id,
+            rate_group_id
+        )
+        SELECT
+            t.id,
+            t.tenant_id,
+            t.transaction_type,
+            t.account_id,
+            t.from_account_id,
+            t.currency_id,
+            t.amount,
+            t.transaction_date,
+            t.description,
+            t.remark,
+            t.created_by,
+            t.created_at,
+            #{deletedBy},
+            NOW(),
+            t.bank_process_posted_id,
+            t.rate_group_id
+        FROM transactions t
+        INNER JOIN bank_process_accounting_posted bpap ON bpap.id = t.bank_process_posted_id
+        WHERE t.tenant_id = #{tenantId}
+          AND t.bank_process_posted_id IS NOT NULL
+          AND t.approval_status = 'APPROVED'
+          AND bpap.outcome = 'POSTED'
+          AND t.transaction_type IN (<include refid="bankProcessMaintenanceTransactionTypes"/>)
+          AND t.id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </insert>
+
+    <select id="findBankProcessMaintenanceIdsByPostedIds" resultType="int">
+        SELECT t.id
+        FROM transactions t
+        INNER JOIN bank_process_accounting_posted bpap ON bpap.id = t.bank_process_posted_id
+        WHERE t.tenant_id = #{tenantId}
+          AND t.bank_process_posted_id IS NOT NULL
+          AND t.approval_status = 'APPROVED'
+          AND bpap.outcome = 'POSTED'
+          AND t.transaction_type IN (<include refid="bankProcessMaintenanceTransactionTypes"/>)
+          AND t.bank_process_posted_id IN
+        <foreach collection="postedIds" item="postedId" open="(" separator="," close=")">
+            #{postedId}
+        </foreach>
+    </select>
+
+    <select id="findBankProcessIdsByTransactionIds" resultType="int">
+        SELECT DISTINCT bpap.bank_process_id
+        FROM transactions t
+        INNER JOIN bank_process_accounting_posted bpap ON bpap.id = t.bank_process_posted_id
+        WHERE t.tenant_id = #{tenantId}
+          AND t.id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <select id="findPaymentMaintenanceIdsByRateGroupIds" resultType="int">
+        SELECT t.id
+        FROM transactions t
+        WHERE t.tenant_id = #{tenantId}
+          AND t.bank_process_posted_id IS NULL
+          AND t.transaction_type IN (<include refid="paymentMaintenanceTransactionTypes"/>)
+          AND t.rate_group_id IN
+        <foreach collection="rateGroupIds" item="rateGroupId" open="(" separator="," close=")">
+            #{rateGroupId}
+        </foreach>
+    </select>
 
     <select id="aggregateBankProcessWinLoss" resultType="com.eazycount.dto.TransactionDTO$SearchAggregateRow">
         SELECT
@@ -91,46 +296,6 @@
         GROUP BY a.id, a.account_id, a.name, a.role, c.code
         ORDER BY currencyCode ASC, accountCode ASC
     </select>
-
-    <!-- Manual transfer Cr/Dr types: PAYMENT / CLAIM / CLEAR / CONTRA / RATE (To −, From +); bank_process_posted_id IS NULL -->
-    <sql id="manualCrDrTransactionTypes">
-        'PAYMENT', 'CLAIM', 'CLEAR', 'CONTRA', 'RATE'
-    </sql>
-
-    <!-- RATE transfer legs only (exclude Middle-Man fee row in the same rate_group). -->
-    <sql id="rateTransferLegOnly">
-        (
-            t.transaction_type &lt;&gt; 'RATE'
-            OR EXISTS (
-                SELECT 1
-                FROM transactions_rate tr
-                WHERE tr.tenant_id = t.tenant_id
-                  AND tr.rate_group_id = t.rate_group_id
-                  AND (t.id = tr.leg1_transaction_id OR t.id = tr.leg2_transaction_id)
-            )
-        )
-    </sql>
-
-    <!-- RATE Middle-Man fee leg (legacy RATE_MIDDLEMAN_FEE or stored MARKUP X … text). -->
-    <sql id="rateMiddlemanFeeDescription">
-        (
-            t.description = 'RATE_MIDDLEMAN_FEE'
-            OR t.description LIKE 'MARKUP X %'
-        )
-    </sql>
-
-    <!-- RATE Middle-Man fee leg: same rate_group, not leg1/leg2. -->
-    <sql id="rateMiddlemanFeeLeg">
-        EXISTS (
-            SELECT 1
-            FROM transactions_rate tr
-            WHERE tr.tenant_id = t.tenant_id
-              AND tr.rate_group_id = t.rate_group_id
-              AND tr.middleman_account_id IS NOT NULL
-              AND t.id &lt;&gt; tr.leg1_transaction_id
-              AND t.id &lt;&gt; tr.leg2_transaction_id
-        )
-    </sql>
 
     <!-- Domain Fee / manual transfer: To (−) + From (+) legs -->
     <select id="aggregateDomainPaymentCrDr" resultType="com.eazycount.dto.TransactionDTO$SearchAggregateRow">
@@ -940,6 +1105,244 @@
         ) x
         GROUP BY x.currencyCode
         ORDER BY currencyCode ASC
+    </select>
+
+    <!-- Account × currency matrix for Show all 0 balance (never-transacted shells). -->
+    <select id="findAccountCurrencyShells" resultType="com.eazycount.dto.TransactionDTO$SearchAggregateRow">
+        SELECT
+            a.id AS accountDbId,
+            a.account_id AS accountCode,
+            a.name AS accountName,
+            a.role AS role,
+            UPPER(c.code) AS currencyCode,
+            0 AS bfAmount,
+            0 AS winLossAmount,
+            0 AS crDrAmount,
+            0 AS periodTxnCount
+        FROM account a
+        INNER JOIN account_tenant_access ata ON ata.account_id = a.id
+        INNER JOIN account_currency ac
+            ON ac.account_id = a.id
+           AND ac.tenant_id = ata.tenant_id
+        INNER JOIN currency c
+            ON c.id = ac.currency_id
+           AND c.tenant_id = ata.tenant_id
+        WHERE ata.tenant_id = #{tenantId}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM transactions t
+              WHERE t.tenant_id = #{tenantId}
+                AND t.approval_status = 'APPROVED'
+                AND t.currency_id = c.id
+                AND (t.account_id = a.id OR t.from_account_id = a.id)
+          )
+        <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+            AND UPPER(c.code) IN
+            <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                UPPER(#{code})
+            </foreach>
+        </if>
+        <if test="categories != null and categories.size() &gt; 0">
+            AND UPPER(a.role) IN
+            <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                UPPER(#{cat})
+            </foreach>
+        </if>
+        ORDER BY currencyCode ASC, accountCode ASC
+    </select>
+
+    <!-- Payment Maintenance list: Created At, Account(To/From), Amount, Description, Remark, Submitter. -->
+    <select id="findPaymentMaintenanceRows" resultType="com.eazycount.dto.TransactionDTO$PaymentMaintenanceRow">
+        SELECT
+            t.id AS id,
+            t.transaction_type AS transactionType,
+            t.created_at AS createdAt,
+            to_a.account_id AS toAccountCode,
+            from_a.account_id AS fromAccountCode,
+            t.amount AS amount,
+            UPPER(c.code) AS currencyCode,
+            t.description AS description,
+            t.remark AS remark,
+            t.created_by AS createdBy,
+            FALSE AS deleted,
+            NULL AS deletedBy,
+            NULL AS deletedAt
+        FROM transactions t
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        INNER JOIN account to_a ON to_a.id = t.account_id
+        LEFT JOIN account from_a ON from_a.id = t.from_account_id
+        WHERE t.tenant_id = #{tenantId}
+          AND t.bank_process_posted_id IS NULL
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_type IN (<include refid="paymentMaintenanceTransactionTypes"/>)
+          AND t.transaction_date &gt;= #{dateFrom}
+          AND t.transaction_date &lt;= #{dateTo}
+        <if test="transactionType != null and transactionType != ''">
+            AND t.transaction_type = #{transactionType}
+        </if>
+        <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+            AND UPPER(c.code) IN
+            <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                UPPER(#{code})
+            </foreach>
+        </if>
+        <if test="q != null and q != ''">
+            AND (
+                UPPER(to_a.account_id) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(from_a.account_id, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(t.description, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(t.remark, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(t.created_by, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+            )
+        </if>
+        ORDER BY t.created_at DESC, t.id DESC
+    </select>
+
+    <!-- Soft-deleted Payment Maintenance rows (still shown in list with Deleter). -->
+    <select id="findPaymentMaintenanceDeletedRows" resultType="com.eazycount.dto.TransactionDTO$PaymentMaintenanceRow">
+        SELECT
+            td.transaction_id AS id,
+            td.transaction_type AS transactionType,
+            td.created_at AS createdAt,
+            to_a.account_id AS toAccountCode,
+            from_a.account_id AS fromAccountCode,
+            td.amount AS amount,
+            UPPER(c.code) AS currencyCode,
+            td.description AS description,
+            td.remark AS remark,
+            td.created_by AS createdBy,
+            TRUE AS deleted,
+            td.deleted_by AS deletedBy,
+            td.deleted_at AS deletedAt
+        FROM transactions_deleted td
+        INNER JOIN currency c ON c.id = td.currency_id AND c.tenant_id = td.tenant_id
+        INNER JOIN account to_a ON to_a.id = td.account_id
+        LEFT JOIN account from_a ON from_a.id = td.from_account_id
+        WHERE td.tenant_id = #{tenantId}
+          AND td.bank_process_posted_id IS NULL
+          AND td.transaction_type IN (<include refid="paymentMaintenanceTransactionTypes"/>)
+          AND td.transaction_date &gt;= #{dateFrom}
+          AND td.transaction_date &lt;= #{dateTo}
+        <if test="transactionType != null and transactionType != ''">
+            AND td.transaction_type = #{transactionType}
+        </if>
+        <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+            AND UPPER(c.code) IN
+            <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                UPPER(#{code})
+            </foreach>
+        </if>
+        <if test="q != null and q != ''">
+            AND (
+                UPPER(to_a.account_id) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(from_a.account_id, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(td.description, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(td.remark, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(td.created_by, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(td.deleted_by, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+            )
+        </if>
+        ORDER BY td.created_at DESC, td.transaction_id DESC
+    </select>
+
+    <!-- Bank Process Maintenance list: posted WIN/LOSE ({@code bank_process_posted_id IS NOT NULL}). -->
+    <select id="findBankProcessMaintenanceRows" resultType="com.eazycount.dto.TransactionDTO$BankProcessMaintenanceRow">
+        SELECT
+            t.id AS id,
+            t.transaction_type AS transactionType,
+            t.created_at AS createdAt,
+            to_a.account_id AS toAccountCode,
+            COALESCE(from_a.account_id, bp.card_owner) AS fromAccountCode,
+            t.amount AS amount,
+            UPPER(c.code) AS currencyCode,
+            t.description AS description,
+            t.remark AS remark,
+            t.created_by AS createdBy,
+            FALSE AS deleted,
+            NULL AS deletedBy,
+            NULL AS deletedAt,
+            bp.id AS bankProcessId,
+            bpap.period_type AS periodType,
+            t.transaction_date AS transactionDate
+        FROM transactions t
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        INNER JOIN account to_a ON to_a.id = t.account_id
+        LEFT JOIN account from_a ON from_a.id = t.from_account_id
+        INNER JOIN bank_process_accounting_posted bpap ON bpap.id = t.bank_process_posted_id
+        INNER JOIN bank_process bp ON bp.id = bpap.bank_process_id
+        WHERE t.tenant_id = #{tenantId}
+          AND t.bank_process_posted_id IS NOT NULL
+          AND t.approval_status = 'APPROVED'
+          AND bpap.outcome = 'POSTED'
+          AND t.transaction_type IN (<include refid="bankProcessMaintenanceTransactionTypes"/>)
+          AND t.transaction_date &gt;= #{dateFrom}
+          AND t.transaction_date &lt;= #{dateTo}
+        <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+            AND UPPER(c.code) IN
+            <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                UPPER(#{code})
+            </foreach>
+        </if>
+        <if test="q != null and q != ''">
+            AND (
+                UPPER(to_a.account_id) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(from_a.account_id, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(bp.card_owner, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(t.description, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(t.remark, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(t.created_by, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+            )
+        </if>
+        ORDER BY t.created_at DESC, t.id DESC
+    </select>
+
+    <select id="findBankProcessMaintenanceDeletedRows" resultType="com.eazycount.dto.TransactionDTO$BankProcessMaintenanceRow">
+        SELECT
+            td.transaction_id AS id,
+            td.transaction_type AS transactionType,
+            td.created_at AS createdAt,
+            to_a.account_id AS toAccountCode,
+            COALESCE(from_a.account_id, bp.card_owner) AS fromAccountCode,
+            td.amount AS amount,
+            UPPER(c.code) AS currencyCode,
+            td.description AS description,
+            td.remark AS remark,
+            td.created_by AS createdBy,
+            TRUE AS deleted,
+            td.deleted_by AS deletedBy,
+            td.deleted_at AS deletedAt,
+            bp.id AS bankProcessId,
+            bpap.period_type AS periodType,
+            td.transaction_date AS transactionDate
+        FROM transactions_deleted td
+        INNER JOIN currency c ON c.id = td.currency_id AND c.tenant_id = td.tenant_id
+        INNER JOIN account to_a ON to_a.id = td.account_id
+        LEFT JOIN account from_a ON from_a.id = td.from_account_id
+        LEFT JOIN bank_process_accounting_posted bpap ON bpap.id = td.bank_process_posted_id
+        LEFT JOIN bank_process bp ON bp.id = bpap.bank_process_id
+        WHERE td.tenant_id = #{tenantId}
+          AND td.bank_process_posted_id IS NOT NULL
+          AND td.transaction_type IN (<include refid="bankProcessMaintenanceTransactionTypes"/>)
+          AND td.transaction_date &gt;= #{dateFrom}
+          AND td.transaction_date &lt;= #{dateTo}
+        <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+            AND UPPER(c.code) IN
+            <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                UPPER(#{code})
+            </foreach>
+        </if>
+        <if test="q != null and q != ''">
+            AND (
+                UPPER(to_a.account_id) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(from_a.account_id, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(bp.card_owner, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(td.description, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(td.remark, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(td.created_by, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(td.deleted_by, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+            )
+        </if>
+        ORDER BY td.created_at DESC, td.transaction_id DESC
     </select>
 
 </mapper>

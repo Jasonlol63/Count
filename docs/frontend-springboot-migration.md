@@ -108,9 +108,11 @@ res.success === true || res.status === "success"
 从 `auth/current-user` 的 `SessionUser` 读取：
 
 - `tenant_id` / `tenant_code`
-- `tenant_has_game` / `tenant_has_bank`
+- `tenant_has_game` / `tenant_has_bank`（**勿用**旧 PHP `company_has_bank` / `company_has_gambling`；读 `sessionTenant.js`）
 - `is_current_tenant_c168`
 - `permissions[]`（小写，见 `sidebarPermissions.js`）
+
+Maintenance 侧边栏与 Bank Process 入口规则：[`maintenance-navigation.md`](./maintenance-navigation.md)
 
 ### 3.4 `utils/company/loginScope.js` / `sharedCompanyFilter.js`
 

@@ -29,42 +29,30 @@ public class Transaction {
 
     private Integer accountId;
 
-    /** Transfer-style only; otherwise null. */
     private Integer fromAccountId;
 
     private Integer currencyId;
 
     private BigDecimal amount;
 
-    /** Economic / capture date for list filters. */
     private LocalDate transactionDate;
 
-    /** System / process line description. */
     private String description;
 
-    /** User / system remark (Payment History Remark). */
     private String remark;
 
-    /** Creator login_id (admin = user.login_id; owner = owner_code). */
     private String createdBy;
 
-    /** Last updater login_id (same convention as createdBy). */
     private String updatedBy;
 
     private ApprovalStatus approvalStatus;
 
-    /** Approver login_id (same convention as createdBy). */
     private String approvedBy;
 
     private LocalDateTime approvedAt;
 
-    /**
-     * FK {@code bank_process_accounting_posted.id}.
-     * Null = manual / non–Bank Process transaction.
-     */
     private Integer bankProcessPostedId;
 
-    /** RATE only: shared by leg1+leg2; null for other types. */
     private String rateGroupId;
 
     private LocalDateTime createdAt;
@@ -76,7 +64,6 @@ public class Transaction {
         WIN,
         LOSE,
         PAYMENT,
-        RECEIVE,
         CONTRA,
         CLAIM,
         RATE,
