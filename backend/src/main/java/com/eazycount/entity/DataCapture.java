@@ -6,28 +6,33 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * Maps to {@code process} — process config (settings as columns; description/days via link tables).
+ * Maps to {@code data_captures} — Data Capture submit header (GAME / BANK).
+ * Selected GAME descriptions are in {@link DataCaptureDescription}.
  */
 @Getter
 @Setter
 @ToString
 @NoArgsConstructor
 @AllArgsConstructor
-public class Process {
+public class DataCapture {
 
     private Integer id;
 
     private Integer tenantId;
 
-    /* GAME = dynamic process + day + submitted filter; BANK = fixed four codes. */
     private Category category;
 
-    private String code;
+    private LocalDate captureDate;
+
+    private Integer processId;
 
     private Integer currencyId;
+
+    private String remark;
 
     private String removeWord;
 
@@ -35,29 +40,13 @@ public class Process {
 
     private String replaceWordTo;
 
-    private String remark;
-
-    private Status status;
-
-    /** Creator login_id (admin {@code user.login_id} or owner {@code owner_code}) */
     private String createdBy;
 
-    /** Last editor login_id */
-    private String updatedBy;
-
     private LocalDateTime createdAt;
-
-    private LocalDateTime updatedAt;
 
     @Getter
     public enum Category {
         GAME,
         BANK
-    }
-
-    @Getter
-    public enum Status {
-        ACTIVE,
-        INACTIVE
     }
 }

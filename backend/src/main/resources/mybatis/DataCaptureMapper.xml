@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.DataCaptureDao">
+
+    <resultMap id="GameProcessDetailMap" type="com.eazycount.dto.DataCaptureGameDTO">
+    <id property="id" column="id"/>
+    <result property="processId" column="processId"/>
+    <result property="currencyId" column="currencyId"/>
+    <result property="currencyCode" column="currencyCode"/>
+    <result property="removeWord" column="removeWord"/>
+    <result property="replaceWordFrom" column="replaceWordFrom"/>
+    <result property="replaceWordTo" column="replaceWordTo"/>
+    <result property="remark" column="remark"/>
+    <collection property="descriptionNames"
+                column="id"
+                ofType="java.lang.String"
+                select="findGameProcessDescriptionNames"/>
+    </resultMap>
+
+    <select id="findGameProcessesByDay" resultType="com.eazycount.dto.DataCaptureGameDTO">
+        SELECT
+            p.id AS id,
+            p.code AS processId,
+            fd.descriptionName AS descriptionName,
+            CASE
+                WHEN fd.descriptionName IS NOT NULL AND fd.descriptionName &lt;&gt; ''
+                    THEN CONCAT(p.code, ' (', fd.descriptionName, ')')
+                ELSE p.code
+            END AS processDisplay
+        FROM process p
+                 INNER JOIN process_day pd ON pd.process_id = p.id
+                 LEFT JOIN (
+            SELECT pdl.process_id AS process_id,
+                   MIN(d.name)    AS descriptionName
+            FROM process_description_link pdl
+                     INNER JOIN process_description d ON d.id = pdl.description_id
+            GROUP BY pdl.process_id
+        ) fd ON fd.process_id = p.id
+        WHERE p.tenant_id = #{tenantId}
+          AND p.category = 'GAME'
+          AND p.status = 'ACTIVE'
+          AND pd.day_of_week = #{dayOfWeek}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM process_submitted ps
+            WHERE ps.tenant_id = #{tenantId}
+              AND ps.process_id = p.id
+              AND ps.capture_date = #{captureDate}
+        )
+        ORDER BY p.code ASC
+    </select>
+
+    <select id="findGameProcessDetail" resultMap="GameProcessDetailMap">
+        SELECT
+            p.id                AS id,
+            p.code              AS processId,
+            p.currency_id       AS currencyId,
+            c.code              AS currencyCode,
+            p.remove_word       AS removeWord,
+            p.replace_word_from AS replaceWordFrom,
+            p.replace_word_to   AS replaceWordTo,
+            p.remark            AS remark
+        FROM process p
+                 LEFT JOIN currency c ON c.id = p.currency_id AND c.tenant_id = p.tenant_id
+        WHERE p.id = #{processId}
+          AND p.tenant_id = #{tenantId}
+          AND p.category = 'GAME'
+          AND p.status = 'ACTIVE'
+        LIMIT 1
+    </select>
+
+    <select id="findGameProcessDescriptionNames" resultType="java.lang.String">
+        SELECT d.name
+        FROM process_description_link pdl
+                 INNER JOIN process_description d ON d.id = pdl.description_id
+        WHERE pdl.process_id = #{value}
+        ORDER BY d.name ASC
+    </select>
+
+    <!-- BANK process resolve / ensure -->
+    <select id="findBankProcessByTenantAndCode" resultType="com.eazycount.entity.Process">
+        SELECT
+            id,
+            tenant_id         AS tenantId,
+            category,
+            code,
+            currency_id       AS currencyId,
+            remove_word       AS removeWord,
+            replace_word_from AS replaceWordFrom,
+            replace_word_to   AS replaceWordTo,
+            remark,
+            status,
+            created_by        AS createdBy,
+            updated_by        AS updatedBy,
+            created_at        AS createdAt,
+            updated_at        AS updatedAt
+        FROM process
+        WHERE tenant_id = #{tenantId}
+          AND category = 'BANK'
+          AND code = #{code}
+        LIMIT 1
+    </select>
+
+    <insert id="insertBankProcess" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO process (tenant_id, category, code, currency_id, status, created_by, created_at)
+        VALUES (#{tenantId}, 'BANK', #{code}, #{currencyId}, 'ACTIVE', #{createdBy}, NOW())
+    </insert>
+
+    <!-- BANK draft -->
+    <select id="findDraftByTenantProcessCurrency" resultType="com.eazycount.entity.DataCaptureDraft">
+        SELECT
+            id,
+            tenant_id   AS tenantId,
+            process_id  AS processId,
+            currency_id AS currencyId,
+            updated_at  AS updatedAt,
+            created_at  AS createdAt
+        FROM data_capture_draft
+        WHERE tenant_id = #{tenantId}
+          AND process_id = #{processId}
+          AND currency_id = #{currencyId}
+        LIMIT 1
+    </select>
+
+    <insert id="insertDraft" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO data_capture_draft (tenant_id, process_id, currency_id, created_at, updated_at)
+        VALUES (#{tenantId}, #{processId}, #{currencyId}, NOW(), NOW())
+    </insert>
+
+    <update id="touchDraftUpdatedAt">
+        UPDATE data_capture_draft
+        SET updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteDraftCellsByDraftId">
+        DELETE FROM data_capture_draft_cell
+        WHERE draft_id = #{draftId}
+    </delete>
+
+    <insert id="insertDraftCells">
+        INSERT INTO data_capture_draft_cell (draft_id, row_index, col_index, cell_value, updated_at)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.draftId}, #{item.rowIndex}, #{item.colIndex}, #{item.cellValue}, NOW())
+        </foreach>
+    </insert>
+
+    <select id="findDraftCellsByDraftId" resultType="com.eazycount.entity.DataCaptureDraftCell">
+        SELECT
+            id,
+            draft_id    AS draftId,
+            row_index   AS rowIndex,
+            col_index   AS colIndex,
+            cell_value  AS cellValue,
+            updated_at  AS updatedAt
+        FROM data_capture_draft_cell
+        WHERE draft_id = #{draftId}
+        ORDER BY row_index ASC, col_index ASC
+    </select>
+
+</mapper>

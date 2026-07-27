@@ -12,17 +12,9 @@ public interface MaintenanceService {
     List<TransactionDTO.BankProcessMaintenanceRow> findBankProcessMaintenanceRows(
             TransactionDTO.BankProcessMaintenanceRequest request);
 
-    /**
-     * Soft-delete Payment Maintenance lines: archive to {@code transactions_deleted},
-     * then remove from {@code transactions}. List can still show archived rows.
-     */
-    TransactionDTO.PaymentMaintenanceDeleteResult deletePaymentMaintenanceRows(
-            TransactionDTO.PaymentMaintenanceDeleteRequest request);
+    // Soft-delete Payment Maintenance lines: archive to transactions_deleted
+    void deletePaymentMaintenanceRows(TransactionDTO.PaymentMaintenanceDeleteRequest request);
 
-    /**
-     * Soft-delete Bank Process Maintenance lines: archive to {@code transactions_deleted},
-     * then remove from {@code transactions}. List can still show archived rows.
-     */
-    TransactionDTO.PaymentMaintenanceDeleteResult deleteBankProcessMaintenanceRows(
-            TransactionDTO.BankProcessMaintenanceDeleteRequest request);
+    // Soft-delete Bank Process Maintenance lines: archive to transactions_deleted
+    void deleteBankProcessMaintenanceRows(TransactionDTO.BankProcessMaintenanceDeleteRequest request);
 }

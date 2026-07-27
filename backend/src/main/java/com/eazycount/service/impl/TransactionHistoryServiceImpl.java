@@ -314,7 +314,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         return "PROFIT".equalsIgnoreCase(line.getTransactionType().trim());
     }
 
-    /** Domain History Id Product: PAYMENT / COMMISSION / PROFIT / CLAIM / CLEAR / CONTRA. */
+    /* Domain History ID Product: PAYMENT / COMMISSION / PROFIT / CLAIM / CLEAR / CONTRA. */
     static String domainProductFromDescription(String description) {
         String d = description != null ? description.trim().toUpperCase(Locale.ROOT) : "";
         if (d.startsWith("PAYMENT FROM ") || d.startsWith("PAYMENT TO ") || d.startsWith("PAY DOMAIN FEE")) {

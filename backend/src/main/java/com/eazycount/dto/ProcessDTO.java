@@ -23,6 +23,7 @@ public class ProcessDTO {
     private String currencyCode;
 
     private Integer tenantId;
+    private Process.Category category;
     private String code;
     private Integer currencyId;
     private List<Integer> descriptionIds;

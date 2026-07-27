@@ -57,16 +57,21 @@ public class ProcessServiceImpl implements ProcessService {
         String code = processDTO.getCode().trim().toUpperCase();
         processDTO.setCode(code);
 
+        Process.Category category = processDTO.getCategory() != null
+                ? processDTO.getCategory()
+                : Process.Category.GAME;
+
         if (currencyDao.findByIdAndTenantId(processDTO.getCurrencyId(), processDTO.getTenantId()) == null) {
             throw new BusinessException("Currency not found!");
         }
 
-        if (processDao.findProcessCodeByTenantId(processDTO.getTenantId(), code) != null) {
+        if (processDao.findProcessCodeByTenantId(processDTO.getTenantId(), category, code) != null) {
             throw new BusinessException("Process code already exists!");
         }
 
         Process process = new Process();
         process.setTenantId(processDTO.getTenantId());
+        process.setCategory(category);
         process.setCode(code);
         process.setCurrencyId(processDTO.getCurrencyId());
         process.setRemoveWord(processDTO.getRemoveWord());
@@ -129,6 +134,7 @@ public class ProcessServiceImpl implements ProcessService {
         }
 
         processDTO.setId(process.getId());
+        processDTO.setCategory(category);
         return processDTO;
     }
 

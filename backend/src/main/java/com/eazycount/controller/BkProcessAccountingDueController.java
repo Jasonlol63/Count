@@ -17,7 +17,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/bank-process/accounting-due")
-public class AccountingDueController {
+public class BkProcessAccountingDueController {
 
     @Autowired
     private AccountingDueService accountingDueService;

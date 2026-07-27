@@ -67,9 +67,9 @@ res.success === true || res.status === "success"
 | **Announcement / Maintenance** | ✅ 已迁移 | `/api/announcement/*` | `apiUrl.js` 重写（页面仍写 PHP 路径） |
 | **Auto Renew** | ⚠️ 部分 | `/api/auto-renew/*` + Domain Comm | 列表 / reject / **approve** 直调 Spring；Comm 用 `domain/list` + `update-setting` |
 | **Ownership** | ✅ API 已迁移 + **数据层已对齐 Spring** | `/api/ownership/*` | `apiUrl.js` 重写 + `ownershipRowHelpers` normalize |
-| **Process** | ⚠️ 部分 | `/api/process/*` | **列表 + description CRUD + add/update/status/delete + Edit 回填** 已 Spring；form meta（`addprocess_api`）等仍混用 PHP |
+| **Process** | ✅ Games List 已迁移 | `/api/process/*` + `/api/currency/list` | 见 [`process-list-spring-api.md`](./process-list-spring-api.md)；`processListApi.js` 直调 Spring |
 | **Bank Process** | ⚠️ 部分 | `/api/bank-process/*`、`/api/bank-country-option/*`、`/api/account/*` | **列表（含 shares）+ catalog + Add/Update/Status/Delete/Remark + Edit list 回填** 已 Spring；Due 仍 PHP |
-| **Transaction / Report / Data Capture / Member** | ⚠️ 部分 | `/api/transaction/search` + `/history` + `/submit` + Meta | **Submit**：`PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`/`ADJUSTMENT`/`PROFIT`/`RATE` 已 Spring；Contra Inbox 仍 PHP |
+| **Transaction / Report / Data Capture / Member** | ⚠️ 部分 | `/api/transaction/search` + `/history` + `/submit` + Meta；**Data Capture Games form / 币别 / description / tenant picker** 已 Spring | **Submit**：`PAYMENT`/`CLAIM`/… 已 Spring；**Data Capture**：Games 表单 + tenant-accessible + switch-tenant + process description 已 Spring（见 [`datacapture-spring-api.md`](./datacapture-spring-api.md)）；submissions/submit/Summary 仍 PHP |
 
 ---
 
@@ -395,7 +395,7 @@ Group 候选完全依赖 Spring `GET /api/ownership/available-accounts`。
 |-------------|---------------------------|
 | `process.code` | `process_name`（列 Process ID） |
 | `processDescriptions[].name` | 拼成 `description`（列 Description） |
-| `process.status` | `status`（小写 active/inactive） |
+| `process.status` | `status`（`ACTIVE` / `INACTIVE`；UI 显示 Active / Inactive） |
 | `currencyCode`（DTO 顶层） | `currency` |
 | `processDays[].dayOfWeek`（1–7） | 拼成 `day_use`（如 `MON,THU`） |
 | `process.id` | `id` |
@@ -413,7 +413,7 @@ Group 候选完全依赖 Spring `GET /api/ownership/available-accounts`。
 - **Process 写操作 / 详情**：部分 form meta 仍 PHP；**列表 + description CRUD + add/update/status/delete + Edit 自 list 回填** 已走 Spring / 前端
 - **Transaction / Payment**：`api/transactions/*`
 - **Report**：`api/reports/*`
-- **Data Capture / Summary**：`api/datacapture/*`、`api/summary/*`
+- **Data Capture / Summary**：Games 表单见 [`datacapture-spring-api.md`](./datacapture-spring-api.md)；submit / submissions / Summary 仍 `api/datacapture/*`、`api/summary/*`
 - **Bank Process List**：列表已 Spring；**写操作 / 国家银行选择 / Accounting Due / 账户弹窗**仍混用 `api/bankprocesses/*`、`api/accounts/*` PHP
 - **Member Win/Loss**：`api/member/*`（账户 meta 可复用 `/api/account/list`）
 - **Maintenance 业务页**（formula/transaction/payment 等）：仍 PHP
@@ -528,14 +528,16 @@ URL **不**带 `tenant_id` / `id`。`ProcessListPage` 的 `loadFormMeta` / `relo
 | 子表 | 只删 `process`；`process_description_link` / `process_day` / `process_submitted` 靠 **ON DELETE CASCADE** |
 | 前端 | `deleteProcess(tenantId, id)`；多选 `for … of selectedIds` |
 
-### 9.7 已知缺口
+### 9.7 已知缺口（2026-07-27 更新）
 
 | 项 | 说明 |
 |----|------|
-| Add form meta | 部分仍 `addprocess_api.php`（`existingProcesses` / days 等） |
-| List process 服务端 search / showInactive | 暂无；✅ 客户端 `applyProcessFilters`（`fetchGamesProcessListSlice`） |
-| 前端 add/update/status/delete | ✅ `addProcess` / `updateProcess` / `updateProcessStatus` / `deleteProcess` |
+| Add form meta | ✅ `fetchProcessFormMeta`（Spring currency + description + 本地 weekday）；`existingProcesses` 来自列表行 |
+| List process 服务端 search / showInactive | 暂无；✅ 客户端 `applyProcessListFilters`（`fetchGamesProcessListSlice`） |
+| 前端 add/update/status/delete / description | ✅ 全 Spring（见 [`process-list-spring-api.md`](./process-list-spring-api.md)） |
 | Edit 打开 | ✅ list 行本地回填（无 get API） |
+| Copy From | ✅ 列表行本地 patch（无 PHP `copy_from`） |
+| PHP `addprocess_api` / `processlist_api` | ✅ Games Process List 页已移除 |
 
 ### 9.8 Games ↔ Bank Process 页面路由（2026-07-14）
 

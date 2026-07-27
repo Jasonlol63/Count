@@ -118,7 +118,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     @Override
     @Transactional
-    public TransactionDTO.PaymentMaintenanceDeleteResult deletePaymentMaintenanceRows(
+    public void deletePaymentMaintenanceRows(
             TransactionDTO.PaymentMaintenanceDeleteRequest request) {
         SessionUser session = requireWritableSession();
         int tenantId = requireTenantId(request);
@@ -148,12 +148,11 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         TransactionDTO.PaymentMaintenanceDeleteResult result =
                 new TransactionDTO.PaymentMaintenanceDeleteResult();
         result.setDeleted(removed);
-        return result;
     }
 
     @Override
     @Transactional
-    public TransactionDTO.PaymentMaintenanceDeleteResult deleteBankProcessMaintenanceRows(
+    public void deleteBankProcessMaintenanceRows(
             TransactionDTO.BankProcessMaintenanceDeleteRequest request) {
         SessionUser session = requireWritableSession();
         int tenantId = requireTenantId(request);
@@ -184,7 +183,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         TransactionDTO.PaymentMaintenanceDeleteResult result =
                 new TransactionDTO.PaymentMaintenanceDeleteResult();
         result.setDeleted(removed);
-        return result;
     }
 
     private BankProcessDeletableBatch resolveBankProcessDeletableBatch(

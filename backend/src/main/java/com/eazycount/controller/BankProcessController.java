@@ -1,8 +1,10 @@
 package com.eazycount.controller;
 
 import com.eazycount.common.BusinessException;
+import com.eazycount.dto.AccountingDueDTO;
 import com.eazycount.dto.BankProcessDTO;
 import com.eazycount.entity.BankProcess;
+import com.eazycount.service.BankProcessResendService;
 import com.eazycount.service.BankProcessService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +23,9 @@ public class BankProcessController {
 
     @Autowired
     private BankProcessService bankProcessService;
+
+    @Autowired
+    private BankProcessResendService bankProcessResendService;
 
     @PostMapping("/list")
     public ResponseEntity<Map<String, Object>> processList(@RequestBody Integer tenantId) {
@@ -98,6 +103,23 @@ public class BankProcessController {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", true);
             body.put("message", "BankProcess Remark updated successfully");
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
+    @PostMapping("/resend")
+    public ResponseEntity<Map<String, Object>> resend(@RequestBody AccountingDueDTO request) {
+        try {
+            if (request == null || request.getTenantId() == null) {
+                throw new BusinessException("Invalid Tenant Id!");
+            }
+            final AccountingDueDTO data = bankProcessResendService.resend(request);
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "Resend successful");
+            body.put("data", data);
             return ResponseEntity.ok(body);
         } catch (BusinessException e) {
             return error(e);

@@ -14,6 +14,7 @@ ALTER TABLE feature_module MODIFY status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE';
 ALTER TABLE user MODIFY role VARCHAR(50) NOT NULL;
 ALTER TABLE user MODIFY status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE';
 ALTER TABLE account MODIFY status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE';
+ALTER TABLE process MODIFY status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE';
 -- Optional tables (skip if not created yet):
 -- ALTER TABLE currency MODIFY sync_source VARCHAR(20) NOT NULL DEFAULT 'MANUAL';
 -- ALTER TABLE announcements MODIFY status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE';
@@ -26,6 +27,7 @@ UPDATE owner SET status = UPPER(status);
 UPDATE tenant SET tenant_type = UPPER(tenant_type), status = UPPER(status);
 UPDATE feature_module SET status = UPPER(status);
 UPDATE account SET status = UPPER(status);
+UPDATE process SET status = UPPER(status);
 -- UPDATE currency SET sync_source = UPPER(sync_source);
 -- UPDATE announcements SET status = UPPER(status), user_type = UPPER(user_type);
 
@@ -53,6 +55,7 @@ ALTER TABLE user MODIFY role ENUM(
 ) NOT NULL;
 ALTER TABLE user MODIFY status ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE';
 ALTER TABLE account MODIFY status ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE';
+ALTER TABLE process MODIFY status ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE';
 -- ALTER TABLE currency MODIFY sync_source ENUM('MANUAL', 'SUBSIDIARY') NOT NULL DEFAULT 'MANUAL';
 -- ALTER TABLE announcements MODIFY status ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE';
 -- ALTER TABLE announcements MODIFY user_type ENUM('USER', 'OWNER') NOT NULL DEFAULT 'USER';

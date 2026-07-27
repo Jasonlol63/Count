@@ -9,6 +9,7 @@
         <association property="process" javaType="com.eazycount.entity.Process">
             <id property="id" column="processId"/>
             <result property="tenantId" column="processTenantId"/>
+            <result property="category" column="processCategory"/>
             <result property="code" column="processCode"/>
             <result property="currencyId" column="processCurrencyId"/>
             <result property="removeWord" column="processRemoveWord"/>
@@ -36,6 +37,7 @@
     <resultMap id="ProcessEntityMap" type="com.eazycount.entity.Process">
         <id property="id" column="id"/>
         <result property="tenantId" column="tenant_id"/>
+        <result property="category" column="category"/>
         <result property="code" column="code"/>
         <result property="currencyId" column="currency_id"/>
         <result property="removeWord" column="remove_word"/>
@@ -54,6 +56,7 @@
         SELECT
             p.id                AS processId,
             p.tenant_id         AS processTenantId,
+            p.category          AS processCategory,
             p.code              AS processCode,
             p.currency_id       AS processCurrencyId,
             c.code              AS processCurrencyCode,
@@ -98,6 +101,7 @@
         SELECT
             id,
             tenant_id,
+            category,
             code,
             currency_id,
             remove_word,
@@ -117,6 +121,7 @@
         SELECT
             id,
             tenant_id,
+            category,
             code,
             currency_id,
             remove_word,
@@ -133,11 +138,12 @@
           AND tenant_id = #{tenantId}
     </select>
 
-    <!-- Duplicate check: same code under one tenant -->
+    <!-- Duplicate check: same category + code under one tenant -->
     <select id="findProcessCodeByTenantId" resultMap="ProcessEntityMap">
         SELECT
             id,
             tenant_id,
+            category,
             code,
             currency_id,
             remove_word,
@@ -151,14 +157,15 @@
             updated_at
         FROM process
         WHERE tenant_id = #{tenantId}
+          AND category = #{category}
           AND code = #{code}
         LIMIT 1
     </select>
 
     <!-- Insert Process Use -->
     <insert id="insertNewProcess" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
-        INSERT INTO process (tenant_id, code, currency_id, remove_word, replace_word_from, replace_word_to,  remark, status, created_by, created_at)
-        VALUES (#{tenantId},#{code},#{currencyId},#{removeWord}, #{replaceWordFrom},#{replaceWordTo},#{remark}, #{status}, #{createdBy}, NOW())
+        INSERT INTO process (tenant_id, category, code, currency_id, remove_word, replace_word_from, replace_word_to, remark, status, created_by, created_at)
+        VALUES (#{tenantId}, #{category}, #{code}, #{currencyId}, #{removeWord}, #{replaceWordFrom}, #{replaceWordTo}, #{remark}, #{status}, #{createdBy}, NOW())
     </insert>
 
     <insert id="insertProcessDescriptionLinkBatch">

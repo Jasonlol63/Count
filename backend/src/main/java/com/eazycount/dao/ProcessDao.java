@@ -15,7 +15,10 @@ public interface ProcessDao {
 
     List<ProcessDTO> findProcessByTenantId(@Param("tenantId") Integer tenantId);
 
-    Process findProcessCodeByTenantId(@Param("tenantId") Integer tenantId, @Param("code") String code);
+    Process findProcessCodeByTenantId(
+            @Param("tenantId") Integer tenantId,
+            @Param("category") Process.Category category,
+            @Param("code") String code);
 
     Process findProcessById(@Param("id") Integer id);
 

@@ -3,6 +3,11 @@
 -- Apply AFTER backend/src/main/resources/schema.sql on dev DB, or standalone
 -- when bootstrapping the login module only.
 DROP TABLE IF EXISTS `submitted_processes`;
+DROP TABLE IF EXISTS `data_capture_description`;
+DROP TABLE IF EXISTS `datacapture_formula`;
+DROP TABLE IF EXISTS `data_capture_draft_cell`;
+DROP TABLE IF EXISTS `data_capture_draft`;
+DROP TABLE IF EXISTS `data_captures`;
 DROP TABLE IF EXISTS `process_submitted`;
 DROP TABLE IF EXISTS `process_day`;
 DROP TABLE IF EXISTS `process_description_link`;
@@ -568,23 +573,25 @@ CREATE TABLE `process_description` (
 CREATE TABLE `process` (
    `id`                INT UNSIGNED NOT NULL AUTO_INCREMENT,
    `tenant_id`         INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
-   `code`              VARCHAR(50) NOT NULL COMMENT '业务名称',
+   `category`          ENUM('GAME', 'BANK') NOT NULL DEFAULT 'GAME' COMMENT 'GAME=动态 process+day+submitted 过滤；BANK=固定四码且 option 常显',
+   `code`              VARCHAR(50) NOT NULL COMMENT '业务码；BANK 固定 PROFIT/SALARY/COMMISSION/BONUS',
    `currency_id`       INT UNSIGNED NOT NULL COMMENT '默认币别 FK currency.id',
-   `remove_word`       TEXT DEFAULT NULL COMMENT '要过滤的词，逗号分隔',
-   `replace_word_from` VARCHAR(255) DEFAULT NULL,
-   `replace_word_to`   VARCHAR(255) DEFAULT NULL,
-   `remark`            TEXT DEFAULT NULL COMMENT '备注',
+   `remove_word`       TEXT DEFAULT NULL COMMENT '要过滤的词，逗号分隔（GAME）',
+   `replace_word_from` VARCHAR(255) DEFAULT NULL COMMENT 'GAME',
+   `replace_word_to`   VARCHAR(255) DEFAULT NULL COMMENT 'GAME',
+   `remark`            TEXT DEFAULT NULL COMMENT 'process 配置备注（非 Data Capture 表单 remark）',
    `status`            ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE' COMMENT '状态：ACTIVE=启用, INACTIVE=停用',
    `created_by`        VARCHAR(50) DEFAULT NULL COMMENT '创建人 login_id（admin=user.login_id；owner=owner_code）',
    `updated_by`        VARCHAR(50) DEFAULT NULL COMMENT '修改人 login_id（同上）',
    `created_at`        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
    `updated_at`        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
    PRIMARY KEY (`id`),
-   UNIQUE KEY `uk_process_tenant_code` (`tenant_id`, `code`),
+   UNIQUE KEY `uk_process_tenant_category_code` (`tenant_id`, `category`, `code`),
    CONSTRAINT `fk_process_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
    CONSTRAINT `fk_process_currency` FOREIGN KEY (`currency_id`) REFERENCES `currency` (`id`),
-   KEY `idx_process_tenant_id` (`tenant_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='流程配置表（无 JSON：settings/description/days 已拆表拆列）';
+   KEY `idx_process_tenant_id` (`tenant_id`),
+   KEY `idx_process_tenant_category` (`tenant_id`, `category`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='流程配置表（无 JSON；GAME/BANK 同表用 category 区分规则）';
 
 CREATE TABLE `process_description_link` (
     `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -620,7 +627,135 @@ CREATE TABLE `process_submitted` (
  CONSTRAINT `fk_sp_process` FOREIGN KEY (`process_id`) REFERENCES `process` (`id`) ON DELETE CASCADE,
  CONSTRAINT `fk_sp_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`),
  KEY `idx_sp_tenant_capture_date` (`tenant_id`, `capture_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='已提交流程记录表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='已提交记录：GAME Data Capture 当日 option 过滤；BANK 不用于隐藏 option';
+
+-- =============================================================================
+-- Data Capture (tenant model — Games / Bank page, no JSON / no scope_*)
+-- Reuses: process(+category), process_day, process_description(+link), process_submitted
+-- Games option: category=GAME + process_day + NOT IN process_submitted
+-- Bank option: category=BANK fixed codes; draft always TEXT only (data_capture_draft*)
+-- Summary populate + Formula Maintenance: datacapture_formula (hard DELETE; not bound to one capture)
+-- Final submit line snapshot (data_capture_line), summary state, submit queue: deferred
+-- =============================================================================
+
+CREATE TABLE `data_captures` (
+    `id`                 INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `tenant_id`          INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+    `category`           ENUM('GAME', 'BANK') NOT NULL COMMENT '与 process.category 对齐',
+    `capture_date`       DATE NOT NULL COMMENT '业务捕获日期',
+    `process_id`         INT UNSIGNED NOT NULL COMMENT 'FK process.id',
+    `currency_id`        INT UNSIGNED NOT NULL COMMENT 'FK currency.id',
+    `remark`             TEXT DEFAULT NULL COMMENT '表单 Remark（BANK 非必填）',
+    `remove_word`        TEXT DEFAULT NULL COMMENT 'GAME：提交瞬间从 process 拷贝快照',
+    `replace_word_from`  VARCHAR(255) DEFAULT NULL COMMENT 'GAME 快照',
+    `replace_word_to`    VARCHAR(255) DEFAULT NULL COMMENT 'GAME 快照',
+    `created_by`         VARCHAR(50) DEFAULT NULL COMMENT '提交人 login_id',
+    `created_at`         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_dc_tenant_capture_date` (`tenant_id`, `capture_date`),
+    KEY `idx_dc_tenant_process_date` (`tenant_id`, `process_id`, `capture_date`),
+    KEY `idx_dc_category` (`tenant_id`, `category`),
+    CONSTRAINT `fk_dc_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_dc_process` FOREIGN KEY (`process_id`) REFERENCES `process` (`id`),
+    CONSTRAINT `fk_dc_currency` FOREIGN KEY (`currency_id`) REFERENCES `currency` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Data Capture 提交头（GAME/BANK）；description 多选见 data_capture_description';
+
+CREATE TABLE `data_capture_description` (
+    `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `capture_id`     INT UNSIGNED NOT NULL COMMENT 'FK data_captures.id',
+    `description_id` INT UNSIGNED NOT NULL COMMENT 'FK process_description.id（本次选中的多选快照）',
+    `created_at`     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_dcd_capture_description` (`capture_id`, `description_id`),
+    KEY `idx_dcd_description` (`description_id`),
+    CONSTRAINT `fk_dcd_capture` FOREIGN KEY (`capture_id`) REFERENCES `data_captures` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_dcd_description` FOREIGN KEY (`description_id`) REFERENCES `process_description` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='GAME Capture 选中的 description 多选桥表（配置允许列表仍用 process_description_link）';
+
+-- Summary 列表 + Edit Formula Save + Formula Maintenance（替代 legacy data_capture_templates）
+-- 配置与单次 capture 分离：不存 last_processed_amount / data_capture_id；Maintenance 为硬 DELETE
+CREATE TABLE `datacapture_formula` (
+    `id`                    INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `tenant_id`             INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+    `process_id`            INT UNSIGNED NOT NULL COMMENT 'FK process.id',
+    `product_type`          ENUM('MAIN', 'SUB') NOT NULL DEFAULT 'MAIN' COMMENT 'Summary 主行 / 子行',
+    `id_product`            VARCHAR(255) NOT NULL COMMENT 'Summary Id Product（如 AAA）',
+    `parent_id_product`     VARCHAR(255) DEFAULT NULL COMMENT 'SUB 时父 id_product；MAIN 为 NULL',
+    `formula_variant`       TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '同 id_product 多套公式',
+    `sub_order`             DECIMAL(11, 2) DEFAULT NULL COMMENT 'SUB 排序',
+    `row_index`             INT DEFAULT NULL COMMENT '与 Capture 表格行索引对齐（可选）',
+    `account_id`            INT UNSIGNED DEFAULT NULL COMMENT 'FK account.id',
+    `currency_id`           INT UNSIGNED DEFAULT NULL COMMENT 'FK currency.id',
+    `description`           VARCHAR(255) DEFAULT NULL COMMENT '行描述 / Edit Formula Description',
+    `source_columns`        TEXT DEFAULT NULL COMMENT '公式引用的 Capture 列/格（如 $2,$3）',
+    `columns_display`       TEXT DEFAULT NULL COMMENT 'Data 下拉展示文案',
+    `formula`               TEXT DEFAULT NULL COMMENT '公式表达式',
+    `formula_operators`     TEXT DEFAULT NULL COMMENT '公式运算符片段（可选）',
+    `input_method`          VARCHAR(100) DEFAULT NULL COMMENT 'Input Method（可选）',
+    `source_percent`        VARCHAR(255) NOT NULL DEFAULT '0',
+    `enable_source_percent` TINYINT(1) NOT NULL DEFAULT 1,
+    `enable_input_method`   TINYINT(1) NOT NULL DEFAULT 0,
+    `created_by`            VARCHAR(50) DEFAULT NULL COMMENT 'login_id',
+    `updated_by`            VARCHAR(50) DEFAULT NULL COMMENT 'login_id',
+    `created_at`            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_dcf_tenant_process_formula` (
+        `tenant_id`,
+        `process_id`,
+        `product_type`,
+        `id_product`,
+        `parent_id_product`,
+        `formula_variant`,
+        `sub_order`,
+        `account_id`
+    ),
+    KEY `idx_dcf_tenant_process` (`tenant_id`, `process_id`),
+    KEY `idx_dcf_process_product` (`process_id`, `id_product`),
+    KEY `idx_dcf_account` (`account_id`),
+    CONSTRAINT `fk_dcf_tenant`
+        FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_dcf_process`
+        FOREIGN KEY (`process_id`) REFERENCES `process` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_dcf_account`
+        FOREIGN KEY (`account_id`) REFERENCES `account` (`id`) ON DELETE SET NULL,
+    CONSTRAINT `fk_dcf_currency`
+        FOREIGN KEY (`currency_id`) REFERENCES `currency` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Data Capture Summary 持久公式 + Formula Maintenance；硬删除；不绑定单次 data_captures';
+
+CREATE TABLE `data_capture_draft` (
+    `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `tenant_id`     INT UNSIGNED NOT NULL COMMENT 'FK tenant.id（company/group ledger 均用 tenant）',
+    `process_id`    INT UNSIGNED NOT NULL COMMENT 'FK process.id（BANK 四码之一）',
+    `currency_id`   INT UNSIGNED NOT NULL COMMENT 'FK currency.id',
+    `updated_at`    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `created_at`    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_draft_tenant_process_currency` (`tenant_id`, `process_id`, `currency_id`),
+    KEY `idx_draft_tenant` (`tenant_id`),
+    CONSTRAINT `fk_draft_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_draft_process` FOREIGN KEY (`process_id`) REFERENCES `process` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_draft_currency` FOREIGN KEY (`currency_id`) REFERENCES `currency` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='BANK Data Capture 表格草稿头（仅 TEXT）';
+
+CREATE TABLE `data_capture_draft_cell` (
+    `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `draft_id`    INT UNSIGNED NOT NULL COMMENT 'FK data_capture_draft.id',
+    `row_index`   SMALLINT UNSIGNED NOT NULL COMMENT '0-based（A=0）',
+    `col_index`   SMALLINT UNSIGNED NOT NULL COMMENT '1-based（与 UI 列号一致）',
+    `cell_value`  TEXT NOT NULL COMMENT '纯文本；空单元格不落库',
+    `updated_at`  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_draft_cell_pos` (`draft_id`, `row_index`, `col_index`),
+    KEY `idx_draft_cell_draft` (`draft_id`),
+    CONSTRAINT `fk_draft_cell_draft` FOREIGN KEY (`draft_id`) REFERENCES `data_capture_draft` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='BANK Data Capture 草稿单元格（无 JSON）';
 
 -- =============================================================================
 -- Bank Process (tenant model — list/CRUD + Accounting Due / Resend schema)
