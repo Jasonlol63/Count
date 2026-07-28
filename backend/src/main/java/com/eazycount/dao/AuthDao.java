@@ -32,6 +32,13 @@ public interface AuthDao {
 
     User findMemberByAccountId(@Param("accountId") String accountId);
 
+    /** Member login: account_id scoped to login group/company code (supports same code in other tenants). */
+    User findMemberByAccountIdAndTenantCode(
+            @Param("accountId") String accountId,
+            @Param("tenantCode") String tenantCode);
+
+    User findMemberById(@Param("memberId") Integer memberId);
+
     Admin findAdminSecondaryPasswordById(@Param("adminId") Integer adminId);
 
     Owner findOwnerSecondaryPasswordById(@Param("ownerId") Integer ownerId);

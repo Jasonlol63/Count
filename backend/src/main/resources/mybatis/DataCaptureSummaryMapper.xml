@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.DataCaptureSummaryDao">
+
+    <resultMap id="FormulaMap" type="com.eazycount.entity.DataCaptureFormula">
+        <id property="id" column="id"/>
+        <result property="tenantId" column="tenantId"/>
+        <result property="processId" column="processId"/>
+        <result property="productType" column="productType"/>
+        <result property="idProduct" column="idProduct"/>
+        <result property="parentIdProduct" column="parentIdProduct"/>
+        <result property="formulaVariant" column="formulaVariant"/>
+        <result property="subOrder" column="subOrder"/>
+        <result property="rowIndex" column="rowIndex"/>
+        <result property="accountId" column="accountId"/>
+        <result property="currencyId" column="currencyId"/>
+        <result property="description" column="description"/>
+        <result property="sourceColumns" column="sourceColumns"/>
+        <result property="columnsDisplay" column="columnsDisplay"/>
+        <result property="formula" column="formula"/>
+        <result property="formulaOperators" column="formulaOperators"/>
+        <result property="inputMethod" column="inputMethod"/>
+        <result property="sourcePercent" column="sourcePercent"/>
+        <result property="enableSourcePercent" column="enableSourcePercent"/>
+        <result property="enableInputMethod" column="enableInputMethod"/>
+        <result property="createdBy" column="createdBy"/>
+        <result property="updatedBy" column="updatedBy"/>
+        <result property="createdAt" column="createdAt"/>
+        <result property="updatedAt" column="updatedAt"/>
+    </resultMap>
+
+    <sql id="FormulaSelectColumns">
+        id,
+        tenant_id             AS tenantId,
+        process_id            AS processId,
+        product_type          AS productType,
+        id_product            AS idProduct,
+        parent_id_product     AS parentIdProduct,
+        formula_variant       AS formulaVariant,
+        sub_order             AS subOrder,
+        row_index             AS rowIndex,
+        account_id            AS accountId,
+        currency_id           AS currencyId,
+        description,
+        source_columns        AS sourceColumns,
+        columns_display       AS columnsDisplay,
+        formula,
+        formula_operators     AS formulaOperators,
+        input_method          AS inputMethod,
+        source_percent        AS sourcePercent,
+        enable_source_percent AS enableSourcePercent,
+        enable_input_method   AS enableInputMethod,
+        created_by            AS createdBy,
+        updated_by            AS updatedBy,
+        created_at            AS createdAt,
+        updated_at            AS updatedAt
+    </sql>
+
+    <select id="findMainWithAccount" resultMap="FormulaMap">
+        SELECT
+        <include refid="FormulaSelectColumns"/>
+        FROM data_capture_formula
+        WHERE tenant_id = #{tenantId}
+          AND process_id = #{processId}
+          AND product_type = 'MAIN'
+          AND id_product = #{idProduct}
+          AND account_id IS NOT NULL
+        ORDER BY id ASC
+        LIMIT 1
+    </select>
+
+    <select id="findMainByProduct" resultMap="FormulaMap">
+        SELECT
+        <include refid="FormulaSelectColumns"/>
+        FROM data_capture_formula
+        WHERE tenant_id = #{tenantId}
+          AND process_id = #{processId}
+          AND product_type = 'MAIN'
+          AND id_product = #{idProduct}
+        ORDER BY id ASC
+        LIMIT 1
+    </select>
+
+    <select id="findMaxSubOrder" resultType="java.math.BigDecimal">
+        SELECT MAX(sub_order)
+        FROM data_capture_formula
+        WHERE tenant_id = #{tenantId}
+          AND process_id = #{processId}
+          AND product_type = 'SUB'
+          AND parent_id_product = #{parentIdProduct}
+    </select>
+
+    <insert id="insertFormula" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO data_capture_formula (
+            tenant_id,process_id,product_type,id_product,parent_id_product,formula_variant,sub_order,row_index,
+            account_id,currency_id,description,source_columns,columns_display,formula,formula_operators,input_method,
+            source_percent,enable_source_percent,enable_input_method, created_by, updated_by,created_at,updated_at
+        ) VALUES (
+            #{tenantId},#{processId},#{productType},#{idProduct},#{parentIdProduct},#{formulaVariant},#{subOrder},
+            #{rowIndex},#{accountId},#{currencyId},#{description},#{sourceColumns},#{columnsDisplay},
+            #{formula},#{formulaOperators},#{inputMethod},#{sourcePercent},#{enableSourcePercent},#{enableInputMethod},
+            #{createdBy},#{updatedBy},NOW(),NOW()
+        )
+    </insert>
+
+    <update id="updateMainFields">
+        UPDATE data_capture_formula
+        SET account_id            = #{accountId},
+            currency_id           = #{currencyId},
+            description           = #{description},
+            source_columns        = #{sourceColumns},
+            columns_display       = #{columnsDisplay},
+            formula               = #{formula},
+            formula_operators     = #{formulaOperators},
+            input_method          = #{inputMethod},
+            source_percent        = #{sourcePercent},
+            enable_source_percent = #{enableSourcePercent},
+            enable_input_method   = #{enableInputMethod},
+            row_index             = #{rowIndex},
+            formula_variant       = #{formulaVariant},
+            updated_by            = #{updatedBy},
+            updated_at            = NOW()
+        WHERE id = #{id}
+          AND tenant_id = #{tenantId}
+          AND product_type = 'MAIN'
+    </update>
+
+    <select id="findByIdAndTenantId" resultMap="FormulaMap">
+        SELECT
+        <include refid="FormulaSelectColumns"/>
+        FROM data_capture_formula
+        WHERE id = #{id}
+          AND tenant_id = #{tenantId}
+        LIMIT 1
+    </select>
+
+    <select id="findByBusinessKey" resultMap="FormulaMap">
+        SELECT
+        <include refid="FormulaSelectColumns"/>
+        FROM data_capture_formula
+        WHERE tenant_id = #{tenantId}
+          AND process_id = #{processId}
+          AND product_type = #{productType}
+          AND account_id = #{accountId}
+          <choose>
+              <when test="productType != null and productType.toString() == 'SUB'">
+                  AND COALESCE(parent_id_product, '') = COALESCE(#{parentIdProduct}, '')
+                  AND COALESCE(id_product, '') = COALESCE(#{idProduct}, '')
+                  AND (COALESCE(sub_order, 0) = COALESCE(#{subOrder}, 0))
+              </when>
+              <otherwise>
+                  AND COALESCE(id_product, '') = COALESCE(#{idProduct}, '')
+              </otherwise>
+          </choose>
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <update id="updateFormulaById">
+        UPDATE data_capture_formula
+        SET account_id            = #{accountId},
+            currency_id           = #{currencyId},
+            description           = #{description},
+            source_columns        = #{sourceColumns},
+            columns_display       = #{columnsDisplay},
+            formula               = #{formula},
+            formula_operators     = #{formulaOperators},
+            input_method          = #{inputMethod},
+            source_percent        = #{sourcePercent},
+            enable_source_percent = #{enableSourcePercent},
+            enable_input_method   = #{enableInputMethod},
+            row_index             = #{rowIndex},
+            updated_by            = #{updatedBy},
+            updated_at            = NOW()
+        WHERE id = #{id}
+          AND tenant_id = #{tenantId}
+    </update>
+
+    <delete id="deleteByIdAndTenantId">
+        DELETE FROM data_capture_formula
+        WHERE id = #{id}
+          AND tenant_id = #{tenantId}
+    </delete>
+
+</mapper>

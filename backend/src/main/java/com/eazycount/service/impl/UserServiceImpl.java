@@ -74,8 +74,19 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException("Invalid tenant id");
         }
 
+        String accountCode = userListDTO.getAccountId() == null
+                ? ""
+                : userListDTO.getAccountId().trim();
+        if (accountCode.isEmpty()) {
+            throw new BusinessException("Account ID is required");
+        }
+        Integer existingInTenant = userDao.findAccountIdByTenantIdAndCode(tenantId, accountCode);
+        if (existingInTenant != null && existingInTenant > 0) {
+            throw new BusinessException("Account ID already exists in this company");
+        }
+
         User user = new User();
-        user.setAccountId(userListDTO.getAccountId());
+        user.setAccountId(accountCode);
         user.setName(userListDTO.getName());
         user.setRole(normalizeAccountLedgerRole(userListDTO.getRole()));
         user.setPassword(passwordEncoder.encode(userListDTO.getPassword()));

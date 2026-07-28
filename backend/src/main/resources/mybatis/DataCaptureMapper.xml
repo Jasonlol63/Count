@@ -3,18 +3,18 @@
 <mapper namespace="com.eazycount.dao.DataCaptureDao">
 
     <resultMap id="GameProcessDetailMap" type="com.eazycount.dto.DataCaptureGameDTO">
-    <id property="id" column="id"/>
-    <result property="processId" column="processId"/>
-    <result property="currencyId" column="currencyId"/>
-    <result property="currencyCode" column="currencyCode"/>
-    <result property="removeWord" column="removeWord"/>
-    <result property="replaceWordFrom" column="replaceWordFrom"/>
-    <result property="replaceWordTo" column="replaceWordTo"/>
-    <result property="remark" column="remark"/>
-    <collection property="descriptionNames"
-                column="id"
-                ofType="java.lang.String"
-                select="findGameProcessDescriptionNames"/>
+        <id property="id" column="id"/>
+        <result property="processId" column="processId"/>
+        <result property="currencyId" column="currencyId"/>
+        <result property="currencyCode" column="currencyCode"/>
+        <result property="removeWord" column="removeWord"/>
+        <result property="replaceWordFrom" column="replaceWordFrom"/>
+        <result property="replaceWordTo" column="replaceWordTo"/>
+        <result property="remark" column="remark"/>
+        <collection property="descriptionNames"
+                    column="id"
+                    ofType="java.lang.String"
+                    select="findGameProcessDescriptionNames"/>
     </resultMap>
 
     <select id="findGameProcessesByDay" resultType="com.eazycount.dto.DataCaptureGameDTO">
@@ -106,7 +106,7 @@
         VALUES (#{tenantId}, 'BANK', #{code}, #{currencyId}, 'ACTIVE', #{createdBy}, NOW())
     </insert>
 
-    <!-- BANK draft -->
+    <!-- BANK Draft -->
     <select id="findDraftByTenantProcessCurrency" resultType="com.eazycount.entity.DataCaptureDraft">
         SELECT
             id,
@@ -122,30 +122,6 @@
         LIMIT 1
     </select>
 
-    <insert id="insertDraft" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
-        INSERT INTO data_capture_draft (tenant_id, process_id, currency_id, created_at, updated_at)
-        VALUES (#{tenantId}, #{processId}, #{currencyId}, NOW(), NOW())
-    </insert>
-
-    <update id="touchDraftUpdatedAt">
-        UPDATE data_capture_draft
-        SET updated_at = NOW()
-        WHERE id = #{id}
-    </update>
-
-    <delete id="deleteDraftCellsByDraftId">
-        DELETE FROM data_capture_draft_cell
-        WHERE draft_id = #{draftId}
-    </delete>
-
-    <insert id="insertDraftCells">
-        INSERT INTO data_capture_draft_cell (draft_id, row_index, col_index, cell_value, updated_at)
-        VALUES
-        <foreach collection="list" item="item" separator=",">
-            (#{item.draftId}, #{item.rowIndex}, #{item.colIndex}, #{item.cellValue}, NOW())
-        </foreach>
-    </insert>
-
     <select id="findDraftCellsByDraftId" resultType="com.eazycount.entity.DataCaptureDraftCell">
         SELECT
             id,
@@ -158,5 +134,29 @@
         WHERE draft_id = #{draftId}
         ORDER BY row_index ASC, col_index ASC
     </select>
+
+    <insert id="insertDraft" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO data_capture_draft (tenant_id, process_id, currency_id, created_at, updated_at)
+        VALUES (#{tenantId}, #{processId}, #{currencyId}, NOW(), NOW())
+    </insert>
+
+    <insert id="insertDraftCells">
+        INSERT INTO data_capture_draft_cell (draft_id, row_index, col_index, cell_value, updated_at)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.draftId}, #{item.rowIndex}, #{item.colIndex}, #{item.cellValue}, NOW())
+        </foreach>
+    </insert>
+
+    <update id="touchDraftUpdatedAt">
+        UPDATE data_capture_draft
+        SET updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteDraftCellsByDraftId">
+        DELETE FROM data_capture_draft_cell
+        WHERE draft_id = #{draftId}
+    </delete>
 
 </mapper>

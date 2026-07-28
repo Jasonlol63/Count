@@ -1,10 +1,10 @@
--- Add datacapture_formula (Summary populate + Formula Maintenance; hard DELETE).
+-- Add data_capture_formula (Summary populate + Formula Maintenance; hard DELETE).
 -- Safe to run on existing testcount that already has data_captures / process.
 -- Example: mysql -u root testcount < backend/src/main/resources/sql/migrate_datacapture_formula.sql
 
 USE testcount;
 
-CREATE TABLE IF NOT EXISTS `datacapture_formula` (
+CREATE TABLE IF NOT EXISTS `data_capture_formula` (
     `id`                    INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `tenant_id`             INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
     `process_id`            INT UNSIGNED NOT NULL COMMENT 'FK process.id',

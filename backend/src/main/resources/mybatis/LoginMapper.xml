@@ -296,6 +296,57 @@
         LIMIT 1
     </select>
 
+    <!-- Prefer this when account_id may repeat across tenants -->
+    <select id="findMemberByAccountIdAndTenantCode" resultType="com.eazycount.entity.User">
+        SELECT a.id,
+               a.account_id             AS accountId,
+               a.name,
+               a.password,
+               a.role,
+               a.status,
+               a.created_source         AS createdSource,
+               a.last_login             AS lastLogin,
+               a.created_at             AS createdAt
+        FROM account a
+        INNER JOIN account_tenant_access ata ON ata.account_id = a.id
+        INNER JOIN tenant t ON t.id = ata.tenant_id
+        LEFT JOIN tenant parent_t
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
+        WHERE UPPER(TRIM(a.account_id)) = UPPER(TRIM(#{accountId}))
+          AND a.status = 'ACTIVE'
+          AND t.status = 'ACTIVE'
+          AND (
+            UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode}))
+            OR UPPER(TRIM(parent_t.code)) = UPPER(TRIM(#{tenantCode}))
+          )
+        ORDER BY
+            CASE
+                WHEN UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode}))
+                 AND t.tenant_type = 'GROUP' THEN 0
+                WHEN UPPER(TRIM(t.code)) = UPPER(TRIM(#{tenantCode})) THEN 1
+                ELSE 2
+            END,
+            t.id
+        LIMIT 1
+    </select>
+
+    <select id="findMemberById" resultType="com.eazycount.entity.User">
+        SELECT id,
+               account_id             AS accountId,
+               name,
+               password,
+               role,
+               status,
+               created_source         AS createdSource,
+               last_login             AS lastLogin,
+               created_at             AS createdAt
+        FROM account
+        WHERE id = #{memberId}
+          AND status = 'ACTIVE'
+        LIMIT 1
+    </select>
+
     <select id="findAdminSecondaryPasswordById" resultMap="AdminMap">
         SELECT id, secondary_password
         FROM user

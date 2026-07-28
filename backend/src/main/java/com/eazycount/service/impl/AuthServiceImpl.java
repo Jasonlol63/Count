@@ -81,8 +81,8 @@ public class AuthServiceImpl implements AuthService {
         UserDTO identity = new UserDTO();
 
         if (role == LoginRole.MEMBER) {
-            User member = requireIdentity("member", name).getUser();
-            if (!verifyPassword(password, member.getPassword())) {
+            User member = authDao.findMemberByAccountIdAndTenantCode(name, code);
+            if (member == null || !verifyPassword(password, member.getPassword())) {
                 throw new BusinessException("Account ID, Company ID or password is incorrect");
             }
             List<UserTenantDTO> access = findAccessibleTenantsByMemberId(member.getId(), code);
@@ -525,7 +525,17 @@ public class AuthServiceImpl implements AuthService {
             List<FeatureModule> featureModules
     ) {
         final String userType = String.valueOf(current.user_type).trim().toLowerCase();
-        UserDTO identity = requireIdentity(userType, current.login_id);
+        UserDTO identity;
+        if ("member".equals(userType)) {
+            // account_id may repeat across tenants — rebuild by PK, not login code
+            identity = new UserDTO();
+            identity.setUser(requireFound(
+                    authDao.findMemberById(current.user_id),
+                    User::getId,
+                    "User Not Found!"));
+        } else {
+            identity = requireIdentity(userType, current.login_id);
+        }
         identity.setTenant(tenant);
         return SessionUser.from(identity, tenant, featureModules, permissionService);
     }

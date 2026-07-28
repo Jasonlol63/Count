@@ -4,7 +4,7 @@
 -- when bootstrapping the login module only.
 DROP TABLE IF EXISTS `submitted_processes`;
 DROP TABLE IF EXISTS `data_capture_description`;
-DROP TABLE IF EXISTS `datacapture_formula`;
+DROP TABLE IF EXISTS `data_capture_formula`;
 DROP TABLE IF EXISTS `data_capture_draft_cell`;
 DROP TABLE IF EXISTS `data_capture_draft`;
 DROP TABLE IF EXISTS `data_captures`;
@@ -81,9 +81,10 @@ CREATE TABLE `account` (
     `last_login`          DATETIME       DEFAULT NULL,
     `created_at` datetime NOT NULL DEFAULT current_timestamp(),
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_account_account_id` (`account_id`),
-KEY `idx_account_status` (`status`)
+    KEY `idx_account_account_id` (`account_id`),
+    KEY `idx_account_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Member identity';
+-- account_id is unique per tenant (account_tenant_access), not globally — see UserServiceImpl.createUser
 
 -- =============================================================================
 -- Admin / staff role dictionary
@@ -635,7 +636,7 @@ CREATE TABLE `process_submitted` (
 -- Reuses: process(+category), process_day, process_description(+link), process_submitted
 -- Games option: category=GAME + process_day + NOT IN process_submitted
 -- Bank option: category=BANK fixed codes; draft always TEXT only (data_capture_draft*)
--- Summary populate + Formula Maintenance: datacapture_formula (hard DELETE; not bound to one capture)
+-- Summary populate + Formula Maintenance: data_capture_formula (hard DELETE; not bound to one capture)
 -- Final submit line snapshot (data_capture_line), summary state, submit queue: deferred
 -- =============================================================================
 
@@ -677,7 +678,7 @@ CREATE TABLE `data_capture_description` (
 
 -- Summary 列表 + Edit Formula Save + Formula Maintenance（替代 legacy data_capture_templates）
 -- 配置与单次 capture 分离：不存 last_processed_amount / data_capture_id；Maintenance 为硬 DELETE
-CREATE TABLE `datacapture_formula` (
+CREATE TABLE `data_capture_formula` (
     `id`                    INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `tenant_id`             INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
     `process_id`            INT UNSIGNED NOT NULL COMMENT 'FK process.id',

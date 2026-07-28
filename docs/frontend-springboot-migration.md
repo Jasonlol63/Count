@@ -69,7 +69,7 @@ res.success === true || res.status === "success"
 | **Ownership** | ✅ API 已迁移 + **数据层已对齐 Spring** | `/api/ownership/*` | `apiUrl.js` 重写 + `ownershipRowHelpers` normalize |
 | **Process** | ✅ Games List 已迁移 | `/api/process/*` + `/api/currency/list` | 见 [`process-list-spring-api.md`](./process-list-spring-api.md)；`processListApi.js` 直调 Spring |
 | **Bank Process** | ⚠️ 部分 | `/api/bank-process/*`、`/api/bank-country-option/*`、`/api/account/*` | **列表（含 shares）+ catalog + Add/Update/Status/Delete/Remark + Edit list 回填** 已 Spring；Due 仍 PHP |
-| **Transaction / Report / Data Capture / Member** | ⚠️ 部分 | `/api/transaction/search` + `/history` + `/submit` + Meta；**Data Capture Games form / 币别 / description / tenant picker** 已 Spring | **Submit**：`PAYMENT`/`CLAIM`/… 已 Spring；**Data Capture**：Games 表单 + tenant-accessible + switch-tenant + process description 已 Spring（见 [`datacapture-spring-api.md`](./datacapture-spring-api.md)）；submissions/submit/Summary 仍 PHP |
+| **Transaction / Report / Data Capture / Member** | ⚠️ 部分 | `/api/transaction/search` + `/history` + `/submit` + Meta；**Data Capture Games form / 币别 / description / tenant picker** 已 Spring；**Add/Edit/Source Formula** `.../formula/save|update`；**Delete Formula** `.../formula/delete`；**Account 下拉** `POST /api/account/list`；选中后币别 `POST /api/currency/available` | **Submit**：`PAYMENT`/`CLAIM`/… 已 Spring；**Data Capture**：Games + Formula CRUD（含 Source 行内 / Delete）已 Spring（见 [`datacapture-spring-api.md`](./datacapture-spring-api.md)）；submissions / Summary submit 仍 PHP |
 
 ---
 
@@ -194,7 +194,7 @@ Maintenance 侧边栏与 Bank Process 入口规则：[`maintenance-navigation.md
 | 操作 | API | 说明 |
 |------|-----|------|
 | List | `POST /api/account/list?tenant_id=` | `company.id` = `tenant.id`；无 search query → `filterAccountListRows` |
-| Add | `POST /api/account/add` | body `UserListDTO` camelCase；`currencyIds[]` 一并写入 |
+| Add | `POST /api/account/add` | body `UserListDTO` camelCase；`currencyIds[]` 一并写入；**`account_id` 仅在同一 `scopeTenantId` 内唯一**（不同公司可同名） |
 | Update | `POST /api/account/update` | 含 `currencyIds[]`；**password 省略或留空 → 保留原密码** |
 | Status | `POST /api/account/updateStatus` | `{ id, scopeTenantId }` |
 | Delete | `POST /api/account/delete` | 须 INACTIVE；多选前端循环 |
@@ -413,7 +413,7 @@ Group 候选完全依赖 Spring `GET /api/ownership/available-accounts`。
 - **Process 写操作 / 详情**：部分 form meta 仍 PHP；**列表 + description CRUD + add/update/status/delete + Edit 自 list 回填** 已走 Spring / 前端
 - **Transaction / Payment**：`api/transactions/*`
 - **Report**：`api/reports/*`
-- **Data Capture / Summary**：Games 表单见 [`datacapture-spring-api.md`](./datacapture-spring-api.md)；submit / submissions / Summary 仍 `api/datacapture/*`、`api/summary/*`
+- **Data Capture / Summary**：Games 表单 + Add/Edit Formula（save/update + Account + Currency + Source 行内）见 [`datacapture-spring-api.md`](./datacapture-spring-api.md)；submit / submissions 仍 PHP
 - **Bank Process List**：列表已 Spring；**写操作 / 国家银行选择 / Accounting Due / 账户弹窗**仍混用 `api/bankprocesses/*`、`api/accounts/*` PHP
 - **Member Win/Loss**：`api/member/*`（账户 meta 可复用 `/api/account/list`）
 - **Maintenance 业务页**（formula/transaction/payment 等）：仍 PHP
