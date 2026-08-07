@@ -2,6 +2,22 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.eazycount.dao.DataCaptureDao">
 
+    <!-- process_submitted — GAME-only "already submitted today" gate -->
+    <select id="existsProcessSubmitted" resultType="boolean">
+        SELECT EXISTS(
+            SELECT 1
+            FROM process_submitted
+            WHERE tenant_id = #{tenantId}
+              AND process_id = #{processId}
+              AND capture_date = #{captureDate}
+        )
+    </select>
+
+    <insert id="insertProcessSubmitted">
+        INSERT INTO process_submitted (tenant_id, process_id, user_id, capture_date, created_at)
+        VALUES (#{tenantId}, #{processId}, #{userId}, #{captureDate}, NOW())
+    </insert>
+
     <resultMap id="GameProcessDetailMap" type="com.eazycount.dto.DataCaptureGameDTO">
         <id property="id" column="id"/>
         <result property="processId" column="processId"/>

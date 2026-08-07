@@ -2,6 +2,84 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.eazycount.dao.DataCaptureSummaryDao">
 
+    <!-- data_captures — Summary Submit header (written only at final Summary Submit, not the /datacapture page) -->
+    <insert id="insertCapture" parameterType="com.eazycount.entity.DataCapture" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO data_captures (
+            tenant_id, category, capture_date, process_id, currency_id, remark,
+            remove_word, replace_word_from, replace_word_to, created_by, created_at
+        ) VALUES (
+            #{tenantId}, #{category}, #{captureDate}, #{processId}, #{currencyId}, #{remark},
+            #{removeWord}, #{replaceWordFrom}, #{replaceWordTo}, #{createdBy}, NOW()
+        )
+    </insert>
+
+    <select id="findCaptureByIdAndTenantId" resultType="com.eazycount.entity.DataCapture">
+        SELECT
+            id,
+            tenant_id          AS tenantId,
+            category,
+            capture_date       AS captureDate,
+            process_id         AS processId,
+            currency_id        AS currencyId,
+            remark,
+            remove_word        AS removeWord,
+            replace_word_from  AS replaceWordFrom,
+            replace_word_to    AS replaceWordTo,
+            created_by         AS createdBy,
+            created_at         AS createdAt
+        FROM data_captures
+        WHERE id = #{id}
+          AND tenant_id = #{tenantId}
+        LIMIT 1
+    </select>
+
+    <!-- data_capture_line — Summary final Submit row snapshots (distinct from data_capture_formula config) -->
+    <insert id="insertLines">
+        INSERT INTO data_capture_line (
+            tenant_id, capture_id, product_type, id_product, id_product_main, id_product_sub,
+            description_main, description_sub, formula_variant, display_order,
+            account_id, currency_id, source_columns, source_value, source_percent, enable_source_percent,
+            formula, processed_amount, rate, rate_expression, created_at
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+            (
+                #{item.tenantId}, #{item.captureId}, #{item.productType}, #{item.idProduct}, #{item.idProductMain}, #{item.idProductSub},
+                #{item.descriptionMain}, #{item.descriptionSub}, #{item.formulaVariant}, #{item.displayOrder},
+                #{item.accountId}, #{item.currencyId}, #{item.sourceColumns}, #{item.sourceValue}, #{item.sourcePercent}, #{item.enableSourcePercent},
+                #{item.formula}, #{item.processedAmount}, #{item.rate}, #{item.rateExpression}, NOW()
+            )
+        </foreach>
+    </insert>
+
+    <select id="findLinesByCaptureId" resultType="com.eazycount.entity.DataCaptureLine">
+        SELECT
+            id,
+            tenant_id             AS tenantId,
+            capture_id            AS captureId,
+            product_type          AS productType,
+            id_product            AS idProduct,
+            id_product_main       AS idProductMain,
+            id_product_sub        AS idProductSub,
+            description_main      AS descriptionMain,
+            description_sub       AS descriptionSub,
+            formula_variant       AS formulaVariant,
+            display_order         AS displayOrder,
+            account_id            AS accountId,
+            currency_id           AS currencyId,
+            source_columns        AS sourceColumns,
+            source_value          AS sourceValue,
+            source_percent        AS sourcePercent,
+            enable_source_percent AS enableSourcePercent,
+            formula                AS formula,
+            processed_amount      AS processedAmount,
+            rate                  AS rate,
+            rate_expression       AS rateExpression,
+            created_at            AS createdAt
+        FROM data_capture_line
+        WHERE capture_id = #{captureId}
+        ORDER BY display_order ASC, id ASC
+    </select>
+
     <resultMap id="FormulaMap" type="com.eazycount.entity.DataCaptureFormula">
         <id property="id" column="id"/>
         <result property="tenantId" column="tenantId"/>

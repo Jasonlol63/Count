@@ -53,6 +53,18 @@ MARKUP {middlemanRate} {ccy1} {amount} > {ccy2} | FROM {leg1ToAccountName}  # ra
 ADJUSTMENT - WIN/LOSS
 ```
 
+### WIN / LOSE（Data Capture Summary Submit）
+
+```text
+{ProcessName}: {formula}
+```
+
+例：`SALARY: 1111 * 2222`
+
+- `{ProcessName}`：`process.code`（Bank 固定码如 `SALARY`；Games 为 process 业务码）
+- `{formula}`：该行 `data_capture_line.formula` 原文，**原样保留**（括号、运算符等不做任何改写/裁剪）；行未配置公式时回退为该行最终金额（`TransactionMoneyFormat.formatMoney`）
+- 不区分 WIN/LOSE 用不同文案——方向已由 `transaction_type` 本身表达
+
 ## History 展示（不改业务观感）
 
 读 History 时：
@@ -68,6 +80,7 @@ ADJUSTMENT - WIN/LOSS
 | 层 | 文件 |
 |----|------|
 | 提交写入 | `TransactionSubmitServiceImpl`（`formatTransferDescription` / EXCH / MARKUP helpers） |
+| Data Capture Summary Submit 写入 | `DataCaptureSummaryServiceImpl`（`toTransaction`） |
 | History 重写 | `TransactionHistoryServiceImpl`（`applyRateHistoryPresentation` / `applyManualTransferHistoryPresentation`） |
 | Middle-Man 识别 | `TransactionMapper.xml`（`rateMiddlemanFeeDescription` 兼容 `MARKUP X %`） |
 

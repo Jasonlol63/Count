@@ -13,6 +13,11 @@ import java.util.List;
 @Mapper
 public interface DataCaptureDao {
 
+    /* GAME-only "already submitted today" gate — BANK never reads/writes process_submitted. */
+    boolean existsProcessSubmitted(@Param("tenantId") Integer tenantId, @Param("processId") Integer processId, @Param("captureDate") LocalDate captureDate);
+
+    void insertProcessSubmitted(@Param("tenantId") Integer tenantId, @Param("processId") Integer processId, @Param("userId") Integer userId, @Param("captureDate") LocalDate captureDate);
+
     //Find Process By Day
     List<DataCaptureGameDTO> findGameProcessesByDay(@Param("tenantId") Integer tenantId, @Param("captureDate") LocalDate captureDate, @Param("dayOfWeek") Integer dayOfWeek);
 

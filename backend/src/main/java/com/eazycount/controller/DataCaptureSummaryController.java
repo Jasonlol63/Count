@@ -2,6 +2,7 @@ package com.eazycount.controller;
 
 import com.eazycount.common.BusinessException;
 import com.eazycount.dto.DataCaptureSummaryDTO;
+import com.eazycount.dto.DataCaptureSummarySubmitDTO;
 import com.eazycount.service.DataCaptureSummaryService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -53,6 +54,19 @@ public class DataCaptureSummaryController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Formula Deleted Successfully",
+                    "data", data));
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
+    @PostMapping("/submit")
+    public ResponseEntity<Map<String, Object>> submit(@RequestBody DataCaptureSummarySubmitDTO request) {
+        try {
+            DataCaptureSummarySubmitDTO data = dataCaptureSummaryService.submit(request);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Data Capture Submitted Successfully",
                     "data", data));
         } catch (BusinessException e) {
             return error(e);

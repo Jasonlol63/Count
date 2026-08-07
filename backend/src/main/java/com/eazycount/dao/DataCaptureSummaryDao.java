@@ -1,13 +1,26 @@
 package com.eazycount.dao;
 
+import com.eazycount.entity.DataCapture;
 import com.eazycount.entity.DataCaptureFormula;
+import com.eazycount.entity.DataCaptureLine;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Mapper
 public interface DataCaptureSummaryDao {
+
+    /* Summary Submit header — one row per submit; {@code id} is generated back onto {@code dataCapture}. */
+    void insertCapture(DataCapture dataCapture);
+
+    DataCapture findCaptureByIdAndTenantId(@Param("id") Integer id, @Param("tenantId") Integer tenantId);
+
+    /* Summary Submit row snapshots — batch insert, one capture may have many product/account lines. */
+    void insertLines(@Param("list") List<DataCaptureLine> list);
+
+    List<DataCaptureLine> findLinesByCaptureId(@Param("captureId") Integer captureId);
 
     //Used to decide Add Formula → MAIN vs SUB.
     DataCaptureFormula findMainWithAccount(@Param("tenantId") Integer tenantId, @Param("processId") Integer processId, @Param("idProduct") String idProduct);

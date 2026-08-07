@@ -2,7 +2,7 @@
 
 > **前端仓库**：`../Count-frontend/`  
 > **后端契约**：`DataCaptureGameDTO` + tenant 模型（无 JSON / 无 `scope_*`）  
-> **最后更新**：2026-07-29  
+> **最后更新**：2026-08-07（Summary 最终 Submit 切 Spring，见 §2.7 / §3 / §4）  
 > **金额精度**：Summary processed amount 见 [transaction-amount-precision.md](./transaction-amount-precision.md)「Data Capture Summary」节（后端 `SummaryAmountFormat` + 前端 `summaryRowAmount.js`，ROUND_DOWN 6/8）
 
 ---
@@ -317,9 +317,72 @@ Bank 形态（C168 / bank-only company / group payroll UI，或 `selectedPermiss
 - `captureDate is required`
 - `Process not found`
 
+### 2.8 Summary 最终 Submit（`data_captures` + `data_capture_line` + `transactions`）
+
+**`POST /api/datacapture-summary/submit`**
+
+一次请求 = 一个事务：写 `data_captures`（头）+ `data_capture_line`（逐行）+ `transactions`（非零行 WIN/LOSE）+ GAME 才写 `process_submitted`。**不分批**（Spring 无 PHP `post_max_size` 限制，见 `docs/TABLE_MIGRATION.md` §4）。
+
+请求（`DataCaptureSummarySubmitDTO`）：
+
+```json
+{
+  "tenantId": 52,
+  "category": "BANK",
+  "processId": null,
+  "processCode": "SALARY",
+  "captureDate": "2026-08-07",
+  "currencyId": 13,
+  "remark": "",
+  "removeWord": "",
+  "replaceWordFrom": "",
+  "replaceWordTo": "",
+  "lines": [
+    {
+      "productType": "MAIN",
+      "idProduct": "AAA",
+      "accountId": 8,
+      "currencyId": 13,
+      "sourcePercent": "1",
+      "enableSourcePercent": true,
+      "formula": "1111 * 2222",
+      "processedAmount": "2469531.000000",
+      "rateValue": null
+    }
+  ]
+}
+```
+
+响应：`{ "success": true, "message": "...", "data": { "captureId": 901 } }`
+
+| 规则 | 说明 |
+|------|------|
+| 金额重算 | 后端**不信**客户端 `processedAmount` 原值——用 `SummaryAmountFormat.finalizeProcessedAmount` 强制截断（ROUND_DOWN 6 位）后才落库；见 §3.1 |
+| Submit 门槛 | 所有行重算后金额高精度求和，`SummaryAmountFormat.isTotalWithinSubmitTolerance`（±0.05）不过则整单拒绝，不写任何表 |
+| GAME 拦截 | `category` 解析为 GAME 时，若当日该 process 已提交（`process_submitted`）直接拒绝；**BANK 不受此限**，可重复提交 |
+| Process 解析 | 有 `processId` 优先；否则按 `processCode` 解析（Bank 缺省自动建，同 §2.4） |
+| `transactions` 记录 | 每个非零行一笔：`amount` 存绝对值，`transactionType` 由正负号定 `WIN`/`LOSE`；`description` 格式 `"{processCode}: {formula}"`（见 `docs/transaction-description-rules.md`「WIN / LOSE」节） |
+| Customer/Domain Report | 这次只保证落库；报表页面本身未实现。**Bank 提交不产出 report 数据**——报表查询将来加 `data_captures.category = 'GAME'` 过滤，不需要额外字段 |
+
+**前端调用（Count-frontend）：**
+
+| 文件 | 职责 |
+|------|------|
+| `datacapturesummary/lib/summaryApi.js` | `submitSummaryToSpring(payload)` — 单次 POST，不分批 |
+| `datacapturesummary/submit/summarySubmitExecution.js` | `executeSummarySubmit(...)`：**Games/Bank 公司范围**（含 C168/bank-only 的 group payroll UI）→ 新 Spring 一次性提交；**真正的 AP/IG group ledger**（`isGroupLedgerCapture` 为 true）→ 仍走旧 PHP `submitSummaryPayload` + 分批（因为该场景的 tenant/process 解析仍依赖 PHP-only 的 `get_group_process_id`，见 §4） |
+| `datacapturesummary/submit/buildSubmitRowsFromModel.js` | **未改**——仍产出旧字段命名的行对象；`summarySubmitExecution.js` 内的 `toSpringLine()` 负责改名/裁剪成 `DataCaptureLineDTO` 形状，不再往下游传 `account`/`currency`（展示用字符串）、`templateId`/`templateKey`/`subOrder`/`rateChecked`/`batchSelection`/`inputMethod` 等 Spring 不需要的字段 |
+
+**已知限制（有意保留，非本次范围）：** 真 AP/IG group ledger 提交仍是 PHP 路径（`get_group_process_id` 未迁移）；该分支的批次二分重试（size-error split）也一并简化掉了，只保留固定大小分批——量级极少触发，之后要迁移就直接连 Spring 一起换掉。
+
+自测：
+1. BK company（如 C168）→ Bank SALARY + MYR + 表格 → Submit → Network 只有一次 `POST /api/datacapture-summary/submit`（无分批）；响应带 `captureId`。
+2. 同一 BK SALARY 当天再次 Submit → 正常成功（不拦截）。
+3. Games process 当天 Submit 一次后，再选同一 process → Data Capture 页 process 下拉不再出现它（`process_submitted` 生效）；若绕过 UI 直接再 Submit → 后端拒绝 `This process has already been submitted today`。
+4. 合计故意超 ±0.05 → Submit 被拒绝，`transactions`/`data_capture_line`/`data_captures` 均无新增行。
+
 ---
 
-## 3. 前端改动文件（2026-07-27；金额算法 2026-07-29）
+## 3. 前端改动文件（2026-07-27；金额算法 2026-07-29；Summary Submit 切 Spring 2026-08-07）
 
 | 文件 | 说明 |
 |------|------|
@@ -336,6 +399,8 @@ Bank 形态（C168 / bank-only company / group payroll UI，或 `selectedPermiss
 | `pages/datacapturesummary/submit/summarySubmitRowGuard.js` | 行守卫用 6 位 amount |
 | `pages/datacapturesummary/formula/summarySaveTemplatePure.js` | `last_processed_amount` 6 位截断 |
 | `pages/datacapturesummary/formula/editFormulaFormState.js` | 状态存真值/6 位；display 才 round 2 |
+| `pages/datacapturesummary/lib/summaryApi.js` | 新增 `submitSummaryToSpring()`（`POST /api/datacapture-summary/submit`，单次不分批）；原 `submitSummaryPayload()` 保留给 group-ledger 分支用 |
+| `pages/datacapturesummary/submit/summarySubmitExecution.js` | 重写：按 `isGroupLedgerCapture` 分流——Games/Bank 公司范围走新 Spring 一次性提交（`executeSpringSubmit`）；真 AP/IG group ledger 走保留下来的旧 PHP 分批逻辑（`executeLegacyGroupLedgerSubmit`）；新增 `toSpringLine()` 做行字段改名/裁剪 |
 
 Group/Company picker **未改 UI 行为**：仍用 `fetchOwnerCompaniesAll()`（底层已是 `tenant-accessible`）。
 
@@ -358,9 +423,9 @@ Group/Company picker **未改 UI 行为**：仍用 `fetchOwnerCompaniesAll()`（
 | 能力 | 旧 PHP | 说明 |
 |------|--------|------|
 | 当日已提交列表 | `api/datacapture/submissions_api.php` | 右侧 submitted 面板 |
-| Group payroll process id 解析 | `get_group_process_id` | C168 / bank payroll |
+| Group payroll process id 解析 | `get_group_process_id` | **仅真 AP/IG group ledger**（`isGroupLedgerCapture` 为 true）；C168 / bank-only company payroll 已随 Submit 一起切 Spring（见 §2.8），不再依赖此接口 |
 | Group 币别聚合 | `get_scope_account_currencies_api.php` | group ledger scope |
-| Submit / Summary | `api/datacapture/*`、`api/summary/*` | 提交与汇总页；行快照目标表 **`data_capture_line`**（DDL 已就绪，见 `migrate_datacapture_line.sql`）；仍写 PHP `data_capture_details` 直至 Spring Submit。**金额算法前后端已对齐**：后端 `SummaryAmountFormat`、前端 `summaryRowAmount.js`（rate 8 位截断 → 最终 6 位截断；±0.05）；见 [transaction-amount-precision.md](./transaction-amount-precision.md) |
+| Submit / Summary | ~~`api/datacapture_summary/summary_submit_api.php`~~（Games/Bank 公司范围） | **Spring** `POST /api/datacapture-summary/submit`（见 §2.8）：一次事务写 `data_captures`+`data_capture_line`+`transactions`（+GAME 写 `process_submitted`）。**仅真 AP/IG group ledger 仍走 PHP**（因 tenant/process 解析依赖上一行未迁移的 `get_group_process_id`），沿用旧分批提交 |
 | Bank draft 表格 | ~~`group_capture_draft_api.php`~~ | **Spring** `POST /api/datacapture/bank/draft/save|get`（`data_capture_draft*`）；PROFIT 排除 |
 | Add Formula 保存 | ~~`summary_templates_api.php?action=save_template`~~（Add 路径） | **Spring** `POST /api/datacapture-summary/formula/save`（`data_capture_formula`）；MAIN 无数据→写 MAIN，已有→插 SUB |
 | Edit Formula / Source 更新 | ~~`summary_templates_api.php?action=save_template`~~（Edit / Source） | **Spring** `POST /api/datacapture-summary/formula/update`（按 `id`；SUB 只改自己；Source 为 Enter/blur） |
@@ -385,6 +450,7 @@ Group/Company picker **未改 UI 行为**：仍用 `fetchOwnerCompaniesAll()`（
 11. **Edit Formula：** 铅笔打开 → 改字段 Save → `POST .../formula/update`；SUB 只更新自己；成功关弹窗。
 12. **Source 行内：** 双击 Source → 改值 → Enter 或 blur → `POST .../formula/update` 写 `source_percent`。
 13. **Formula 删除：** 勾选 → Delete → `POST .../formula/delete`；MAIN 清 UI 骨架 + DB 硬删；SUB 整行移除；无 subOrder 重排。
+14. **Summary 最终 Submit：** Games/Bank 公司范围 → Summary 点 Submit → Network 仅一次 `POST /api/datacapture-summary/submit`（不再分批）；成功后 `transactions`/`data_captures`/`data_capture_line` 三张表都能查到新行；详细自测见 §2.8。
 
 ---
 

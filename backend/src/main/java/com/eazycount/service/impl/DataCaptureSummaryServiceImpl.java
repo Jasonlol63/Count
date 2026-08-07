@@ -5,18 +5,28 @@ import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.DataCaptureDao;
 import com.eazycount.dao.DataCaptureSummaryDao;
 import com.eazycount.dao.ProcessDao;
+import com.eazycount.dao.TransactionDao;
+import com.eazycount.dto.DataCaptureLineDTO;
 import com.eazycount.dto.DataCaptureSummaryDTO;
+import com.eazycount.dto.DataCaptureSummarySubmitDTO;
 import com.eazycount.entity.Currency;
+import com.eazycount.entity.DataCapture;
 import com.eazycount.entity.DataCaptureFormula;
+import com.eazycount.entity.DataCaptureLine;
 import com.eazycount.entity.Process;
+import com.eazycount.entity.Transaction;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.DataCaptureSummaryService;
+import com.eazycount.util.SummaryAmountFormat;
+import com.eazycount.util.TransactionMoneyFormat;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -39,6 +49,9 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
 
     @Autowired
     private CurrencyDao currencyDao;
+
+    @Autowired
+    private TransactionDao transactionDao;
 
     @Override
     @Transactional
@@ -381,6 +394,189 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         result.setDeletedIds(new ArrayList<>(deletedIds));
         result.setDeletedCount(deletedIds.size());
         return result;
+    }
+
+    @Override
+    @Transactional
+    public DataCaptureSummarySubmitDTO submit(DataCaptureSummarySubmitDTO request) {
+        SessionUser session = requireLogin();
+        if (request == null) {
+            throw new BusinessException("Request body is required");
+        }
+
+        Integer tenantId = request.getTenantId();
+        requireTenantId(tenantId);
+
+        LocalDate captureDate = request.getCaptureDate();
+        if (captureDate == null) {
+            throw new BusinessException("Capture Date is required");
+        }
+
+        Integer headerCurrencyId = request.getCurrencyId();
+        if (headerCurrencyId == null || headerCurrencyId <= 0) {
+            throw new BusinessException("Currency Id is required");
+        }
+
+        List<DataCaptureLineDTO> lines = request.getLines();
+        if (lines == null || lines.isEmpty()) {
+            throw new BusinessException("lines are required");
+        }
+
+        Process process = resolveProcess(tenantId, request.getProcessId(), request.getProcessCode(), headerCurrencyId, session);
+        Integer processId = process.getId();
+        boolean isGame = process.getCategory() != Process.Category.BANK;
+
+        // GAME-only "already submitted today" gate — BANK may resubmit freely.
+        if (isGame && dataCaptureDao.existsProcessSubmitted(tenantId, processId, captureDate)) {
+            throw new BusinessException("This process has already been submitted today");
+        }
+
+        // Recompute every line's final amount server-side; never trust the client value as-is.
+        List<ComputedLine> computedLines = new ArrayList<>();
+        BigDecimal total = BigDecimal.ZERO;
+        for (DataCaptureLineDTO line : lines) {
+            ComputedLine computed = computeLine(line);
+            computedLines.add(computed);
+            total = total.add(computed.finalAmount);
+        }
+
+        if (!SummaryAmountFormat.isTotalWithinSubmitTolerance(total)) {
+            throw new BusinessException("Total is out of tolerance (±0.05); please adjust before submitting");
+        }
+
+        // 1) data_captures header
+        DataCapture header = new DataCapture();
+        header.setTenantId(tenantId);
+        header.setCategory(isGame ? DataCapture.Category.GAME : DataCapture.Category.BANK);
+        header.setCaptureDate(captureDate);
+        header.setProcessId(processId);
+        header.setCurrencyId(headerCurrencyId);
+        header.setRemark(trimToNull(request.getRemark()));
+        header.setRemoveWord(trimToNull(request.getRemoveWord()));
+        header.setReplaceWordFrom(trimToNull(request.getReplaceWordFrom()));
+        header.setReplaceWordTo(trimToNull(request.getReplaceWordTo()));
+        header.setCreatedBy(session.login_id);
+        dataCaptureSummaryDao.insertCapture(header);
+        Integer captureId = header.getId();
+
+        // 2) data_capture_line rows + transactions (WIN/LOSE, one per non-zero line)
+        List<DataCaptureLine> lineEntities = new ArrayList<>();
+        int order = 0;
+        for (ComputedLine computed : computedLines) {
+            lineEntities.add(toLineEntity(computed, tenantId, captureId, headerCurrencyId, order));
+            if (computed.finalAmount.signum() != 0) {
+                transactionDao.insert(toTransaction(computed, tenantId, headerCurrencyId, captureDate, process.getCode(), session));
+            }
+            order++;
+        }
+        dataCaptureSummaryDao.insertLines(lineEntities);
+
+        // 3) GAME-only submitted record
+        if (isGame) {
+            dataCaptureDao.insertProcessSubmitted(tenantId, processId, session.user_id, captureDate);
+        }
+
+        DataCaptureSummarySubmitDTO response = new DataCaptureSummarySubmitDTO();
+        response.setCaptureId(captureId);
+        return response;
+    }
+
+    /* Product/account line after defensive amount re-truncation and rate parsing. */
+    private static final class ComputedLine {
+        DataCaptureLineDTO dto;
+        BigDecimal finalAmount;
+        BigDecimal rate;
+    }
+
+    private ComputedLine computeLine(DataCaptureLineDTO line) {
+        if (line == null) {
+            throw new BusinessException("line is required");
+        }
+        if (trimToNull(line.getIdProduct()) == null) {
+            throw new BusinessException("Product Id is required for every line");
+        }
+        Integer accountId = line.getAccountId();
+        if (accountId == null || accountId <= 0) {
+            throw new BusinessException("Account Id is required for every line");
+        }
+
+        // Client sends the already rate-applied, 6dp-truncated amount (no separate base amount is
+        // transmitted, so the rate step itself can't be redone here) — re-truncate defensively so a
+        // malformed/imprecise client value can never bypass the 6dp ROUND_DOWN storage rule.
+        BigDecimal clientAmount = parseAmount(line.getProcessedAmount());
+        ComputedLine computed = new ComputedLine();
+        computed.dto = line;
+        computed.finalAmount = SummaryAmountFormat.finalizeProcessedAmount(clientAmount);
+        computed.rate = SummaryAmountFormat.parseRateOperand(line.getRateValue());
+        return computed;
+    }
+
+    private static DataCaptureLine toLineEntity(ComputedLine computed, Integer tenantId, Integer captureId,
+                                                 Integer headerCurrencyId, int order) {
+        DataCaptureLineDTO dto = computed.dto;
+
+        DataCaptureLine entity = new DataCaptureLine();
+        entity.setTenantId(tenantId);
+        entity.setCaptureId(captureId);
+        entity.setProductType(parseProductType(dto.getProductType()));
+        entity.setIdProduct(trimToNull(dto.getIdProduct()));
+        entity.setIdProductMain(trimToNull(dto.getIdProductMain()));
+        entity.setIdProductSub(trimToNull(dto.getIdProductSub()));
+        entity.setDescriptionMain(trimToNull(dto.getDescriptionMain()));
+        entity.setDescriptionSub(trimToNull(dto.getDescriptionSub()));
+        entity.setFormulaVariant(dto.getFormulaVariant() != null ? dto.getFormulaVariant() : 1);
+        entity.setDisplayOrder(dto.getDisplayOrder() != null ? dto.getDisplayOrder() : order);
+        entity.setAccountId(dto.getAccountId());
+        entity.setCurrencyId(dto.getCurrencyId() != null ? dto.getCurrencyId() : headerCurrencyId);
+        entity.setSourceColumns(trimToNull(dto.getSourceColumns()));
+        entity.setSourceValue(trimToNull(dto.getSourceValue()));
+        entity.setSourcePercent(dto.getSourcePercent() != null ? dto.getSourcePercent() : "0");
+        entity.setEnableSourcePercent(dto.getEnableSourcePercent() == null || dto.getEnableSourcePercent());
+        entity.setFormula(trimToNull(dto.getFormula()));
+        entity.setProcessedAmount(computed.finalAmount);
+        entity.setRate(computed.rate);
+        entity.setRateExpression(trimToNull(dto.getRateValue()));
+        return entity;
+    }
+
+    private static Transaction toTransaction(ComputedLine computed, Integer tenantId, Integer headerCurrencyId,
+                                              LocalDate captureDate, String processCode, SessionUser session) {
+        DataCaptureLineDTO dto = computed.dto;
+        LocalDateTime now = LocalDateTime.now();
+
+        Transaction txn = new Transaction();
+        txn.setTenantId(tenantId);
+        txn.setTransactionType(computed.finalAmount.signum() > 0 ? Transaction.TransactionType.WIN : Transaction.TransactionType.LOSE);
+        txn.setAccountId(dto.getAccountId());
+        txn.setCurrencyId(dto.getCurrencyId() != null ? dto.getCurrencyId() : headerCurrencyId);
+        txn.setAmount(computed.finalAmount.abs());
+        txn.setTransactionDate(captureDate);
+        String formulaText = trimToNull(dto.getFormula());
+        if (formulaText == null) {
+            formulaText = TransactionMoneyFormat.formatMoney(computed.finalAmount);
+        }
+        txn.setDescription(processCode + ": " + formulaText);
+        txn.setCreatedBy(session.login_id);
+        txn.setApprovalStatus(Transaction.ApprovalStatus.APPROVED);
+        txn.setApprovedBy(session.login_id);
+        txn.setApprovedAt(now);
+        return txn;
+    }
+
+    private static DataCaptureLine.ProductType parseProductType(String value) {
+        return "SUB".equalsIgnoreCase(trimToNull(value)) ? DataCaptureLine.ProductType.SUB : DataCaptureLine.ProductType.MAIN;
+    }
+
+    private static BigDecimal parseAmount(String value) {
+        String trimmed = trimToNull(value);
+        if (trimmed == null) {
+            throw new BusinessException("processedAmount is required for every line");
+        }
+        try {
+            return new BigDecimal(trimmed);
+        } catch (NumberFormatException ex) {
+            throw new BusinessException("processedAmount is not a valid number: " + value);
+        }
     }
 
     /* Prefer formula id; else business key. Missing rows skipped (idempotent). */

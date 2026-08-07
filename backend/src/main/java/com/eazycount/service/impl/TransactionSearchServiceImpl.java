@@ -332,7 +332,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         return value != null ? value.trim() : "";
     }
 
-    /** One source's aggregates before merge ({@code bankProcess=true} → Win/Loss path). */
+    /* One source's aggregates before merge ({@code bankProcess=true} → Win/Loss path). */
     private record SearchSlice(List<TransactionDTO.SearchAggregateRow> aggregates, boolean bankProcess) {
     }
 
