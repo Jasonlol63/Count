@@ -9,10 +9,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Data Capture Summary formula API body — save / update / delete.
- * {@code POST /api/datacapture-summary/formula/*}
- */
+/* Data Capture Summary formula API body — save / update / delete. */
 @Getter
 @Setter
 @NoArgsConstructor

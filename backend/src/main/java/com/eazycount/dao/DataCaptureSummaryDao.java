@@ -25,8 +25,7 @@ public interface DataCaptureSummaryDao {
 
     /*
      * Resolve MAIN/SUB for Bank Edit when UI has no templateId.
-     * SUB matches parent + account + sub_order; MAIN matches id_product + account.
-     */
+     * SUB matches parent + account + sub_order; MAIN matches id_product + account. */
     DataCaptureFormula findByBusinessKey(@Param("tenantId") Integer tenantId, @Param("processId") Integer processId, @Param("productType") String productType, @Param("idProduct") String idProduct, @Param("parentIdProduct") String parentIdProduct, @Param("accountId") Integer accountId, @Param("subOrder") BigDecimal subOrder);
 
     /* Update mutable fields for MAIN or SUB by id (identity / type / parent / sub_order unchanged). */

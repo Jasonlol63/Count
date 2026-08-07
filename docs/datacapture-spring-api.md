@@ -2,7 +2,8 @@
 
 > **前端仓库**：`../Count-frontend/`  
 > **后端契约**：`DataCaptureGameDTO` + tenant 模型（无 JSON / 无 `scope_*`）  
-> **最后更新**：2026-07-28
+> **最后更新**：2026-07-29  
+> **金额精度**：Summary processed amount 见 [transaction-amount-precision.md](./transaction-amount-precision.md)「Data Capture Summary」节（后端 `SummaryAmountFormat` + 前端 `summaryRowAmount.js`，ROUND_DOWN 6/8）
 
 ---
 
@@ -11,6 +12,23 @@
 - **前端对齐 Spring**，不要求后端迁就 PHP 字段（camelCase、`tenantId`、JSON body）。
 - **Group / Company pill 的 `id` = `tenant.id`（数字）**；code 仅用于展示与 parent group 筛选。
 - 公司列表与切换统一走 **`GET /auth/tenant-accessible`** 与 **`POST /auth/switch-tenant`**。
+
+### 1.1 表分工（tenant 模型）
+
+| 表 | 作用 | 状态 |
+|----|------|------|
+| `data_captures` | Submit 头（GAME/BANK） | 已有 |
+| `data_capture_description` | GAME 选中 description 多选桥 | 已有 |
+| `data_capture_formula` | Summary / Maintenance **持久公式配置**（不绑 capture） | 已有 + Formula CRUD Spring |
+| `data_capture_line` | Summary **最终 Submit 行快照**（绑 `capture_id`；替代 legacy `data_capture_details`） | **DDL 已写入**；Submit API 仍 PHP / 待 Spring |
+| `data_capture_draft*` | BANK 表格草稿 | 已有 |
+
+**明确不建（旧 PHP workaround，Spring 不需要）：**
+
+| 旧表 | 原因 |
+|------|------|
+| `data_capture_submit_queue` | PHP `post_max_size` / 分批 Submit 用；Spring 可一次事务提交 `data_captures` + `data_capture_line` |
+| `data_capture_summary_state` | 存 Summary UI `state_json`；公式已有 `data_capture_formula`，未提交草稿用前端 session/localStorage（BANK 表格另有 `data_capture_draft*`） |
 
 ---
 
@@ -301,7 +319,7 @@ Bank 形态（C168 / bank-only company / group payroll UI，或 `selectedPermiss
 
 ---
 
-## 3. 前端改动文件（2026-07-27）
+## 3. 前端改动文件（2026-07-27；金额算法 2026-07-29）
 
 | 文件 | 说明 |
 |------|------|
@@ -312,8 +330,26 @@ Bank 形态（C168 / bank-only company / group payroll UI，或 `selectedPermiss
 | `pages/datacapture/hooks/useDataCaptureFormEngine.js` | camelCase 字段 + scope 传参 |
 | `pages/datacapture/hooks/useDataCaptureCategoryPermissions.js` | key 改为 `tenantId` |
 | `pages/datacapture/DataCapturePage.jsx` | category permissions 用 `categoryTenantId` |
+| `pages/datacapturesummary/table/summaryRowAmount.js` | Summary 金额算法（与后端 `SummaryAmountFormat` 对齐：rate 8 位截断 → 最终 6 位截断；展示 HALF_UP 2） |
+| `pages/datacapturesummary/submit/buildSubmitRowsFromModel.js` | Submit `processedAmount` 为 6 位 plain 字符串 |
+| `pages/datacapturesummary/submit/summarySubmitTotalPure.js` | 合计 ±0.05 门槛 |
+| `pages/datacapturesummary/submit/summarySubmitRowGuard.js` | 行守卫用 6 位 amount |
+| `pages/datacapturesummary/formula/summarySaveTemplatePure.js` | `last_processed_amount` 6 位截断 |
+| `pages/datacapturesummary/formula/editFormulaFormState.js` | 状态存真值/6 位；display 才 round 2 |
 
 Group/Company picker **未改 UI 行为**：仍用 `fetchOwnerCompaniesAll()`（底层已是 `tenant-accessible`）。
+
+### 3.1 Summary processed amount（前后端同管线）
+
+完整规则与示例见 [transaction-amount-precision.md](./transaction-amount-precision.md)「Data Capture Summary」。
+
+要点：
+
+1. **截断 ROUND_DOWN（向零）**，不是 Transaction 那套 HALF_UP-到上限。
+2. 走 rate → 中间 **8** 位；最终入库 / Submit payload → **6** 位（8→6 先截断再算最终值）。
+3. 前端格子 HALF_UP **2** 仅展示；**禁止**用 display 值作 payload / 合计 / 模板 fallback。
+4. 合计 HALF_UP 2 后须在 **±0.05** 才可 Submit。
+5. 后端：`SummaryAmountFormat` + `TransactionMoneyFormat.truncate*`；前端：`summaryRowAmount.js` 的 `resolveSubmitProcessedAmount`。
 
 ---
 
@@ -324,7 +360,7 @@ Group/Company picker **未改 UI 行为**：仍用 `fetchOwnerCompaniesAll()`（
 | 当日已提交列表 | `api/datacapture/submissions_api.php` | 右侧 submitted 面板 |
 | Group payroll process id 解析 | `get_group_process_id` | C168 / bank payroll |
 | Group 币别聚合 | `get_scope_account_currencies_api.php` | group ledger scope |
-| Submit / Summary | `api/datacapture/*`、`api/summary/*` | 提交与汇总页 |
+| Submit / Summary | `api/datacapture/*`、`api/summary/*` | 提交与汇总页；行快照目标表 **`data_capture_line`**（DDL 已就绪，见 `migrate_datacapture_line.sql`）；仍写 PHP `data_capture_details` 直至 Spring Submit。**金额算法前后端已对齐**：后端 `SummaryAmountFormat`、前端 `summaryRowAmount.js`（rate 8 位截断 → 最终 6 位截断；±0.05）；见 [transaction-amount-precision.md](./transaction-amount-precision.md) |
 | Bank draft 表格 | ~~`group_capture_draft_api.php`~~ | **Spring** `POST /api/datacapture/bank/draft/save|get`（`data_capture_draft*`）；PROFIT 排除 |
 | Add Formula 保存 | ~~`summary_templates_api.php?action=save_template`~~（Add 路径） | **Spring** `POST /api/datacapture-summary/formula/save`（`data_capture_formula`）；MAIN 无数据→写 MAIN，已有→插 SUB |
 | Edit Formula / Source 更新 | ~~`summary_templates_api.php?action=save_template`~~（Edit / Source） | **Spring** `POST /api/datacapture-summary/formula/update`（按 `id`；SUB 只改自己；Source 为 Enter/blur） |
@@ -357,3 +393,4 @@ Group/Company picker **未改 UI 行为**：仍用 `fetchOwnerCompaniesAll()`（
 - 新增 Data Capture Spring 接口时：**先更新本文 + `DataCaptureGameDTO`**，再改 `dataCaptureSpringApi.js`。
 - 勿在 Spring 层恢复 snake_case 兼容；前端在 API 边界做 normalize（仅读取时兼容旧 session storage 可保留双读）。
 - 与 [`frontend-springboot-migration.md`](./frontend-springboot-migration.md) 第 2 节迁移表同步更新 Data Capture 行状态。
+- 改 Summary **processed amount** 精度 / rate / ±0.05 门槛时：同步更新 [transaction-amount-precision.md](./transaction-amount-precision.md)「Data Capture Summary」、后端 `SummaryAmountFormat`、前端 `summaryRowAmount.js`（及 Submit / 模板写入路径）。

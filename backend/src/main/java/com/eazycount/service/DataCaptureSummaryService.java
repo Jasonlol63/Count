@@ -8,9 +8,5 @@ public interface DataCaptureSummaryService {
 
     DataCaptureSummaryDTO updateFormula(DataCaptureSummaryDTO request);
 
-    /**
-     * Hard-delete formula rows by id or business key ({@code request.items}).
-     * No subOrder resequence. Response uses {@code deletedCount} / {@code deletedIds}.
-     */
     DataCaptureSummaryDTO deleteFormulas(DataCaptureSummaryDTO request);
 }

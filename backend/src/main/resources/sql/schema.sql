@@ -3,6 +3,7 @@
 -- Apply AFTER backend/src/main/resources/schema.sql on dev DB, or standalone
 -- when bootstrapping the login module only.
 DROP TABLE IF EXISTS `submitted_processes`;
+DROP TABLE IF EXISTS `data_capture_line`;
 DROP TABLE IF EXISTS `data_capture_description`;
 DROP TABLE IF EXISTS `data_capture_formula`;
 DROP TABLE IF EXISTS `data_capture_draft_cell`;
@@ -637,7 +638,9 @@ CREATE TABLE `process_submitted` (
 -- Games option: category=GAME + process_day + NOT IN process_submitted
 -- Bank option: category=BANK fixed codes; draft always TEXT only (data_capture_draft*)
 -- Summary populate + Formula Maintenance: data_capture_formula (hard DELETE; not bound to one capture)
--- Final submit line snapshot (data_capture_line), summary state, submit queue: deferred
+-- Final submit line snapshot: data_capture_line (bound to data_captures)
+-- NOT planned: data_capture_submit_queue (PHP batch/post_max workaround; Spring one-shot submit)
+-- NOT planned: data_capture_summary_state (UI draft → frontend session/localStorage; formula → data_capture_formula)
 -- =============================================================================
 
 CREATE TABLE `data_captures` (
@@ -675,6 +678,48 @@ CREATE TABLE `data_capture_description` (
     CONSTRAINT `fk_dcd_description` FOREIGN KEY (`description_id`) REFERENCES `process_description` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='GAME Capture 选中的 description 多选桥表（配置允许列表仍用 process_description_link）';
+
+-- Summary 最终 Submit 行快照（替代 legacy data_capture_details；无 company_id / scope_*）
+-- 绑定单次 data_captures；与 data_capture_formula（持久配置）分离
+CREATE TABLE `data_capture_line` (
+    `id`                    INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `tenant_id`             INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+    `capture_id`            INT UNSIGNED NOT NULL COMMENT 'FK data_captures.id',
+    `product_type`          ENUM('MAIN', 'SUB') NOT NULL DEFAULT 'MAIN' COMMENT 'Summary 主行 / 子行快照',
+    `id_product`            VARCHAR(255) NOT NULL COMMENT '本行 Id Product',
+    `id_product_main`       VARCHAR(255) DEFAULT NULL COMMENT '主 product（SUB 时为其父）',
+    `id_product_sub`        VARCHAR(255) DEFAULT NULL COMMENT '子 product（MAIN 时为 NULL）',
+    `description_main`      VARCHAR(255) DEFAULT NULL COMMENT '主行描述快照',
+    `description_sub`       VARCHAR(255) DEFAULT NULL COMMENT '子行描述快照',
+    `formula_variant`       TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '同 id_product 多套公式快照',
+    `display_order`         INT DEFAULT NULL COMMENT 'Summary 行序（rowIndex）',
+    `account_id`            INT UNSIGNED NOT NULL COMMENT 'FK account.id',
+    `currency_id`           INT UNSIGNED NOT NULL COMMENT 'FK currency.id',
+    `source_columns`        TEXT DEFAULT NULL COMMENT '公式引用列（旧 columns_value）',
+    `source_value`          TEXT DEFAULT NULL COMMENT '提交时 source / formula 展示快照',
+    `source_percent`        VARCHAR(255) NOT NULL DEFAULT '0',
+    `enable_source_percent` TINYINT(1) NOT NULL DEFAULT 1,
+    `formula`               TEXT DEFAULT NULL COMMENT '提交时公式快照',
+    `processed_amount`      DECIMAL(25, 8) NOT NULL DEFAULT 0 COMMENT '最终入账金额（Customer Report / History）',
+    `rate`                  DECIMAL(25, 8) DEFAULT NULL COMMENT '解析后的数值 rate',
+    `rate_expression`       VARCHAR(64) DEFAULT NULL COMMENT '原始 rate 文本 e.g. *3 /3 3',
+    `created_at`            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_dcl_capture` (`capture_id`),
+    KEY `idx_dcl_tenant_capture` (`tenant_id`, `capture_id`),
+    KEY `idx_dcl_tenant_account` (`tenant_id`, `account_id`),
+    KEY `idx_dcl_account` (`account_id`),
+    KEY `idx_dcl_product` (`capture_id`, `id_product`, `account_id`, `formula_variant`),
+    CONSTRAINT `fk_dcl_tenant`
+        FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_dcl_capture`
+        FOREIGN KEY (`capture_id`) REFERENCES `data_captures` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_dcl_account`
+        FOREIGN KEY (`account_id`) REFERENCES `account` (`id`),
+    CONSTRAINT `fk_dcl_currency`
+        FOREIGN KEY (`currency_id`) REFERENCES `currency` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Data Capture Summary 最终 Submit 行快照（替代 legacy data_capture_details；无 scope_*）';
 
 -- Summary 列表 + Edit Formula Save + Formula Maintenance（替代 legacy data_capture_templates）
 -- 配置与单次 capture 分离：不存 last_processed_amount / data_capture_id；Maintenance 为硬 DELETE

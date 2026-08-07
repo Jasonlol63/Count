@@ -163,8 +163,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
                                              String formula, String formulaOperators, String sourcePercent,
                                              boolean enableSourcePercent, boolean enableInputMethod, String loginId) {
 
-        DataCaptureFormula existingMain =
-                dataCaptureSummaryDao.findMainByProduct(tenantId, processId, idProduct);
+        DataCaptureFormula existingMain = dataCaptureSummaryDao.findMainByProduct(tenantId, processId, idProduct);
 
         DataCaptureFormula row = existingMain != null ? existingMain : new DataCaptureFormula();
         row.setTenantId(tenantId);
@@ -453,7 +452,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
 
         String idProduct = trimToNull(request.getIdProduct());
         if (idProduct == null) {
-            throw new BusinessException("idProduct is required when formula id is missing");
+            throw new BusinessException("Product Id is required when formula id is missing");
         }
 
         String productTypeRaw = trimToNull(request.getProductType());

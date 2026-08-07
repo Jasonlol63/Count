@@ -6,26 +6,24 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 
 /**
- * Transaction amount helpers: store/return true precision; UI rounding is frontend-only.
+ * 交易金额工具：入库 / 返回真值精度；UI 取整仅由前端负责。
  * <ul>
- *   <li>Normal amounts (PAYMENT / Bank Process / Domain / …): max {@link #NORMAL_AMOUNT_SCALE} dp</li>
- *   <li>RATE amounts (legs / middleman portions): max {@link #RATE_AMOUNT_SCALE} dp</li>
- *   <li>Exchange / middleman rates: max {@link #RATE_AMOUNT_SCALE} dp</li>
+ *   <li>普通金额（PAYMENT / Bank Process / Domain / …）：最多 {@link #NORMAL_AMOUNT_SCALE} 位小数</li>
+ *   <li>RATE 金额（legs / middleman 分摊）：最多 {@link #RATE_AMOUNT_SCALE} 位小数</li>
+ *   <li>汇率 / middleman rate：最多 {@link #RATE_AMOUNT_SCALE} 位小数</li>
  * </ul>
  */
 public final class TransactionMoneyFormat {
 
-    /** Max fractional digits for normal transaction amounts. */
+    /* 普通交易金额的最大小数位数。 */
     public static final int NORMAL_AMOUNT_SCALE = 6;
-    /** Max fractional digits for RATE amounts and exchange rates. */
+    /* RATE 金额与汇率的最大小数位数。 */
     public static final int RATE_AMOUNT_SCALE = 8;
 
     private TransactionMoneyFormat() {
     }
 
-    /**
-     * API / storage serialization: high-precision plain string (no round-to-2).
-     */
+    /* API / 存储序列化：高精度 plain 字符串（不做 round-to-2）。 */
     public static String formatMoney(BigDecimal value) {
         return toPlain(nz(value));
     }
@@ -45,29 +43,25 @@ public final class TransactionMoneyFormat {
         return nz(a).add(nz(b));
     }
 
-    /** Strip trailing zeros without changing numeric value. */
+    /* 去掉尾随零，不改变数值。 */
     public static BigDecimal strip(BigDecimal value) {
         if (value == null) {
             return BigDecimal.ZERO;
         }
         BigDecimal stripped = value.stripTrailingZeros();
-        // Avoid scientific notation for integer values (scale negative).
+        // 整数（scale 为负）避免科学计数法。
         if (stripped.scale() < 0) {
             return stripped.setScale(0);
         }
         return stripped;
     }
 
-    /**
-     * Fractional digit count after trailing-zero strip (0 for integers).
-     */
+    /* 去掉尾随零后的小数位数（整数为 0）。 */
     public static int decimalPlaces(BigDecimal value) {
         return Math.max(strip(value).scale(), 0);
     }
 
-    /**
-     * User / client input: keep exact value; reject when fractional digits exceed {@code maxScale}.
-     */
+    /* 用户 / 客户端输入：保留精确值；小数位数超过 {maxScale} 时拒绝。*/
     public static BigDecimal requireMaxScale(BigDecimal raw, int maxScale, String label) {
         if (raw == null) {
             throw new BusinessException(label + " is required");
@@ -87,10 +81,8 @@ public final class TransactionMoneyFormat {
         return requireMaxScale(raw, RATE_AMOUNT_SCALE, label);
     }
 
-    /**
-     * System-computed amounts (Accounting Due / Domain fee splits): do not round to 2.
-     * If math yields more than {@code maxScale} fraction digits, half-up only to that max.
-     */
+    /* 系统计算结果（Accounting Due / Domain fee 分摊）：不做 round-to-2。
+     * 仅当小数位数超过 {maxScale} 时，HALF_UP 到该上限。*/
     public static BigDecimal normalizeComputed(BigDecimal value, int maxScale) {
         BigDecimal amount = strip(nz(value));
         if (decimalPlaces(amount) > maxScale) {
@@ -105,5 +97,25 @@ public final class TransactionMoneyFormat {
 
     public static BigDecimal normalizeComputedRate(BigDecimal value) {
         return normalizeComputed(value, RATE_AMOUNT_SCALE);
+    }
+
+    /* Data Capture Summary 规则（截断，非 half-up）：超出 {maxScale} 的小数位向零丢弃。
+     * 与前端 {MoneyDecimal.formatFixed(value, scale)} / ROUND_DOWN 对齐。*/
+    public static BigDecimal truncateToScale(BigDecimal value, int maxScale) {
+        BigDecimal amount = strip(nz(value));
+        if (decimalPlaces(amount) > maxScale) {
+            return strip(amount.setScale(maxScale, RoundingMode.DOWN));
+        }
+        return amount;
+    }
+
+    /* 截断到 {@link #NORMAL_AMOUNT_SCALE}（6 位）——入库前最终 processed amount。 */
+    public static BigDecimal truncateNormalAmount(BigDecimal value) {
+        return truncateToScale(value, NORMAL_AMOUNT_SCALE);
+    }
+
+    /* 截断到 {@link #RATE_AMOUNT_SCALE}（8 位）——走 rate 路径的中间金额。 */
+    public static BigDecimal truncateRateAmount(BigDecimal value) {
+        return truncateToScale(value, RATE_AMOUNT_SCALE);
     }
 }
