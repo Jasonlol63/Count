@@ -620,14 +620,13 @@ CREATE TABLE `process_submitted` (
  `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
  `tenant_id`    INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
  `process_id`   INT UNSIGNED NOT NULL COMMENT 'FK process.id',
- `user_id`      INT UNSIGNED NOT NULL COMMENT '操作人 FK user.id',
+ `created_by`   VARCHAR(50) DEFAULT NULL COMMENT '操作人 login_id（admin=user.login_id；owner=owner_code）',
  `capture_date` DATE NOT NULL COMMENT '业务捕获日期',
  `created_at`   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
  PRIMARY KEY (`id`),
  UNIQUE KEY `uk_submitted_tenant_process_date` (`tenant_id`, `process_id`, `capture_date`),
  CONSTRAINT `fk_sp_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
  CONSTRAINT `fk_sp_process` FOREIGN KEY (`process_id`) REFERENCES `process` (`id`) ON DELETE CASCADE,
- CONSTRAINT `fk_sp_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`),
  KEY `idx_sp_tenant_capture_date` (`tenant_id`, `capture_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='已提交记录：GAME Data Capture 当日 option 过滤；BANK 不用于隐藏 option';

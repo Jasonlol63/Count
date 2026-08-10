@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -25,6 +26,19 @@ public class DataCaptureController {
     public ResponseEntity<Map<String, Object>> loadGameCaptureForm(@RequestBody DataCaptureGameDTO request) {
         try {
             DataCaptureGameDTO data = dataCaptureService.loadGameCaptureForm(request);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "success",
+                    "data", data));
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
+    @PostMapping("/games/submitted")
+    public ResponseEntity<Map<String, Object>> findAllProcessSubmittedByIdAndDate(@RequestBody DataCaptureGameDTO request) {
+        try {
+            List<DataCaptureGameDTO> data = dataCaptureService.findAllProcessSubmittedByIdAndDate(request);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "success",

@@ -9,9 +9,6 @@ import lombok.ToString;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-/**
- * Maps to {@code submitted_processes} — one capture submission per tenant/process/date.
- */
 @Getter
 @Setter
 @ToString
@@ -25,7 +22,7 @@ public class ProcessSubmitted {
 
     private Integer processId;
 
-    private Integer userId;
+    private String createdBy;
 
     private LocalDate captureDate;
 

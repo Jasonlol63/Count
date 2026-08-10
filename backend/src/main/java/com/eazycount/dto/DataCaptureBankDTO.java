@@ -8,10 +8,7 @@ import lombok.Setter;
 import java.util.List;
 import java.util.Map;
 
-/**
- * BANK Data Capture draft — save/get by {@code tenantId + processCode + currencyId}.
- * Cells only (no remark). PROFIT is never persisted.
- */
+/* BANK Data Capture draft — save/get by "tenantId + processCode + currencyId". Cells only (no remark). PROFIT is never persisted. */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -20,7 +17,7 @@ public class DataCaptureBankDTO {
 
     private Integer tenantId;
 
-    /** Business code: SALARY / COMMISSION / BONUS (PROFIT rejected on save). */
+    /* Business code: SALARY / COMMISSION / BONUS (PROFIT rejected on save). */
     private String processCode;
 
     private Integer processId;
@@ -29,10 +26,7 @@ public class DataCaptureBankDTO {
 
     private List<Cell> cells;
 
-    /**
-     * Snapshot shape for frontend {@code restoreCaptureTable}
-     * ({@code headers}, {@code rows}, {@code rowCount}, {@code colCount}).
-     */
+    /* Snapshot shape for frontend "restoreCaptureTable" */
     private Map<String, Object> tableData;
 
     @Getter
@@ -40,9 +34,9 @@ public class DataCaptureBankDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class Cell {
-        /** 0-based (A=0). */
+        /* 0-based (A=0). */
         private Integer rowIndex;
-        /** 1-based UI column number. */
+        /* 1-based UI column number. */
         private Integer colIndex;
         private String cellValue;
     }

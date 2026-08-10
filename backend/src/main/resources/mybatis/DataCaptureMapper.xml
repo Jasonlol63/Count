@@ -13,9 +13,37 @@
         )
     </select>
 
+    <!-- Submitted GAME processes for a tenant/date, joined with process code + description for display. -->
+    <select id="findAllProcessSubmittedByIdAndDate" resultType="com.eazycount.dto.DataCaptureGameDTO">
+        SELECT
+            ps.id AS id,
+            p.code AS processId,
+            fd.descriptionName AS descriptionName,
+            CASE
+                WHEN fd.descriptionName IS NOT NULL AND fd.descriptionName &lt;&gt; ''
+                    THEN CONCAT(p.code, ' (', fd.descriptionName, ')')
+                ELSE p.code
+            END AS processDisplay,
+            ps.created_by AS createdBy,
+            ps.created_at AS createAt,
+            ps.capture_date AS captureDate
+        FROM process_submitted ps
+                 INNER JOIN process p ON p.id = ps.process_id
+                 LEFT JOIN (
+            SELECT pdl.process_id AS process_id,
+                   MIN(d.name)    AS descriptionName
+            FROM process_description_link pdl
+                     INNER JOIN process_description d ON d.id = pdl.description_id
+            GROUP BY pdl.process_id
+        ) fd ON fd.process_id = p.id
+        WHERE ps.tenant_id = #{tenantId}
+          AND ps.capture_date = #{captureDate}
+        ORDER BY ps.created_at DESC
+    </select>
+
     <insert id="insertProcessSubmitted">
-        INSERT INTO process_submitted (tenant_id, process_id, user_id, capture_date, created_at)
-        VALUES (#{tenantId}, #{processId}, #{userId}, #{captureDate}, NOW())
+        INSERT INTO process_submitted (tenant_id, process_id, created_by, capture_date, created_at)
+        VALUES (#{tenantId}, #{processId}, #{createdBy}, #{captureDate}, NOW())
     </insert>
 
     <resultMap id="GameProcessDetailMap" type="com.eazycount.dto.DataCaptureGameDTO">

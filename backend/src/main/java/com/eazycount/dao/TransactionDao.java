@@ -68,6 +68,18 @@ public interface TransactionDao {
             @Param("currencyCodes") List<String> currencyCodes,
             @Param("categories") List<String> categories);
 
+    /**
+     * Data Capture Summary Win/Loss aggregate (submitted directly by
+     * {@code DataCaptureSummaryServiceImpl}, no bank_process_posted_id — not from the Bank Process
+     * posting flow). Same shape/signing as {@link #aggregateBankProcessWinLoss}.
+     */
+    List<TransactionDTO.SearchAggregateRow> aggregateDataCaptureWinLoss(
+            @Param("tenantId") Integer tenantId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("currencyCodes") List<String> currencyCodes,
+            @Param("categories") List<String> categories);
+
     /** Manual ADJUSTMENT Win/Loss aggregate (signed amount on To account only). */
     List<TransactionDTO.SearchAggregateRow> aggregateManualAdjustmentWinLoss(
             @Param("tenantId") Integer tenantId,

@@ -297,6 +297,59 @@
         ORDER BY currencyCode ASC, accountCode ASC
     </select>
 
+    <!-- Data Capture Summary Submit Win/Loss (bank_process_posted_id IS NULL; not the Bank Process posting flow above). -->
+    <select id="aggregateDataCaptureWinLoss" resultType="com.eazycount.dto.TransactionDTO$SearchAggregateRow">
+        SELECT
+            a.id AS accountDbId,
+            a.account_id AS accountCode,
+            a.name AS accountName,
+            a.role AS role,
+            UPPER(c.code) AS currencyCode,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &lt; #{dateFrom} THEN
+                        CASE WHEN t.transaction_type = 'WIN' THEN t.amount ELSE -t.amount END
+                    ELSE 0
+                END
+            ), 0) AS bfAmount,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN
+                        CASE WHEN t.transaction_type = 'WIN' THEN t.amount ELSE -t.amount END
+                    ELSE 0
+                END
+            ), 0) AS winLossAmount,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN 1
+                    ELSE 0
+                END
+            ), 0) AS periodTxnCount
+        FROM transactions t
+        INNER JOIN account a ON a.id = t.account_id
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        WHERE t.tenant_id = #{tenantId}
+          AND t.bank_process_posted_id IS NULL
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_type IN ('WIN', 'LOSE')
+        <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+            AND UPPER(c.code) IN
+            <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                UPPER(#{code})
+            </foreach>
+        </if>
+        <if test="categories != null and categories.size() &gt; 0">
+            AND UPPER(a.role) IN
+            <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                UPPER(#{cat})
+            </foreach>
+        </if>
+        GROUP BY a.id, a.account_id, a.name, a.role, c.code
+        ORDER BY currencyCode ASC, accountCode ASC
+    </select>
+
     <!-- Domain Fee / manual transfer: To (−) + From (+) legs -->
     <select id="aggregateDomainPaymentCrDr" resultType="com.eazycount.dto.TransactionDTO$SearchAggregateRow">
         SELECT

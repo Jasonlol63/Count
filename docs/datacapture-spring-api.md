@@ -2,7 +2,7 @@
 
 > **前端仓库**：`../Count-frontend/`  
 > **后端契约**：`DataCaptureGameDTO` + tenant 模型（无 JSON / 无 `scope_*`）  
-> **最后更新**：2026-08-07（Summary 最终 Submit 切 Spring，见 §2.7 / §3 / §4）  
+> **最后更新**：2026-08-10（当日已提交 process 列表切 Spring，见 §2.9 / §3 / §4）  
 > **金额精度**：Summary processed amount 见 [transaction-amount-precision.md](./transaction-amount-precision.md)「Data Capture Summary」节（后端 `SummaryAmountFormat` + 前端 `summaryRowAmount.js`，ROUND_DOWN 6/8）
 
 ---
@@ -47,6 +47,7 @@
 | Formula 删除 | `POST /api/datacapture-summary/formula/delete` | `deleteFormulasSpring()`；MAIN 清骨架 / SUB 整行移除；无 subOrder 重排 |
 | Add/Edit Formula Account 下拉 | `POST /api/account/list?tenant_id=` | `fetchSummaryFormCatalog()` → `summaryApi.js` |
 | 选中 Account 后 Currency | `POST /api/currency/available?tenant_id=&account_id=` | `loadCurrenciesForAccount()` → 仅 linked 写入下拉并默认选中 |
+| 当日已提交 GAME process 列表 | `POST /api/datacapture/games/submitted` | `fetchSubmissionsByCaptureDate()` → `postSubmittedProcesses()`（`dataCaptureSpringApi.js`），右侧 submitted 面板 |
 
 ### 2.2 Games Submit → Summary（本阶段：localStorage，不写库）
 
@@ -380,6 +381,63 @@ Bank 形态（C168 / bank-only company / group payroll UI，或 `selectedPermiss
 3. Games process 当天 Submit 一次后，再选同一 process → Data Capture 页 process 下拉不再出现它（`process_submitted` 生效）；若绕过 UI 直接再 Submit → 后端拒绝 `This process has already been submitted today`。
 4. 合计故意超 ±0.05 → Submit 被拒绝，`transactions`/`data_capture_line`/`data_captures` 均无新增行。
 
+### 2.9 当日已提交 Process 列表（右侧 submitted 面板）
+
+**`POST /api/datacapture/games/submitted`**
+
+GAME Submit（§2.8）成功当天会写一行 `process_submitted`；右侧「Submitted Processes」面板就是把这张表 join `process` + `process_description` 后原样展示：process code + description、`created_by`、`created_at`。**BANK 不写 `process_submitted`，不会出现在这个列表。**
+
+请求（`DataCaptureGameDTO`）：
+
+```json
+{
+  "tenantId": 42,
+  "captureDate": "2026-08-10"
+}
+```
+
+- `tenantId` — 必填，同 §2.1（`resolveDataCaptureTenantId(scope)`，即 `scope.scopeCompanyId`）
+- `captureDate` — 必填，`YYYY-MM-DD`
+
+响应：
+
+```json
+{
+  "success": true,
+  "message": "success",
+  "data": [
+    {
+      "id": 901,
+      "processId": "MEGA16397S0",
+      "descriptionName": "MEGA888 API",
+      "processDisplay": "MEGA16397S0 (MEGA888 API)",
+      "createdBy": "admin01",
+      "createAt": "2026-08-10T10:11:32",
+      "captureDate": "2026-08-10"
+    }
+  ]
+}
+```
+
+前端映射（`DataCapturePage.jsx` `.submitted-column`）：
+
+| Spring 字段 | UI 用途 |
+|-------------|---------|
+| `id` | `process_submitted.id`，React key |
+| `processId` | 业务码（原 PHP `process_code`）；group scope / company payroll channel 时**单独**展示（不带 description） |
+| `processDisplay` | 非 group scope 时的展示文案，等价于旧 `"{process_code} ({description_name})"`；前端经 `displayTextFromProcessRow()` 读取 |
+| `createdBy` | 提交人 login_id（原 PHP `submitted_by`） |
+| `createAt` | 提交时间，`formatSubmittedProcessDateTime()` 格式化为 `DD/MM/YYYY HH:MM:SS` |
+| `captureDate` | `createAt` 缺失时的兜底（理论上不会发生，`process_submitted.created_at` 非空） |
+
+**已知限制（与 §2.1 Games 表单一致，非本次新增）：** `tenantId` 只接受单一数字，真 group aggregate 模式（多公司合并）下 `resolveDataCaptureTenantId(scope)` 会解析成 `null`，面板直接给出「tenantId is required」错误态（带 Retry 按钮），不再像旧 PHP 端点那样跨公司聚合展示。因为同一 group aggregate 模式下 Games 表单本身也无法通过 Spring 加载，这不是这次改动引入的新缺口。
+
+自测：
+1. Games process 当天 Submit 一次（见 §2.8 自测 3）→ 右侧面板出现该 process，格式 `CODE (description)`，`created_by`/时间与提交账号、当前时间一致。
+2. 同一 process 当天再选一次 → 下拉里已不出现（`process_submitted` 生效）；不影响面板已展示的记录。
+3. 切换 capture date → Network 出现新的 `POST /api/datacapture/games/submitted`，面板刷新为该日期的记录（无记录时显示 `noProcessesSubmitted`）。
+4. Bank Submit（§2.8 自测 1）→ 面板**不**出现该笔（`process_submitted` 只记 GAME）。
+
 ---
 
 ## 3. 前端改动文件（2026-07-27；金额算法 2026-07-29；Summary Submit 切 Spring 2026-08-07）
@@ -401,6 +459,9 @@ Bank 形态（C168 / bank-only company / group payroll UI，或 `selectedPermiss
 | `pages/datacapturesummary/formula/editFormulaFormState.js` | 状态存真值/6 位；display 才 round 2 |
 | `pages/datacapturesummary/lib/summaryApi.js` | 新增 `submitSummaryToSpring()`（`POST /api/datacapture-summary/submit`，单次不分批）；原 `submitSummaryPayload()` 保留给 group-ledger 分支用 |
 | `pages/datacapturesummary/submit/summarySubmitExecution.js` | 重写：按 `isGroupLedgerCapture` 分流——Games/Bank 公司范围走新 Spring 一次性提交（`executeSpringSubmit`）；真 AP/IG group ledger 走保留下来的旧 PHP 分批逻辑（`executeLegacyGroupLedgerSubmit`）；新增 `toSpringLine()` 做行字段改名/裁剪 |
+| `pages/datacapture/lib/dataCaptureSpringApi.js`（2026-08-10） | 新增 `postSubmittedProcesses()` — `POST /api/datacapture/games/submitted` |
+| `pages/datacapture/lib/dataCaptureApi.js`（2026-08-10） | `fetchSubmissionsByCaptureDate()` 改走 Spring（不再拼 `submissions_api.php?action=get_submissions_by_capture_date` 查询串）；`formatSubmittedProcessDateTime()` 读 `createAt`/`captureDate`（原 `created_at`/`capture_date`） |
+| `pages/datacapture/DataCapturePage.jsx`（2026-08-10） | submitted 面板改读 `process.processId` / `process.processDisplay` / `process.createdBy` / `process.createAt`（原 `process_code` / `description_name` / `submitted_by` / `created_at`），复用既有 `displayTextFromProcessRow()` |
 
 Group/Company picker **未改 UI 行为**：仍用 `fetchOwnerCompaniesAll()`（底层已是 `tenant-accessible`）。
 
@@ -422,8 +483,7 @@ Group/Company picker **未改 UI 行为**：仍用 `fetchOwnerCompaniesAll()`（
 
 | 能力 | 旧 PHP | 说明 |
 |------|--------|------|
-| 当日已提交列表 | `api/datacapture/submissions_api.php` | 右侧 submitted 面板 |
-| Group payroll process id 解析 | `get_group_process_id` | **仅真 AP/IG group ledger**（`isGroupLedgerCapture` 为 true）；C168 / bank-only company payroll 已随 Submit 一起切 Spring（见 §2.8），不再依赖此接口 |
+| Group payroll process id 解析 | `get_group_process_id` | **仅真 AP/IG group ledger**（`isGroupLedgerCapture` 为 true）；C168 / bank-only company payroll 已随 Submit 一起切 Spring（见 §2.8），不再依赖此接口。**仍是 `submissions_api.php` 上唯一没迁移的 action**（`fetchGroupProcessIdByCode()`）——当日已提交列表已切 Spring，见 §2.9 |
 | Group 币别聚合 | `get_scope_account_currencies_api.php` | group ledger scope |
 | Submit / Summary | ~~`api/datacapture_summary/summary_submit_api.php`~~（Games/Bank 公司范围） | **Spring** `POST /api/datacapture-summary/submit`（见 §2.8）：一次事务写 `data_captures`+`data_capture_line`+`transactions`（+GAME 写 `process_submitted`）。**仅真 AP/IG group ledger 仍走 PHP**（因 tenant/process 解析依赖上一行未迁移的 `get_group_process_id`），沿用旧分批提交 |
 | Bank draft 表格 | ~~`group_capture_draft_api.php`~~ | **Spring** `POST /api/datacapture/bank/draft/save|get`（`data_capture_draft*`）；PROFIT 排除 |
@@ -451,6 +511,7 @@ Group/Company picker **未改 UI 行为**：仍用 `fetchOwnerCompaniesAll()`（
 12. **Source 行内：** 双击 Source → 改值 → Enter 或 blur → `POST .../formula/update` 写 `source_percent`。
 13. **Formula 删除：** 勾选 → Delete → `POST .../formula/delete`；MAIN 清 UI 骨架 + DB 硬删；SUB 整行移除；无 subOrder 重排。
 14. **Summary 最终 Submit：** Games/Bank 公司范围 → Summary 点 Submit → Network 仅一次 `POST /api/datacapture-summary/submit`（不再分批）；成功后 `transactions`/`data_captures`/`data_capture_line` 三张表都能查到新行；详细自测见 §2.8。
+15. **当日已提交列表：** Games process Submit 后返回 Data Capture 页 → 右侧面板 Network 可见 `POST /api/datacapture/games/submitted`（body 仅 `tenantId` + `captureDate`）；列表展示 `CODE (description)` + 提交人 + 时间；详细自测见 §2.9。
 
 ---
 

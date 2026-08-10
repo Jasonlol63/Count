@@ -33,6 +33,20 @@ public class DataCaptureServiceImpl implements DataCaptureService {
     private DataCaptureDao dataCaptureDao;
 
     @Override
+    public List<DataCaptureGameDTO> findAllProcessSubmittedByIdAndDate(DataCaptureGameDTO request) {
+        requireLogin();
+        if (request == null) {
+            throw new BusinessException("Request body is required");
+        }
+
+        Integer tenantId = request.getTenantId();
+        requireTenantId(tenantId);
+        LocalDate captureDate = requireCaptureDate(request.getCaptureDate());
+
+        return dataCaptureDao.findAllProcessSubmittedByIdAndDate(tenantId, captureDate);
+    }
+
+    @Override
     public DataCaptureGameDTO loadGameCaptureForm(DataCaptureGameDTO request) {
         requireLogin();
         if (request == null) {
@@ -336,6 +350,8 @@ public class DataCaptureServiceImpl implements DataCaptureService {
         tableData.put("colCount", colCount + 1);
         return tableData;
     }
+
+
 
     private static String rowLabel(int rowIndex) {
         int n = rowIndex;

@@ -473,7 +473,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
 
         // 3) GAME-only submitted record
         if (isGame) {
-            dataCaptureDao.insertProcessSubmitted(tenantId, processId, session.user_id, captureDate);
+            dataCaptureDao.insertProcessSubmitted(tenantId, processId, session.login_id, captureDate);
         }
 
         DataCaptureSummarySubmitDTO response = new DataCaptureSummarySubmitDTO();
