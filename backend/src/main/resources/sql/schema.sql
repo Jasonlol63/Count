@@ -624,12 +624,12 @@ CREATE TABLE `process_submitted` (
  `capture_date` DATE NOT NULL COMMENT '业务捕获日期',
  `created_at`   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
  PRIMARY KEY (`id`),
- UNIQUE KEY `uk_submitted_tenant_process_date` (`tenant_id`, `process_id`, `capture_date`),
  CONSTRAINT `fk_sp_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
  CONSTRAINT `fk_sp_process` FOREIGN KEY (`process_id`) REFERENCES `process` (`id`) ON DELETE CASCADE,
+ KEY `idx_sp_tenant_process_date` (`tenant_id`, `process_id`, `capture_date`),
  KEY `idx_sp_tenant_capture_date` (`tenant_id`, `capture_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='已提交记录：GAME Data Capture 当日 option 过滤；BANK 不用于隐藏 option';
+  COMMENT='已提交记录：GAME/BANK Submit 都会写一行。GAME 当日同 process 去重靠 service 层 existsProcessSubmitted 挡（不再靠 DB 唯一键）；BANK 允许同一 process 同一天多次提交，按 created_at 区分，用于 GAME Data Capture 当日 option 过滤 + Submitted Processes 列表展示';
 
 -- =============================================================================
 -- Data Capture (tenant model — Games / Bank page, no JSON / no scope_*)

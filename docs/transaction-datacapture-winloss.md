@@ -85,7 +85,22 @@ Data Capture Summary Submit（GAME）成功后，`data_captures` / `data_capture
 
 真正 Bank Process 记账行（`isBank=true` 且 `isDataCapture=false`）继续保持 product 空白，不受影响。
 
-前端不用改——`transactionHistoryNormalize.js` 已经在读 `raw.product`（ADJUSTMENT/PROFIT/RATE 走的就是这条），后端一给值自动显示。
+### 4.1 前端也要改（这里当初判断错了）
+
+原以为前端不用改——`transactionHistoryNormalize.js` 确实已经在读 `raw.product` 并透传成 `product` 字段。但渲染 ID PRODUCT 列的两处都有一层前端自己的取值逻辑，只要 `is_bank_process_transaction`（= 后端 `bankProcessLine`）为 `true` 就优先显示 `card_owner`，根本不看 `product`：
+
+- `TransactionHistoryTable.jsx`（Payment History 表格本体）
+- `paymentHistoryMemberReportExport.js`（Payment History 报表导出）
+
+因为 §3 提到 `bankProcessLine`/`isBankProcessTransaction` 现在真正 Bank Process 行和 Data Capture 行都是 `true`，而 Data Capture 行没有 `card_owner`（`NULL`），这两处逻辑会把它 fallback 成 `"-"`，`product = "DATA CAPTURE"` 完全被无视——这就是当时排查到的现象（Win/Loss 金额和余额都对，唯独 ID PRODUCT 空白）。
+
+修复方式：两处都改成优先用 `product`（真正 Bank Process 记账行从不 set 这个字段，所以不受影响），没有才 fallback 到 `card_owner`：
+
+```js
+const idProductDisplay = r.product || (r.is_bank_process_transaction ? r.card_owner : "") || "-";
+```
+
+**结论**：以后再新增一个会复用 `bankProcessLine=TRUE`（走 Win/Loss 显示分支）的来源，除了本文 §4 的后端 `product` 字段，还必须检查前端有没有类似"按 is_bank_process_transaction 二选一"的取值逻辑——不能假设前端只读 `product` 就完事。
 
 ---
 
@@ -102,3 +117,4 @@ Data Capture Summary Submit（GAME）成功后，`data_captures` / `data_capture
 
 - 以后再新增一个会写 `transactions` 且 `transaction_type IN ('WIN','LOSE')` 的来源（不经过 Bank Process posting），必须同时检查 `TransactionMapper.xml` 三条 WIN/LOSE 查询（`aggregateBankProcessWinLoss`/`aggregateBankProcessBfByAccount`/`findBankProcessHistoryLines`）能不能覆盖到；覆盖不到就照本文 §2 的模式再镜像一份，不要直接改现有 Bank Process 查询的 `IS NOT NULL` 条件。
 - 新来源如果需要在 Payment History `ID PRODUCT` 列有专属标签，参照 §4 加一个独立的 `xxxLine` 布尔字段，不要复用 `bankProcessLine`（它已经是"走 Win/Loss 显示分支"的通用开关，不代表来源）。
+- 后端给了 `product` 字段不代表前端会自动显示——参照 §4.1，务必确认前端渲染 ID PRODUCT 的地方不是只按 `is_bank_process_transaction` 二选一（`card_owner` vs `product`），而是 `product` 优先。

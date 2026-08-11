@@ -471,10 +471,9 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         }
         dataCaptureSummaryDao.insertLines(lineEntities);
 
-        // 3) GAME-only submitted record
-        if (isGame) {
-            dataCaptureDao.insertProcessSubmitted(tenantId, processId, session.login_id, captureDate);
-        }
+        // 3) submitted record — GAME and BANK both log every submit; BANK may repeat the same
+        // process/date (no dedup, distinguished by created_at in the Submitted Processes list).
+        dataCaptureDao.insertProcessSubmitted(tenantId, processId, session.login_id, captureDate);
 
         DataCaptureSummarySubmitDTO response = new DataCaptureSummarySubmitDTO();
         response.setCaptureId(captureId);
@@ -556,11 +555,18 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
             formulaText = TransactionMoneyFormat.formatMoney(computed.finalAmount);
         }
         txn.setDescription(processCode + ": " + formulaText);
+        txn.setRemark(resolveLineRemark(dto));
         txn.setCreatedBy(session.login_id);
         txn.setApprovalStatus(Transaction.ApprovalStatus.APPROVED);
         txn.setApprovedBy(session.login_id);
         txn.setApprovedAt(now);
         return txn;
+    }
+
+    /* MAIN line -> descriptionMain, SUB line -> descriptionSub; never fall back to the other type's text. */
+    private static String resolveLineRemark(DataCaptureLineDTO dto) {
+        boolean isSub = parseProductType(dto.getProductType()) == DataCaptureLine.ProductType.SUB;
+        return trimToNull(isSub ? dto.getDescriptionSub() : dto.getDescriptionMain());
     }
 
     private static DataCaptureLine.ProductType parseProductType(String value) {
