@@ -1,9 +1,12 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
-import com.eazycount.dao.TransactionDao;
+import com.eazycount.dao.TransactionHistoryDao;
 import com.eazycount.dao.UserDao;
-import com.eazycount.dto.TransactionDTO;
+import com.eazycount.dto.TransactionHistoryBfAggregateRow;
+import com.eazycount.dto.TransactionHistoryLineRow;
+import com.eazycount.dto.TransactionHistoryRequest;
+import com.eazycount.dto.TransactionHistoryResult;
 import com.eazycount.dto.UserListDTO;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
@@ -28,8 +31,9 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Payment History: Bank Process (Win/Loss) and Domain Payment (Cr/Dr) are built separately,
- * then merged by the public orchestrator so Domain rules do not leak into BP logic.
+ * Payment History: Win/Loss (Bank Process + Data Capture + manual Adjustment/Profit/Rate-middleman)
+ * and Domain Payment (Cr/Dr) are built separately, then merged by the public orchestrator so Domain
+ * rules do not leak into Win/Loss logic.
  */
 @Service
 public class TransactionHistoryServiceImpl implements TransactionHistoryService {
@@ -38,13 +42,13 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
     private static final DateTimeFormatter RANGE_DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT);
 
     @Autowired
-    private TransactionDao transactionDao;
+    private TransactionHistoryDao transactionHistoryDao;
 
     @Autowired
     private UserDao userDao;
 
     @Override
-    public TransactionDTO.HistoryResult historyList(TransactionDTO.HistoryRequest request) {
+    public TransactionHistoryResult historyList(TransactionHistoryRequest request) {
         SessionUser session = SecurityUtils.currentUser();
         if (session == null) {
             throw new BusinessException("Not logged in");
@@ -72,40 +76,47 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
 
         String accountCode = trimToEmpty(account.getAccountId()).toUpperCase(Locale.ROOT);
 
-        HistorySlice bank = buildBankProcessHistorySlice(tenantId, accountId, dateFrom, dateTo, currencyCodes);
+        HistorySlice winLoss = buildWinLossHistorySlice(tenantId, accountId, dateFrom, dateTo, currencyCodes);
         HistorySlice domain = buildDomainPaymentHistorySlice(
                 tenantId, accountId, dateFrom, dateTo, currencyCodes, accountCode);
 
-        return mergeHistorySlices(account, dateFrom, dateTo, bank, domain);
+        return mergeHistorySlices(account, dateFrom, dateTo, winLoss, domain);
     }
 
-    // ── Bank Process (Win/Loss) ───────────────────────────────────────────────
-    private HistorySlice buildBankProcessHistorySlice(Integer tenantId, Integer accountId, LocalDate dateFrom, LocalDate dateTo, List<String> currencyCodes) {
+    // ── Win/Loss: Bank Process + Data Capture + manual Adjustment/Profit/Rate-middleman ─────────
+    private HistorySlice buildWinLossHistorySlice(Integer tenantId, Integer accountId, LocalDate dateFrom, LocalDate dateTo, List<String> currencyCodes) {
         Map<String, BigDecimal> bfByCurrency = new LinkedHashMap<>();
-        addBfRows(bfByCurrency, transactionDao.aggregateBankProcessBfByAccount(
+        addBfRows(bfByCurrency, transactionHistoryDao.aggregateBankProcessBfByAccount(
                 tenantId, accountId, dateFrom, currencyCodes));
-        addBfRows(bfByCurrency, transactionDao.aggregateManualAdjustmentBfByAccount(
+        addBfRows(bfByCurrency, transactionHistoryDao.aggregateDataCaptureBfByAccount(
                 tenantId, accountId, dateFrom, currencyCodes));
-        addBfRows(bfByCurrency, transactionDao.aggregateManualProfitBfByAccount(
+        addBfRows(bfByCurrency, transactionHistoryDao.aggregateManualAdjustmentBfByAccount(
                 tenantId, accountId, dateFrom, currencyCodes));
-        addBfRows(bfByCurrency, transactionDao.aggregateManualRateMiddlemanBfByAccount(
+        addBfRows(bfByCurrency, transactionHistoryDao.aggregateManualProfitBfByAccount(
+                tenantId, accountId, dateFrom, currencyCodes));
+        addBfRows(bfByCurrency, transactionHistoryDao.aggregateManualRateMiddlemanBfByAccount(
                 tenantId, accountId, dateFrom, currencyCodes));
 
-        List<TransactionDTO.HistoryLineRow> lines = new ArrayList<>();
-        List<TransactionDTO.HistoryLineRow> bankLines = transactionDao.findBankProcessHistoryLines(
+        List<TransactionHistoryLineRow> lines = new ArrayList<>();
+        List<TransactionHistoryLineRow> bankLines = transactionHistoryDao.findBankProcessHistoryLines(
                 tenantId, accountId, dateFrom, dateTo, currencyCodes);
         if (bankLines != null) {
             lines.addAll(bankLines);
         }
-        List<TransactionDTO.HistoryLineRow> adjustmentLines = transactionDao.findManualAdjustmentHistoryLines(
+        List<TransactionHistoryLineRow> dataCaptureLines = transactionHistoryDao.findDataCaptureHistoryLines(
+                tenantId, accountId, dateFrom, dateTo, currencyCodes);
+        if (dataCaptureLines != null) {
+            lines.addAll(dataCaptureLines);
+        }
+        List<TransactionHistoryLineRow> adjustmentLines = transactionHistoryDao.findManualAdjustmentHistoryLines(
                 tenantId, accountId, dateFrom, dateTo, currencyCodes);
         if (adjustmentLines != null) {
             lines.addAll(adjustmentLines);
         }
-        List<TransactionDTO.HistoryLineRow> profitLines = transactionDao.findManualProfitHistoryLines(
+        List<TransactionHistoryLineRow> profitLines = transactionHistoryDao.findManualProfitHistoryLines(
                 tenantId, accountId, dateFrom, dateTo, currencyCodes);
         if (profitLines != null) {
-            for (TransactionDTO.HistoryLineRow line : profitLines) {
+            for (TransactionHistoryLineRow line : profitLines) {
                 if (line == null) {
                     continue;
                 }
@@ -121,14 +132,14 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         boolean c168ProfitView = "C168".equals(accountCode) || "PROFIT".equals(accountCode);
 
         Map<String, BigDecimal> bfByCurrency = new LinkedHashMap<>();
-        addBfRows(bfByCurrency, transactionDao.aggregateDomainPaymentBfByAccount(
+        addBfRows(bfByCurrency, transactionHistoryDao.aggregateDomainPaymentBfByAccount(
                 tenantId, accountId, dateFrom, currencyCodes));
 
-        List<TransactionDTO.HistoryLineRow> lines = new ArrayList<>();
-        List<TransactionDTO.HistoryLineRow> domainLines = transactionDao.findDomainPaymentHistoryLines(
+        List<TransactionHistoryLineRow> lines = new ArrayList<>();
+        List<TransactionHistoryLineRow> domainLines = transactionHistoryDao.findDomainPaymentHistoryLines(
                 tenantId, accountId, dateFrom, dateTo, currencyCodes);
         if (domainLines != null) {
-            for (TransactionDTO.HistoryLineRow line : domainLines) {
+            for (TransactionHistoryLineRow line : domainLines) {
                 if (line == null) {
                     continue;
                 }
@@ -157,26 +168,26 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
     }
 
     // ── Merge / present ───────────────────────────────────────────────────────
-    private TransactionDTO.HistoryResult mergeHistorySlices(
+    private TransactionHistoryResult mergeHistorySlices(
             UserListDTO account,
             LocalDate dateFrom,
             LocalDate dateTo,
-            HistorySlice bank,
+            HistorySlice winLoss,
             HistorySlice domain) {
         Map<String, BigDecimal> bfByCurrency = new LinkedHashMap<>();
-        addBfMap(bfByCurrency, bank.bfByCurrency());
+        addBfMap(bfByCurrency, winLoss.bfByCurrency());
         addBfMap(bfByCurrency, domain.bfByCurrency());
 
-        List<TransactionDTO.HistoryLineRow> lines = new ArrayList<>();
-        lines.addAll(bank.lines());
+        List<TransactionHistoryLineRow> lines = new ArrayList<>();
+        lines.addAll(winLoss.lines());
         lines.addAll(domain.lines());
         lines.sort(Comparator
-                .comparing(TransactionDTO.HistoryLineRow::getCreatedAt, Comparator.nullsLast(LocalDateTime::compareTo))
-                .thenComparing(TransactionDTO.HistoryLineRow::getId, Comparator.nullsLast(Integer::compareTo)));
+                .comparing(TransactionHistoryLineRow::getCreatedAt, Comparator.nullsLast(LocalDateTime::compareTo))
+                .thenComparing(TransactionHistoryLineRow::getId, Comparator.nullsLast(Integer::compareTo)));
 
         Set<String> currencyOrder = new LinkedHashSet<>();
         bfByCurrency.keySet().stream().sorted().forEach(currencyOrder::add);
-        for (TransactionDTO.HistoryLineRow line : lines) {
+        for (TransactionHistoryLineRow line : lines) {
             if (line == null || line.getCurrencyCode() == null) {
                 continue;
             }
@@ -188,11 +199,11 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             balanceByCurrency.put(currency, bfByCurrency.getOrDefault(currency, BigDecimal.ZERO));
         }
 
-        List<TransactionDTO.HistoryRow> history = new ArrayList<>();
+        List<TransactionHistoryResult.Row> history = new ArrayList<>();
 
         for (String currency : currencyOrder.stream().sorted().toList()) {
             BigDecimal bf = balanceByCurrency.getOrDefault(currency, BigDecimal.ZERO);
-            TransactionDTO.HistoryRow bfRow = new TransactionDTO.HistoryRow();
+            TransactionHistoryResult.Row bfRow = new TransactionHistoryResult.Row();
             bfRow.setRowType("bf");
             bfRow.setDate(formatHistoryDate(dateFrom));
             bfRow.setCurrency(currency);
@@ -205,31 +216,31 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             history.add(bfRow);
         }
 
-        for (TransactionDTO.HistoryLineRow line : lines) {
+        for (TransactionHistoryLineRow line : lines) {
             if (line == null || line.getId() == null) {
                 continue;
             }
             history.add(toHistoryRow(line, balanceByCurrency));
         }
 
-        TransactionDTO.HistoryAccount accountDto = new TransactionDTO.HistoryAccount();
+        TransactionHistoryResult.Account accountDto = new TransactionHistoryResult.Account();
         accountDto.setId(account.getId());
         accountDto.setAccountId(trimToEmpty(account.getAccountId()));
         accountDto.setName(trimToEmpty(account.getName()));
 
-        TransactionDTO.HistoryDateRange range = new TransactionDTO.HistoryDateRange();
+        TransactionHistoryResult.DateRange range = new TransactionHistoryResult.DateRange();
         range.setFrom(dateFrom.format(RANGE_DATE));
         range.setTo(dateTo.format(RANGE_DATE));
 
-        TransactionDTO.HistoryResult result = new TransactionDTO.HistoryResult();
+        TransactionHistoryResult result = new TransactionHistoryResult();
         result.setAccount(accountDto);
         result.setDateRange(range);
         result.setHistory(history);
         return result;
     }
 
-    private static TransactionDTO.HistoryRow toHistoryRow(
-            TransactionDTO.HistoryLineRow line,
+    private static TransactionHistoryResult.Row toHistoryRow(
+            TransactionHistoryLineRow line,
             Map<String, BigDecimal> balanceByCurrency) {
         String currency = line.getCurrencyCode() != null
                 ? line.getCurrencyCode().trim().toUpperCase(Locale.ROOT)
@@ -241,11 +252,12 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         balanceByCurrency.put(currency, running);
 
         boolean isBank = Boolean.TRUE.equals(line.getBankProcessLine());
+        boolean isDataCapture = Boolean.TRUE.equals(line.getDataCaptureLine());
         boolean isAdjustment = isManualAdjustmentLine(line);
         boolean isProfit = isManualProfitLine(line);
         boolean isRateMiddlemanFee = Boolean.TRUE.equals(line.getRateMiddlemanFee());
 
-        TransactionDTO.HistoryRow row = new TransactionDTO.HistoryRow();
+        TransactionHistoryResult.Row row = new TransactionHistoryResult.Row();
         row.setId(line.getId());
         row.setDate(formatHistoryDate(line.getTransactionDate()));
         row.setIsBankProcessTransaction(isBank);
@@ -256,6 +268,8 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             row.setProduct("PROFIT");
         } else if (isRateMiddlemanFee) {
             row.setProduct("RATE");
+        } else if (isDataCapture) {
+            row.setProduct("DATA CAPTURE");
         } else if (!isBank) {
             row.setProduct(resolveDomainHistoryProduct(line));
         }
@@ -275,11 +289,11 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         return row;
     }
 
-    private static void addBfRows(Map<String, BigDecimal> bfByCurrency, List<TransactionDTO.HistoryBfAggregateRow> bfRows) {
+    private static void addBfRows(Map<String, BigDecimal> bfByCurrency, List<TransactionHistoryBfAggregateRow> bfRows) {
         if (bfRows == null) {
             return;
         }
-        for (TransactionDTO.HistoryBfAggregateRow bf : bfRows) {
+        for (TransactionHistoryBfAggregateRow bf : bfRows) {
             if (bf == null || bf.getCurrencyCode() == null) {
                 continue;
             }
@@ -300,14 +314,14 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         }
     }
 
-    static boolean isManualAdjustmentLine(TransactionDTO.HistoryLineRow line) {
+    static boolean isManualAdjustmentLine(TransactionHistoryLineRow line) {
         if (line == null || line.getTransactionType() == null) {
             return false;
         }
         return "ADJUSTMENT".equalsIgnoreCase(line.getTransactionType().trim());
     }
 
-    static boolean isManualProfitLine(TransactionDTO.HistoryLineRow line) {
+    static boolean isManualProfitLine(TransactionHistoryLineRow line) {
         if (line == null || line.getTransactionType() == null) {
             return false;
         }
@@ -342,7 +356,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         return "";
     }
 
-    static String resolveDomainHistoryProduct(TransactionDTO.HistoryLineRow line) {
+    static String resolveDomainHistoryProduct(TransactionHistoryLineRow line) {
         String fromDescription = domainProductFromDescription(line.getDescription());
         if (!fromDescription.isEmpty()) {
             return fromDescription;
@@ -367,7 +381,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
      * Direction follows leg1→leg2 currencies. FROM on payer (To), TO on receiver (From) — same as PAYMENT.
      */
     static boolean applyRateHistoryPresentation(
-            TransactionDTO.HistoryLineRow line,
+            TransactionHistoryLineRow line,
             Integer viewedAccountId) {
         if (line == null || viewedAccountId == null || viewedAccountId <= 0) {
             return false;
@@ -407,13 +421,13 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         return true;
     }
 
-    /**
+    /*
      * Middle-Man History (middleman / From leg only):
      * Rate: {@code MARKUP {rate} {ccy1} {amt} > {ccy2} | FROM {leg1 To}}
      * Fee:  {@code MARKUP X {ccy1} {amt} > {ccy2} | FROM {leg1 To}}
      */
     static void applyRateMiddlemanHistoryPresentation(
-            TransactionDTO.HistoryLineRow line,
+            TransactionHistoryLineRow line,
             Integer viewedAccountId) {
         boolean middlemanView;
         if (line.getFromAccountId() != null) {
@@ -431,7 +445,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         line.setRemark(null);
     }
 
-    static String formatRateMiddlemanMarkupDescription(TransactionDTO.HistoryLineRow line) {
+    static String formatRateMiddlemanMarkupDescription(TransactionHistoryLineRow line) {
         boolean feeKind = isRateMiddlemanFeeKind(line);
         String rateToken = feeKind
                 ? "X"
@@ -458,7 +472,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         return sb.toString();
     }
 
-    static boolean isRateMiddlemanFeeKind(TransactionDTO.HistoryLineRow line) {
+    static boolean isRateMiddlemanFeeKind(TransactionHistoryLineRow line) {
         if (line == null) {
             return false;
         }
@@ -489,12 +503,12 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         return TransactionMoneyFormat.formatMoney(amount);
     }
 
-    /**
+    /*
      * Manual PAYMENT / CLAIM / CLEAR / CONTRA / PROFIT History display (viewpoint text).
      * Domain / system lines with other descriptions are left as stored.
      */
     static void applyManualTransferHistoryPresentation(
-            TransactionDTO.HistoryLineRow line,
+            TransactionHistoryLineRow line,
             Integer viewedAccountId) {
         if (line == null || viewedAccountId == null || viewedAccountId <= 0) {
             return;
@@ -520,7 +534,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         }
     }
 
-    /**
+    /*
      * Blank (legacy) or stored audit {@code TYPE FROM … TO …} → rewrite for History.
      * Other stored text (e.g. domain {@code PAY DOMAIN FEE}) is kept.
      */
@@ -582,9 +596,9 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         return value != null ? value.trim() : "";
     }
 
-    /** One source's BF + period lines before merge. */
+    /* One source's BF + period lines before merge. */
     private record HistorySlice(
             Map<String, BigDecimal> bfByCurrency,
-            List<TransactionDTO.HistoryLineRow> lines) {
+            List<TransactionHistoryLineRow> lines) {
     }
 }

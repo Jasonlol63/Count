@@ -1,7 +1,11 @@
 package com.eazycount.controller;
 
 import com.eazycount.common.BusinessException;
-import com.eazycount.dto.TransactionDTO;
+import com.eazycount.dto.TransactionHistoryRequest;
+import com.eazycount.dto.TransactionHistoryResult;
+import com.eazycount.dto.TransactionSearchRequest;
+import com.eazycount.dto.TransactionSearchResult;
+import com.eazycount.dto.TransactionSubmitDTO;
 import com.eazycount.service.TransactionHistoryService;
 import com.eazycount.service.TransactionSearchService;
 import com.eazycount.service.TransactionSubmitService;
@@ -29,9 +33,9 @@ public class TransactionController {
     private TransactionSubmitService transactionSubmitService;
 
     @PostMapping("/search")
-    public ResponseEntity<Map<String, Object>> search(@RequestBody TransactionDTO.SearchRequest request) {
+    public ResponseEntity<Map<String, Object>> search(@RequestBody TransactionSearchRequest request) {
         try {
-            TransactionDTO.SearchResult data = transactionSearchService.searchList(request);
+            TransactionSearchResult data = transactionSearchService.searchList(request);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Transaction search completed",
@@ -43,9 +47,9 @@ public class TransactionController {
     }
 
     @PostMapping("/history")
-    public ResponseEntity<Map<String, Object>> history(@RequestBody TransactionDTO.HistoryRequest request) {
+    public ResponseEntity<Map<String, Object>> history(@RequestBody TransactionHistoryRequest request) {
         try {
-            TransactionDTO.HistoryResult data = transactionHistoryService.historyList(request);
+            TransactionHistoryResult data = transactionHistoryService.historyList(request);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Transaction history retrieved",
@@ -57,9 +61,9 @@ public class TransactionController {
     }
 
     @PostMapping("/submit")
-    public ResponseEntity<Map<String, Object>> submit(@RequestBody TransactionDTO.SubmitRequest request) {
+    public ResponseEntity<Map<String, Object>> submit(@RequestBody TransactionSubmitDTO request) {
         try {
-            TransactionDTO.SubmitResult data = transactionSubmitService.submit(request);
+            TransactionSubmitDTO data = transactionSubmitService.submit(request);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Transaction submitted",

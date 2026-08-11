@@ -5,7 +5,7 @@ import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.TransactionDao;
 import com.eazycount.dao.TransactionRateDao;
 import com.eazycount.dao.UserDao;
-import com.eazycount.dto.TransactionDTO;
+import com.eazycount.dto.TransactionSubmitDTO;
 import com.eazycount.dto.UserListDTO;
 import com.eazycount.entity.Currency;
 import com.eazycount.entity.Transaction;
@@ -56,7 +56,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
 
     @Override
     @Transactional
-    public TransactionDTO.SubmitResult submit(TransactionDTO.SubmitRequest request) {
+    public TransactionSubmitDTO submit(TransactionSubmitDTO request) {
         SessionUser session = SecurityUtils.currentUser();
         if (session == null) {
             throw new BusinessException("Not logged in");
@@ -92,8 +92,8 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         throw new BusinessException("Unsupported transaction type: " + typeRaw);
     }
 
-    private TransactionDTO.SubmitResult submitTransfer(
-            TransactionDTO.SubmitRequest request,
+    private TransactionSubmitDTO submitTransfer(
+            TransactionSubmitDTO request,
             SessionUser session,
             Integer tenantId,
             Transaction.TransactionType transactionType) {
@@ -110,8 +110,8 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
                 trimToNull(request.getRemark()), description, null);
     }
 
-    private TransactionDTO.SubmitResult submitProfit(
-            TransactionDTO.SubmitRequest request,
+    private TransactionSubmitDTO submitProfit(
+            TransactionSubmitDTO request,
             SessionUser session,
             Integer tenantId) {
         FromToAccounts accounts = requireFromToAccounts(
@@ -127,8 +127,8 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
                 amount, resolveTransactionDate(request), trimToNull(request.getRemark()), description, null);
     }
 
-    private TransactionDTO.SubmitResult submitAdjustment(
-            TransactionDTO.SubmitRequest request,
+    private TransactionSubmitDTO submitAdjustment(
+            TransactionSubmitDTO request,
             SessionUser session,
             Integer tenantId) {
         Integer toAccountId = request.getToAccountId();
@@ -157,7 +157,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
      * Fee portion = feeInput(first ccy) × exchangeRate — middleman-only +Win/Loss (no counterparty).
      * leg2 net = gross − (ratePortion + feePortion).
      */
-    private TransactionDTO.SubmitResult submitRate(TransactionDTO.SubmitRequest request, SessionUser session, Integer tenantId) {
+    private TransactionSubmitDTO submitRate(TransactionSubmitDTO request, SessionUser session, Integer tenantId) {
         FromToAccounts leg1 = requireFromToAccounts(
                 request.getLeg1ToAccountId(), request.getLeg1FromAccountId(),
                 request.getLeg1CurrencyId(), request.getLeg1CurrencyCode(),
@@ -279,7 +279,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         }
         transactionRateDao.insert(header);
 
-        TransactionDTO.SubmitResult result = new TransactionDTO.SubmitResult();
+        TransactionSubmitDTO result = new TransactionSubmitDTO();
         result.setId(leg1Txn.getId());
         result.setTransactionType(Transaction.TransactionType.RATE.name());
         result.setTenantId(tenantId);
@@ -288,7 +288,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         result.setCurrencyCode(leg1.currency().getCode() != null
                 ? leg1.currency().getCode().trim().toUpperCase(Locale.ROOT)
                 : "");
-        result.setAmount(TransactionMoneyFormat.formatMoney(amountFrom));
+        result.setAmountDisplay(TransactionMoneyFormat.formatMoney(amountFrom));
         result.setTransactionDate(formatDate(transactionDate));
         result.setRemark(remark != null ? remark : "");
         result.setRateGroupId(rateGroupId);
@@ -297,7 +297,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         result.setMiddlemanId(middlemanRateTxnId != null ? middlemanRateTxnId : middlemanFeeTxnId);
         result.setMiddlemanRateId(middlemanRateTxnId);
         result.setMiddlemanFeeId(middlemanFeeTxnId);
-        result.setExchangeRate(exchangeRate.stripTrailingZeros().toPlainString());
+        result.setExchangeRateDisplay(exchangeRate.stripTrailingZeros().toPlainString());
         result.setRateExpression(rateExpression != null ? rateExpression : "");
         return result;
     }
@@ -322,7 +322,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
 
     /* Middle Man account function set. Middle-Man account is required when rate and/or fee are set; either or both are allowed.*/
     private MiddlemanSpec resolveMiddleman(
-            TransactionDTO.SubmitRequest request,
+            TransactionSubmitDTO request,
             Integer tenantId,
             FromToAccounts leg2,
             BigDecimal amountFrom,
@@ -473,7 +473,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
             UserListDTO fromAccount) {
     }
 
-    private TransactionDTO.SubmitResult insertAndBuildResult(
+    private TransactionSubmitDTO insertAndBuildResult(
             SessionUser session,
             Integer tenantId,
             Transaction.TransactionType transactionType,
@@ -489,7 +489,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
                 session, tenantId, transactionType, toAccountId, fromAccountId,
                 currency.getId(), amount, transactionDate, remark, description, rateGroupId);
 
-        TransactionDTO.SubmitResult result = new TransactionDTO.SubmitResult();
+        TransactionSubmitDTO result = new TransactionSubmitDTO();
         result.setId(txn.getId());
         result.setTransactionType(transactionType.name());
         result.setTenantId(tenantId);
@@ -498,7 +498,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         result.setCurrencyCode(currency.getCode() != null
                 ? currency.getCode().trim().toUpperCase(Locale.ROOT)
                 : "");
-        result.setAmount(TransactionMoneyFormat.formatMoney(amount));
+        result.setAmountDisplay(TransactionMoneyFormat.formatMoney(amount));
         result.setTransactionDate(formatDate(transactionDate));
         result.setRemark(remark != null ? remark : "");
         return result;
@@ -541,7 +541,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         return txn;
     }
 
-    private static LocalDate resolveTransactionDate(TransactionDTO.SubmitRequest request) {
+    private static LocalDate resolveTransactionDate(TransactionSubmitDTO request) {
         if (request.getTransactionDate() != null && !request.getTransactionDate().isBlank()) {
             return TransactionDateParse.parseRequired(request.getTransactionDate(), "transactionDate");
         }

@@ -1,20 +1,21 @@
 package com.eazycount.service;
 
-import com.eazycount.dto.TransactionDTO;
+import com.eazycount.dto.MaintenanceBankProcessDTO;
+import com.eazycount.dto.MaintenancePaymentDTO;
 
 import java.util.List;
 
 public interface MaintenanceService {
 
-    List<TransactionDTO.PaymentMaintenanceRow> findPaymentMaintenanceRows(
-            TransactionDTO.PaymentMaintenanceRequest request);
+    List<MaintenancePaymentDTO> findPaymentMaintenanceRows(
+            MaintenancePaymentDTO request);
 
-    List<TransactionDTO.BankProcessMaintenanceRow> findBankProcessMaintenanceRows(
-            TransactionDTO.BankProcessMaintenanceRequest request);
+    List<MaintenanceBankProcessDTO> findBankProcessMaintenanceRows(
+            MaintenanceBankProcessDTO request);
 
     // Soft-delete Payment Maintenance lines: archive to transactions_deleted
-    void deletePaymentMaintenanceRows(TransactionDTO.PaymentMaintenanceDeleteRequest request);
+    void deletePaymentMaintenanceRows(MaintenancePaymentDTO request);
 
     // Soft-delete Bank Process Maintenance lines: archive to transactions_deleted
-    void deleteBankProcessMaintenanceRows(TransactionDTO.BankProcessMaintenanceDeleteRequest request);
+    void deleteBankProcessMaintenanceRows(MaintenanceBankProcessDTO request);
 }

@@ -364,6 +364,7 @@ Bank 形态（C168 / bank-only company / group payroll UI，或 `selectedPermiss
 | Process 解析 | 有 `processId` 优先；否则按 `processCode` 解析（Bank 缺省自动建，同 §2.4） |
 | `transactions` 记录 | 每个非零行一笔：`amount` 存绝对值，`transactionType` 由正负号定 `WIN`/`LOSE`；`description` 格式 `"{processCode}: {formula}"`（见 `docs/transaction-description-rules.md`「WIN / LOSE」节） |
 | Customer/Domain Report | 这次只保证落库；报表页面本身未实现。**Bank 提交不产出 report 数据**——报表查询将来加 `data_captures.category = 'GAME'` 过滤，不需要额外字段 |
+| Transaction Payment / Payment History 可见性 | 这里写的 `WIN`/`LOSE` 行 `bank_process_posted_id` 恒为 `NULL`（不经过 Bank Process 记账流程）。Transaction 模块原本的 WIN/LOSE 查询都要求 `bank_process_posted_id IS NOT NULL`，一度导致这些行在 Transaction Payment / Payment History 里完全查不到；已补齐对称聚合并让 `ID PRODUCT` 显示 `DATA CAPTURE`，详见 [transaction-datacapture-winloss.md](./transaction-datacapture-winloss.md) |
 
 **前端调用（Count-frontend）：**
 

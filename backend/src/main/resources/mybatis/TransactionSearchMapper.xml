@@ -1,0 +1,595 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.TransactionSearchDao">
+
+    <!-- Manual transfer Cr/Dr types: PAYMENT / CLAIM / CLEAR / CONTRA / RATE (To −, From +); bank_process_posted_id IS NULL -->
+    <sql id="manualCrDrTransactionTypes">
+        'PAYMENT', 'CLAIM', 'CLEAR', 'CONTRA', 'RATE'
+    </sql>
+
+    <!-- RATE transfer legs only (exclude Middle-Man fee row in the same rate_group). -->
+    <sql id="rateTransferLegOnly">
+        (
+            t.transaction_type &lt;&gt; 'RATE'
+            OR EXISTS (
+            SELECT 1
+            FROM transactions_rate tr
+            WHERE tr.tenant_id = t.tenant_id
+            AND tr.rate_group_id = t.rate_group_id
+            AND (t.id = tr.leg1_transaction_id OR t.id = tr.leg2_transaction_id)
+            )
+        )
+    </sql>
+
+    <!-- RATE Middle-Man fee leg (legacy RATE_MIDDLEMAN_FEE or stored MARKUP X … text). -->
+    <sql id="rateMiddlemanFeeDescription">
+        (
+            t.description = 'RATE_MIDDLEMAN_FEE'
+            OR t.description LIKE 'MARKUP X %'
+        )
+    </sql>
+
+    <!-- RATE Middle-Man fee leg: same rate_group, not leg1/leg2. -->
+    <sql id="rateMiddlemanFeeLeg">
+        EXISTS (
+            SELECT 1
+            FROM transactions_rate tr
+            WHERE tr.tenant_id = t.tenant_id
+              AND tr.rate_group_id = t.rate_group_id
+              AND tr.middleman_account_id IS NOT NULL
+              AND t.id &lt;&gt; tr.leg1_transaction_id
+              AND t.id &lt;&gt; tr.leg2_transaction_id
+        )
+    </sql>
+
+    <select id="aggregateBankProcessWinLoss" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
+        SELECT
+            a.id AS accountDbId,
+            a.account_id AS accountCode,
+            a.name AS accountName,
+            a.role AS role,
+            UPPER(c.code) AS currencyCode,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &lt; #{dateFrom} THEN
+                        CASE WHEN t.transaction_type = 'WIN' THEN t.amount ELSE -t.amount END
+                    ELSE 0
+                END
+            ), 0) AS bfAmount,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN
+                        CASE WHEN t.transaction_type = 'WIN' THEN t.amount ELSE -t.amount END
+                    ELSE 0
+                END
+            ), 0) AS winLossAmount,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN 1
+                    ELSE 0
+                END
+            ), 0) AS periodTxnCount
+        FROM transactions t
+        INNER JOIN account a ON a.id = t.account_id
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        WHERE t.tenant_id = #{tenantId}
+          AND t.bank_process_posted_id IS NOT NULL
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_type IN ('WIN', 'LOSE')
+        <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+            AND UPPER(c.code) IN
+            <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                UPPER(#{code})
+            </foreach>
+        </if>
+        <if test="categories != null and categories.size() &gt; 0">
+            AND UPPER(a.role) IN
+            <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                UPPER(#{cat})
+            </foreach>
+        </if>
+        GROUP BY a.id, a.account_id, a.name, a.role, c.code
+        ORDER BY currencyCode ASC, accountCode ASC
+    </select>
+
+    <!-- Data Capture Summary Submit Win/Loss (bank_process_posted_id IS NULL; not the Bank Process posting flow above). -->
+    <select id="aggregateDataCaptureWinLoss" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
+        SELECT
+            a.id AS accountDbId,
+            a.account_id AS accountCode,
+            a.name AS accountName,
+            a.role AS role,
+            UPPER(c.code) AS currencyCode,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &lt; #{dateFrom} THEN
+                        CASE WHEN t.transaction_type = 'WIN' THEN t.amount ELSE -t.amount END
+                    ELSE 0
+                END
+            ), 0) AS bfAmount,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN
+                        CASE WHEN t.transaction_type = 'WIN' THEN t.amount ELSE -t.amount END
+                    ELSE 0
+                END
+            ), 0) AS winLossAmount,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN 1
+                    ELSE 0
+                END
+            ), 0) AS periodTxnCount
+        FROM transactions t
+        INNER JOIN account a ON a.id = t.account_id
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        WHERE t.tenant_id = #{tenantId}
+          AND t.bank_process_posted_id IS NULL
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_type IN ('WIN', 'LOSE')
+        <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+            AND UPPER(c.code) IN
+            <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                UPPER(#{code})
+            </foreach>
+        </if>
+        <if test="categories != null and categories.size() &gt; 0">
+            AND UPPER(a.role) IN
+            <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                UPPER(#{cat})
+            </foreach>
+        </if>
+        GROUP BY a.id, a.account_id, a.name, a.role, c.code
+        ORDER BY currencyCode ASC, accountCode ASC
+    </select>
+
+    <!-- Domain Fee / manual transfer: To (−) + From (+) legs -->
+    <select id="aggregateDomainPaymentCrDr" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
+        SELECT
+            x.accountDbId AS accountDbId,
+            x.accountCode AS accountCode,
+            x.accountName AS accountName,
+            x.role AS role,
+            x.currencyCode AS currencyCode,
+            COALESCE(SUM(x.bfPart), 0) AS bfAmount,
+            COALESCE(SUM(x.crPart), 0) AS crDrAmount,
+            COALESCE(SUM(x.periodCnt), 0) AS periodTxnCount
+        FROM (
+            SELECT
+                a.id AS accountDbId,
+                a.account_id AS accountCode,
+                a.name AS accountName,
+                a.role AS role,
+                UPPER(c.code) AS currencyCode,
+                CASE
+                    WHEN t.transaction_date &lt; #{dateFrom} THEN -t.amount
+                    ELSE 0
+                END AS bfPart,
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN -t.amount
+                    ELSE 0
+                END AS crPart,
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN 1
+                    ELSE 0
+                END AS periodCnt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.bank_process_posted_id IS NULL
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_type IN (<include refid="manualCrDrTransactionTypes"/>)
+              AND <include refid="rateTransferLegOnly"/>
+            <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+                AND UPPER(c.code) IN
+                <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                    UPPER(#{code})
+                </foreach>
+            </if>
+            <if test="categories != null and categories.size() &gt; 0">
+                AND UPPER(a.role) IN
+                <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                    UPPER(#{cat})
+                </foreach>
+            </if>
+
+            UNION ALL
+
+            SELECT
+                a.id AS accountDbId,
+                a.account_id AS accountCode,
+                a.name AS accountName,
+                a.role AS role,
+                UPPER(c.code) AS currencyCode,
+                CASE
+                    WHEN t.transaction_date &lt; #{dateFrom} THEN t.amount
+                    ELSE 0
+                END AS bfPart,
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN t.amount
+                    ELSE 0
+                END AS crPart,
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN 1
+                    ELSE 0
+                END AS periodCnt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.from_account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.from_account_id IS NOT NULL
+              AND t.bank_process_posted_id IS NULL
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_type IN (<include refid="manualCrDrTransactionTypes"/>)
+              AND <include refid="rateTransferLegOnly"/>
+            <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+                AND UPPER(c.code) IN
+                <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                    UPPER(#{code})
+                </foreach>
+            </if>
+            <if test="categories != null and categories.size() &gt; 0">
+                AND UPPER(a.role) IN
+                <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                    UPPER(#{cat})
+                </foreach>
+            </if>
+        ) x
+        GROUP BY x.accountDbId, x.accountCode, x.accountName, x.role, x.currencyCode
+        ORDER BY currencyCode ASC, accountCode ASC
+    </select>
+
+    <!-- Manual ADJUSTMENT: signed amount on To account → Win/Loss (not Cr/Dr) -->
+    <select id="aggregateManualAdjustmentWinLoss" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
+        SELECT
+            a.id AS accountDbId,
+            a.account_id AS accountCode,
+            a.name AS accountName,
+            a.role AS role,
+            UPPER(c.code) AS currencyCode,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &lt; #{dateFrom} THEN t.amount
+                    ELSE 0
+                END
+            ), 0) AS bfAmount,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN t.amount
+                    ELSE 0
+                END
+            ), 0) AS winLossAmount,
+            COALESCE(SUM(
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN 1
+                    ELSE 0
+                END
+            ), 0) AS periodTxnCount
+        FROM transactions t
+        INNER JOIN account a ON a.id = t.account_id
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        WHERE t.tenant_id = #{tenantId}
+          AND t.bank_process_posted_id IS NULL
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_type = 'ADJUSTMENT'
+        <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+            AND UPPER(c.code) IN
+            <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                UPPER(#{code})
+            </foreach>
+        </if>
+        <if test="categories != null and categories.size() &gt; 0">
+            AND UPPER(a.role) IN
+            <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                UPPER(#{cat})
+            </foreach>
+        </if>
+        GROUP BY a.id, a.account_id, a.name, a.role, c.code
+        ORDER BY currencyCode ASC, accountCode ASC
+    </select>
+
+    <!-- Manual PROFIT: To (−) + From (+) → Win/Loss (not Cr/Dr) -->
+    <select id="aggregateManualProfitWinLoss" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
+        SELECT
+            x.accountDbId AS accountDbId,
+            x.accountCode AS accountCode,
+            x.accountName AS accountName,
+            x.role AS role,
+            x.currencyCode AS currencyCode,
+            COALESCE(SUM(x.bfPart), 0) AS bfAmount,
+            COALESCE(SUM(x.wlPart), 0) AS winLossAmount,
+            COALESCE(SUM(x.periodCnt), 0) AS periodTxnCount
+        FROM (
+            SELECT
+                a.id AS accountDbId,
+                a.account_id AS accountCode,
+                a.name AS accountName,
+                a.role AS role,
+                UPPER(c.code) AS currencyCode,
+                CASE
+                    WHEN t.transaction_date &lt; #{dateFrom} THEN -t.amount
+                    ELSE 0
+                END AS bfPart,
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN -t.amount
+                    ELSE 0
+                END AS wlPart,
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN 1
+                    ELSE 0
+                END AS periodCnt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.bank_process_posted_id IS NULL
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_type = 'PROFIT'
+            <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+                AND UPPER(c.code) IN
+                <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                    UPPER(#{code})
+                </foreach>
+            </if>
+            <if test="categories != null and categories.size() &gt; 0">
+                AND UPPER(a.role) IN
+                <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                    UPPER(#{cat})
+                </foreach>
+            </if>
+
+            UNION ALL
+
+            SELECT
+                a.id AS accountDbId,
+                a.account_id AS accountCode,
+                a.name AS accountName,
+                a.role AS role,
+                UPPER(c.code) AS currencyCode,
+                CASE
+                    WHEN t.transaction_date &lt; #{dateFrom} THEN t.amount
+                    ELSE 0
+                END AS bfPart,
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN t.amount
+                    ELSE 0
+                END AS wlPart,
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN 1
+                    ELSE 0
+                END AS periodCnt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.from_account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.from_account_id IS NOT NULL
+              AND t.bank_process_posted_id IS NULL
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_type = 'PROFIT'
+            <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+                AND UPPER(c.code) IN
+                <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                    UPPER(#{code})
+                </foreach>
+            </if>
+            <if test="categories != null and categories.size() &gt; 0">
+                AND UPPER(a.role) IN
+                <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                    UPPER(#{cat})
+                </foreach>
+            </if>
+        ) x
+        GROUP BY x.accountDbId, x.accountCode, x.accountName, x.role, x.currencyCode
+        ORDER BY currencyCode ASC, accountCode ASC
+    </select>
+
+    <!-- RATE Middle-Man: Fee = middleman-only +WL; Rate multiplier = To − / From + -->
+    <select id="aggregateManualRateMiddlemanWinLoss" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
+        SELECT
+            x.accountDbId AS accountDbId,
+            x.accountCode AS accountCode,
+            x.accountName AS accountName,
+            x.role AS role,
+            x.currencyCode AS currencyCode,
+            COALESCE(SUM(x.bfPart), 0) AS bfAmount,
+            COALESCE(SUM(x.wlPart), 0) AS winLossAmount,
+            COALESCE(SUM(x.periodCnt), 0) AS periodTxnCount
+        FROM (
+            <!-- Fee single-sided: account_id = middleman, from NULL → +amount -->
+            SELECT
+                a.id AS accountDbId,
+                a.account_id AS accountCode,
+                a.name AS accountName,
+                a.role AS role,
+                UPPER(c.code) AS currencyCode,
+                CASE
+                    WHEN t.transaction_date &lt; #{dateFrom} THEN t.amount
+                    ELSE 0
+                END AS bfPart,
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN t.amount
+                    ELSE 0
+                END AS wlPart,
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN 1
+                    ELSE 0
+                END AS periodCnt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.bank_process_posted_id IS NULL
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_type = 'RATE'
+              AND t.from_account_id IS NULL
+              AND <include refid="rateMiddlemanFeeDescription"/>
+              AND <include refid="rateMiddlemanFeeLeg"/>
+            <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+                AND UPPER(c.code) IN
+                <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                    UPPER(#{code})
+                </foreach>
+            </if>
+            <if test="categories != null and categories.size() &gt; 0">
+                AND UPPER(a.role) IN
+                <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                    UPPER(#{cat})
+                </foreach>
+            </if>
+
+            UNION ALL
+
+            <!-- Rate multiplier / legacy double-entry: To (−) -->
+            SELECT
+                a.id AS accountDbId,
+                a.account_id AS accountCode,
+                a.name AS accountName,
+                a.role AS role,
+                UPPER(c.code) AS currencyCode,
+                CASE
+                    WHEN t.transaction_date &lt; #{dateFrom} THEN -t.amount
+                    ELSE 0
+                END AS bfPart,
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN -t.amount
+                    ELSE 0
+                END AS wlPart,
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN 1
+                    ELSE 0
+                END AS periodCnt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.bank_process_posted_id IS NULL
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_type = 'RATE'
+              AND t.from_account_id IS NOT NULL
+              AND <include refid="rateMiddlemanFeeLeg"/>
+            <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+                AND UPPER(c.code) IN
+                <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                    UPPER(#{code})
+                </foreach>
+            </if>
+            <if test="categories != null and categories.size() &gt; 0">
+                AND UPPER(a.role) IN
+                <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                    UPPER(#{cat})
+                </foreach>
+            </if>
+
+            UNION ALL
+
+            <!-- Rate multiplier / legacy: From/middleman (+) -->
+            SELECT
+                a.id AS accountDbId,
+                a.account_id AS accountCode,
+                a.name AS accountName,
+                a.role AS role,
+                UPPER(c.code) AS currencyCode,
+                CASE
+                    WHEN t.transaction_date &lt; #{dateFrom} THEN t.amount
+                    ELSE 0
+                END AS bfPart,
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN t.amount
+                    ELSE 0
+                END AS wlPart,
+                CASE
+                    WHEN t.transaction_date &gt;= #{dateFrom}
+                     AND t.transaction_date &lt;= #{dateTo} THEN 1
+                    ELSE 0
+                END AS periodCnt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.from_account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.from_account_id IS NOT NULL
+              AND t.bank_process_posted_id IS NULL
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_type = 'RATE'
+              AND <include refid="rateMiddlemanFeeLeg"/>
+            <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+                AND UPPER(c.code) IN
+                <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                    UPPER(#{code})
+                </foreach>
+            </if>
+            <if test="categories != null and categories.size() &gt; 0">
+                AND UPPER(a.role) IN
+                <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                    UPPER(#{cat})
+                </foreach>
+            </if>
+        ) x
+        GROUP BY x.accountDbId, x.accountCode, x.accountName, x.role, x.currencyCode
+        ORDER BY currencyCode ASC, accountCode ASC
+    </select>
+
+    <!-- Account × currency matrix for Show all 0 balance (never-transacted shells). -->
+    <select id="findAccountCurrencyShells" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
+        SELECT
+            a.id AS accountDbId,
+            a.account_id AS accountCode,
+            a.name AS accountName,
+            a.role AS role,
+            UPPER(c.code) AS currencyCode,
+            0 AS bfAmount,
+            0 AS winLossAmount,
+            0 AS crDrAmount,
+            0 AS periodTxnCount
+        FROM account a
+        INNER JOIN account_tenant_access ata ON ata.account_id = a.id
+        INNER JOIN account_currency ac
+            ON ac.account_id = a.id
+           AND ac.tenant_id = ata.tenant_id
+        INNER JOIN currency c
+            ON c.id = ac.currency_id
+           AND c.tenant_id = ata.tenant_id
+        WHERE ata.tenant_id = #{tenantId}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM transactions t
+              WHERE t.tenant_id = #{tenantId}
+                AND t.approval_status = 'APPROVED'
+                AND t.currency_id = c.id
+                AND (t.account_id = a.id OR t.from_account_id = a.id)
+          )
+        <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+            AND UPPER(c.code) IN
+            <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                UPPER(#{code})
+            </foreach>
+        </if>
+        <if test="categories != null and categories.size() &gt; 0">
+            AND UPPER(a.role) IN
+            <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                UPPER(#{cat})
+            </foreach>
+        </if>
+        ORDER BY currencyCode ASC, accountCode ASC
+    </select>
+
+</mapper>

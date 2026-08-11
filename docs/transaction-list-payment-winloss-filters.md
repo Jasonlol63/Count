@@ -1,5 +1,7 @@
 # Transaction list filters — Show Payment / Show Win/Loss / Show all 0 balance
 
+> Win/Loss 数据源（Bank Process 记账 + Data Capture Summary Submit + 手动 Adjustment/Profit/Rate-middleman）的聚合实现见 [transaction-datacapture-winloss.md](./transaction-datacapture-winloss.md)。
+
 勾选筛选时的展示规则。修改筛选时同步更新本文档。
 
 ## 共同原则
@@ -18,7 +20,7 @@
 
 ## Show Win/Loss Only
 
-- 看 **Win/Loss**：Bank Process `WIN`/`LOSE`、`ADJUSTMENT`、`PROFIT`、RATE Middle-Man 等
+- 看 **Win/Loss**：Bank Process `WIN`/`LOSE`、**Data Capture Summary Submit `WIN`/`LOSE`**、`ADJUSTMENT`、`PROFIT`、RATE Middle-Man 等（详见 [transaction-datacapture-winloss.md](./transaction-datacapture-winloss.md)）
 - 判定：`win_loss` / `win_loss_full` 非 0，或 `hasWinLossInPeriod` → `has_win_loss_transactions`
 - **不**用 `has_period_id_product_rows`（避免 Payment-only 误入）
 

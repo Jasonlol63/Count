@@ -2,8 +2,10 @@ package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.CurrencyDao;
-import com.eazycount.dao.TransactionDao;
-import com.eazycount.dto.TransactionDTO;
+import com.eazycount.dao.TransactionSearchDao;
+import com.eazycount.dto.TransactionSearchAggregateRow;
+import com.eazycount.dto.TransactionSearchRequest;
+import com.eazycount.dto.TransactionSearchResult;
 import com.eazycount.entity.Currency;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
@@ -26,20 +28,21 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Transaction search: Bank Process (Win/Loss) and Domain Payment (Cr/Dr) are built separately,
+ * Transaction search: Win/Loss (Bank Process + Data Capture + manual Adjustment/Profit/Rate-middleman)
+ * and Domain Payment (Cr/Dr) are built separately,
  * then merged by {@link #searchList} so Domain rules do not leak into BP logic.
  */
 @Service
 public class TransactionSearchServiceImpl implements TransactionSearchService {
 
     @Autowired
-    private TransactionDao transactionDao;
+    private TransactionSearchDao transactionSearchDao;
 
     @Autowired
     private CurrencyDao currencyDao;
 
     @Override
-    public TransactionDTO.SearchResult searchList(TransactionDTO.SearchRequest request) {
+    public TransactionSearchResult searchList(TransactionSearchRequest request) {
         SessionUser session = SecurityUtils.currentUser();
         if (session == null) {
             throw new BusinessException("Not logged in");
@@ -58,30 +61,35 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         List<String> categories = normalizeUpperList(request.getCategories());
         Integer tenantId = request.getTenantId();
 
-        SearchSlice bank = buildBankProcessSearchSlice(tenantId, dateFrom, dateTo, currencyCodes, categories);
+        SearchSlice winLoss = buildWinLossSearchSlice(tenantId, dateFrom, dateTo, currencyCodes, categories);
         SearchSlice domain = buildDomainPaymentSearchSlice(tenantId, dateFrom, dateTo, currencyCodes, categories);
 
         boolean showAllZeroBalance = Boolean.TRUE.equals(request.getShowAllZeroBalance());
-        return mergeSearchSlices(tenantId, bank, domain, currencyCodes, categories, showAllZeroBalance);
+        return mergeSearchSlices(tenantId, winLoss, domain, currencyCodes, categories, showAllZeroBalance);
     }
 
-    // ── Bank Process (Win/Loss) ───────────────────────────────────────────────
-    private SearchSlice buildBankProcessSearchSlice(
+    // ── Win/Loss: Bank Process + Data Capture + manual Adjustment/Profit/Rate-middleman ─────────
+    private SearchSlice buildWinLossSearchSlice(
             Integer tenantId,
             LocalDate dateFrom,
             LocalDate dateTo,
             List<String> currencyCodes,
             List<String> categories) {
-        List<TransactionDTO.SearchAggregateRow> bankRows = transactionDao.aggregateBankProcessWinLoss(
+        List<TransactionSearchAggregateRow> bankRows = transactionSearchDao.aggregateBankProcessWinLoss(
                 tenantId, dateFrom, dateTo, currencyCodes, categories);
-        List<TransactionDTO.SearchAggregateRow> adjustmentRows = transactionDao.aggregateManualAdjustmentWinLoss(
+        List<TransactionSearchAggregateRow> dataCaptureRows = transactionSearchDao.aggregateDataCaptureWinLoss(
                 tenantId, dateFrom, dateTo, currencyCodes, categories);
-        List<TransactionDTO.SearchAggregateRow> profitRows = transactionDao.aggregateManualProfitWinLoss(
+        List<TransactionSearchAggregateRow> adjustmentRows = transactionSearchDao.aggregateManualAdjustmentWinLoss(
                 tenantId, dateFrom, dateTo, currencyCodes, categories);
-        List<TransactionDTO.SearchAggregateRow> rateMiddlemanRows = transactionDao.aggregateManualRateMiddlemanWinLoss(
+        List<TransactionSearchAggregateRow> profitRows = transactionSearchDao.aggregateManualProfitWinLoss(
+                tenantId, dateFrom, dateTo, currencyCodes, categories);
+        List<TransactionSearchAggregateRow> rateMiddlemanRows = transactionSearchDao.aggregateManualRateMiddlemanWinLoss(
                 tenantId, dateFrom, dateTo, currencyCodes, categories);
         if (bankRows == null) {
             bankRows = List.of();
+        }
+        if (dataCaptureRows == null) {
+            dataCaptureRows = List.of();
         }
         if (adjustmentRows == null) {
             adjustmentRows = List.of();
@@ -92,38 +100,39 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         if (rateMiddlemanRows == null) {
             rateMiddlemanRows = List.of();
         }
-        List<TransactionDTO.SearchAggregateRow> combined = mergeWinLossAggregateRows(bankRows, adjustmentRows);
+        List<TransactionSearchAggregateRow> combined = mergeWinLossAggregateRows(bankRows, dataCaptureRows);
+        combined = mergeWinLossAggregateRows(combined, adjustmentRows);
         combined = mergeWinLossAggregateRows(combined, profitRows);
         combined = mergeWinLossAggregateRows(combined, rateMiddlemanRows);
         return new SearchSlice(combined, true);
     }
 
-    private static List<TransactionDTO.SearchAggregateRow> mergeWinLossAggregateRows(List<TransactionDTO.SearchAggregateRow> first, List<TransactionDTO.SearchAggregateRow> second) {
-        Map<String, TransactionDTO.SearchAggregateRow> merged = new HashMap<>();
-        for (TransactionDTO.SearchAggregateRow row : first) {
+    private static List<TransactionSearchAggregateRow> mergeWinLossAggregateRows(List<TransactionSearchAggregateRow> first, List<TransactionSearchAggregateRow> second) {
+        Map<String, TransactionSearchAggregateRow> merged = new HashMap<>();
+        for (TransactionSearchAggregateRow row : first) {
             absorbWinLossAggregate(merged, row);
         }
-        for (TransactionDTO.SearchAggregateRow row : second) {
+        for (TransactionSearchAggregateRow row : second) {
             absorbWinLossAggregate(merged, row);
         }
         return merged.values().stream()
                 .sorted(Comparator
-                        .comparing(TransactionDTO.SearchAggregateRow::getCurrencyCode,
+                        .comparing(TransactionSearchAggregateRow::getCurrencyCode,
                                 Comparator.nullsLast(String::compareTo))
-                        .thenComparing(TransactionDTO.SearchAggregateRow::getAccountCode,
+                        .thenComparing(TransactionSearchAggregateRow::getAccountCode,
                                 Comparator.nullsLast(String::compareTo)))
                 .toList();
     }
 
-    private static void absorbWinLossAggregate(Map<String, TransactionDTO.SearchAggregateRow> merged, TransactionDTO.SearchAggregateRow row) {
+    private static void absorbWinLossAggregate(Map<String, TransactionSearchAggregateRow> merged, TransactionSearchAggregateRow row) {
         if (row == null || row.getAccountDbId() == null) {
             return;
         }
         String key = row.getAccountDbId() + "|"
                 + trimToEmpty(row.getCurrencyCode()).toUpperCase(Locale.ROOT);
-        TransactionDTO.SearchAggregateRow existing = merged.get(key);
+        TransactionSearchAggregateRow existing = merged.get(key);
         if (existing == null) {
-            TransactionDTO.SearchAggregateRow copy = new TransactionDTO.SearchAggregateRow();
+            TransactionSearchAggregateRow copy = new TransactionSearchAggregateRow();
             copy.setAccountDbId(row.getAccountDbId());
             copy.setAccountCode(row.getAccountCode());
             copy.setAccountName(row.getAccountName());
@@ -146,8 +155,9 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
     }
 
     // ── Domain Payment (Cr/Dr) ────────────────────────────────────────────────
-    private SearchSlice buildDomainPaymentSearchSlice(Integer tenantId, LocalDate dateFrom, LocalDate dateTo, List<String> currencyCodes, List<String> categories) {
-        List<TransactionDTO.SearchAggregateRow> domainRows = transactionDao.aggregateDomainPaymentCrDr(tenantId, dateFrom, dateTo, currencyCodes, categories);
+    private SearchSlice buildDomainPaymentSearchSlice(Integer tenantId, LocalDate dateFrom, LocalDate dateTo,
+                                                      List<String> currencyCodes, List<String> categories) {
+        List<TransactionSearchAggregateRow> domainRows = transactionSearchDao.aggregateDomainPaymentCrDr(tenantId, dateFrom, dateTo, currencyCodes, categories);
         if (domainRows == null) {
             domainRows = List.of();
         }
@@ -155,24 +165,24 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
     }
 
     // ── Merge / present ───────────────────────────────────────────────────────
-    private TransactionDTO.SearchResult mergeSearchSlices(
+    private TransactionSearchResult mergeSearchSlices(
             Integer tenantId,
-            SearchSlice bank,
+            SearchSlice winLoss,
             SearchSlice domain,
             List<String> currencyCodes,
             List<String> categories,
             boolean showAllZeroBalance) {
         Map<String, MergedAccount> merged = new HashMap<>();
-        applyBankAggregates(merged, bank.aggregates());
+        applyWinLossAggregates(merged, winLoss.aggregates());
         applyDomainAggregates(merged, domain.aggregates());
 
         if (showAllZeroBalance) {
-            List<TransactionDTO.SearchAggregateRow> shells = transactionDao.findAccountCurrencyShells(
+            List<TransactionSearchAggregateRow> shells = transactionSearchDao.findAccountCurrencyShells(
                     tenantId, currencyCodes, categories);
             applyNeverTransactedShells(merged, shells);
         }
 
-        List<TransactionDTO.SearchRow> rows = new ArrayList<>();
+        List<TransactionSearchResult.Row> rows = new ArrayList<>();
         BigDecimal totalBf = BigDecimal.ZERO;
         BigDecimal totalWl = BigDecimal.ZERO;
         BigDecimal totalCr = BigDecimal.ZERO;
@@ -180,7 +190,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         for (MergedAccount agg : merged.values()) {
             // Domain-only all-zero with no period activity (e.g. only historical NET PROFIT) → hide
             // Never-transacted shells are kept when showAllZeroBalance requested them.
-            if (!agg.fromBank
+            if (!agg.fromWinLoss
                     && !agg.neverTransacted
                     && agg.periodCrDrCount <= 0
                     && agg.bf.compareTo(BigDecimal.ZERO) == 0
@@ -190,7 +200,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
 
             BigDecimal balance = TransactionMoneyFormat.add(TransactionMoneyFormat.add(agg.bf, agg.winLoss), agg.crDr);
 
-            TransactionDTO.SearchRow row = new TransactionDTO.SearchRow();
+            TransactionSearchResult.Row row = new TransactionSearchResult.Row();
             row.setAccountId(agg.accountDbId);
             row.setAccountCode(trimToEmpty(agg.accountCode));
             row.setAccountName(trimToEmpty(agg.accountName));
@@ -212,17 +222,17 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         }
 
         rows.sort(Comparator
-                .comparing(TransactionDTO.SearchRow::getCurrencyCode, Comparator.nullsLast(String::compareTo))
-                .thenComparing(TransactionDTO.SearchRow::getAccountCode, Comparator.nullsLast(String::compareTo)));
+                .comparing(TransactionSearchResult.Row::getCurrencyCode, Comparator.nullsLast(String::compareTo))
+                .thenComparing(TransactionSearchResult.Row::getAccountCode, Comparator.nullsLast(String::compareTo)));
 
-        TransactionDTO.SearchTotals totals = new TransactionDTO.SearchTotals();
+        TransactionSearchResult.Totals totals = new TransactionSearchResult.Totals();
         totals.setBf(TransactionMoneyFormat.formatMoney(totalBf));
         totals.setWinLoss(TransactionMoneyFormat.formatMoney(totalWl));
         totals.setCrDr(TransactionMoneyFormat.formatMoney(totalCr));
         totals.setBalance(TransactionMoneyFormat.formatMoney(
                 TransactionMoneyFormat.add(TransactionMoneyFormat.add(totalBf, totalWl), totalCr)));
 
-        TransactionDTO.SearchResult result = new TransactionDTO.SearchResult();
+        TransactionSearchResult result = new TransactionSearchResult();
         result.setRows(rows);
         result.setTotals(totals);
         result.setActiveCurrencyCodes(resolveActiveCurrencyCodes(tenantId, rows));
@@ -231,11 +241,11 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
 
     private static void applyNeverTransactedShells(
             Map<String, MergedAccount> merged,
-            List<TransactionDTO.SearchAggregateRow> shells) {
+            List<TransactionSearchAggregateRow> shells) {
         if (shells == null) {
             return;
         }
-        for (TransactionDTO.SearchAggregateRow shell : shells) {
+        for (TransactionSearchAggregateRow shell : shells) {
             if (shell == null || shell.getAccountDbId() == null) {
                 continue;
             }
@@ -249,21 +259,21 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         }
     }
 
-    private static void applyBankAggregates(Map<String, MergedAccount> merged, List<TransactionDTO.SearchAggregateRow> bankRows) {
-        for (TransactionDTO.SearchAggregateRow agg : bankRows) {
+    private static void applyWinLossAggregates(Map<String, MergedAccount> merged, List<TransactionSearchAggregateRow> winLossRows) {
+        for (TransactionSearchAggregateRow agg : winLossRows) {
             if (agg == null || agg.getAccountDbId() == null) {
                 continue;
             }
             MergedAccount row = merged.computeIfAbsent(mergeKey(agg), k -> baseMerged(agg));
-            row.fromBank = true;
+            row.fromWinLoss = true;
             row.bf = row.bf.add(TransactionMoneyFormat.nz(agg.getBfAmount()));
             row.winLoss = row.winLoss.add(TransactionMoneyFormat.nz(agg.getWinLossAmount()));
             row.periodWinLossCount += agg.getPeriodTxnCount() != null ? agg.getPeriodTxnCount() : 0;
         }
     }
 
-    private static void applyDomainAggregates(Map<String, MergedAccount> merged, List<TransactionDTO.SearchAggregateRow> domainRows) {
-        for (TransactionDTO.SearchAggregateRow agg : domainRows) {
+    private static void applyDomainAggregates(Map<String, MergedAccount> merged, List<TransactionSearchAggregateRow> domainRows) {
+        for (TransactionSearchAggregateRow agg : domainRows) {
             if (agg == null || agg.getAccountDbId() == null) {
                 continue;
             }
@@ -275,11 +285,11 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         }
     }
 
-    private static String mergeKey(TransactionDTO.SearchAggregateRow agg) {
+    private static String mergeKey(TransactionSearchAggregateRow agg) {
         return agg.getAccountDbId() + "|" + trimToEmpty(agg.getCurrencyCode()).toUpperCase(Locale.ROOT);
     }
 
-    private static MergedAccount baseMerged(TransactionDTO.SearchAggregateRow agg) {
+    private static MergedAccount baseMerged(TransactionSearchAggregateRow agg) {
         MergedAccount row = new MergedAccount();
         row.accountDbId = agg.getAccountDbId();
         row.accountCode = agg.getAccountCode();
@@ -292,7 +302,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         return row;
     }
 
-    private List<String> resolveActiveCurrencyCodes(Integer tenantId, List<TransactionDTO.SearchRow> rows) {
+    private List<String> resolveActiveCurrencyCodes(Integer tenantId, List<TransactionSearchResult.Row> rows) {
         Set<String> codes = new LinkedHashSet<>();
         List<Currency> tenantCurrencies = currencyDao.findCurrencyByTenantId(tenantId);
         if (tenantCurrencies != null) {
@@ -302,7 +312,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
                 }
             }
         }
-        for (TransactionDTO.SearchRow row : rows) {
+        for (TransactionSearchResult.Row row : rows) {
             if (row.getCurrencyCode() != null && !row.getCurrencyCode().isBlank()) {
                 codes.add(row.getCurrencyCode().trim().toUpperCase(Locale.ROOT));
             }
@@ -332,8 +342,8 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         return value != null ? value.trim() : "";
     }
 
-    /* One source's aggregates before merge ({@code bankProcess=true} → Win/Loss path). */
-    private record SearchSlice(List<TransactionDTO.SearchAggregateRow> aggregates, boolean bankProcess) {
+    /* One source's aggregates before merge ({@code isWinLossSource=true} → Win/Loss path). */
+    private record SearchSlice(List<TransactionSearchAggregateRow> aggregates, boolean isWinLossSource) {
     }
 
     private static final class MergedAccount {
@@ -347,7 +357,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         private BigDecimal crDr;
         private int periodWinLossCount;
         private int periodCrDrCount;
-        private boolean fromBank;
+        private boolean fromWinLoss;
         private boolean fromDomain;
         private boolean neverTransacted;
     }

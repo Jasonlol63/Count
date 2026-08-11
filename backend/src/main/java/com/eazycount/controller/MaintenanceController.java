@@ -1,7 +1,8 @@
 package com.eazycount.controller;
 
 import com.eazycount.common.BusinessException;
-import com.eazycount.dto.TransactionDTO;
+import com.eazycount.dto.MaintenanceBankProcessDTO;
+import com.eazycount.dto.MaintenancePaymentDTO;
 import com.eazycount.service.MaintenanceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -23,9 +24,9 @@ public class MaintenanceController {
 
     @PostMapping("/payment-maintenance/list")
     public ResponseEntity<Map<String, Object>> listPaymentMaintenance(
-            @RequestBody TransactionDTO.PaymentMaintenanceRequest request) {
+            @RequestBody MaintenancePaymentDTO request) {
         try {
-            List<TransactionDTO.PaymentMaintenanceRow> rows =
+            List<MaintenancePaymentDTO> rows =
                     maintenanceService.findPaymentMaintenanceRows(request);
             return ResponseEntity.ok(Map.of(
                     "success", true,
@@ -38,7 +39,7 @@ public class MaintenanceController {
 
     @PostMapping("/payment-maintenance/delete")
     public ResponseEntity<Map<String, Object>> deletePaymentMaintenance(
-            @RequestBody TransactionDTO.PaymentMaintenanceDeleteRequest request) {
+            @RequestBody MaintenancePaymentDTO request) {
         try {
             maintenanceService.deletePaymentMaintenanceRows(request);
             final Map<String, Object> body = new LinkedHashMap<>();
@@ -53,9 +54,9 @@ public class MaintenanceController {
 
     @PostMapping("/bankprocess-maintenance/list")
     public ResponseEntity<Map<String, Object>> listBankProcessMaintenance(
-            @RequestBody TransactionDTO.BankProcessMaintenanceRequest request) {
+            @RequestBody MaintenanceBankProcessDTO request) {
         try {
-            List<TransactionDTO.BankProcessMaintenanceRow> rows =
+            List<MaintenanceBankProcessDTO> rows =
                     maintenanceService.findBankProcessMaintenanceRows(request);
             return ResponseEntity.ok(Map.of(
                     "success", true,
@@ -68,7 +69,7 @@ public class MaintenanceController {
 
     @PostMapping("/bankprocess-maintenance/delete")
     public ResponseEntity<Map<String, Object>> deleteBankProcessMaintenance(
-            @RequestBody TransactionDTO.BankProcessMaintenanceDeleteRequest request) {
+            @RequestBody MaintenanceBankProcessDTO request) {
         try {
             maintenanceService.deleteBankProcessMaintenanceRows(request);
             final Map<String, Object> body = new LinkedHashMap<>();

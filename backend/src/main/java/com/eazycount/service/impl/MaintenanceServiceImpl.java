@@ -2,9 +2,10 @@ package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.BankProcessResendDao;
-import com.eazycount.dao.TransactionDao;
+import com.eazycount.dao.MaintenanceDao;
 import com.eazycount.dao.TransactionRateDao;
-import com.eazycount.dto.TransactionDTO;
+import com.eazycount.dto.MaintenanceBankProcessDTO;
+import com.eazycount.dto.MaintenancePaymentDTO;
 import com.eazycount.entity.Transaction;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
@@ -30,26 +31,26 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     private static final Set<String> BANK_PROCESS_MAINTENANCE_TYPES = Set.of("WIN", "LOSE");
 
-    private static final Comparator<TransactionDTO.PaymentMaintenanceRow> ROW_ORDER =
+    private static final Comparator<MaintenancePaymentDTO> ROW_ORDER =
             Comparator
                     .comparing(
-                            TransactionDTO.PaymentMaintenanceRow::getCreatedAt,
+                            MaintenancePaymentDTO::getCreatedAt,
                             Comparator.nullsLast(Comparator.reverseOrder()))
                     .thenComparing(
-                            TransactionDTO.PaymentMaintenanceRow::getId,
+                            MaintenancePaymentDTO::getId,
                             Comparator.nullsLast(Comparator.reverseOrder()));
 
-    private static final Comparator<TransactionDTO.BankProcessMaintenanceRow> BP_ROW_ORDER =
+    private static final Comparator<MaintenanceBankProcessDTO> BP_ROW_ORDER =
             Comparator
                     .comparing(
-                            TransactionDTO.BankProcessMaintenanceRow::getCreatedAt,
+                            MaintenanceBankProcessDTO::getCreatedAt,
                             Comparator.nullsLast(Comparator.reverseOrder()))
                     .thenComparing(
-                            TransactionDTO.BankProcessMaintenanceRow::getId,
+                            MaintenanceBankProcessDTO::getId,
                             Comparator.nullsLast(Comparator.reverseOrder()));
 
     @Autowired
-    private TransactionDao transactionDao;
+    private MaintenanceDao maintenanceDao;
 
     @Autowired
     private TransactionRateDao transactionRateDao;
@@ -58,21 +59,21 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     private BankProcessResendDao bankProcessResendDao;
 
     @Override
-    public List<TransactionDTO.PaymentMaintenanceRow> findPaymentMaintenanceRows(
-            TransactionDTO.PaymentMaintenanceRequest request) {
+    public List<MaintenancePaymentDTO> findPaymentMaintenanceRows(
+            MaintenancePaymentDTO request) {
         requireLoggedIn();
         ListQuery query = parseListQuery(request);
 
-        List<TransactionDTO.PaymentMaintenanceRow> live =
-                transactionDao.findPaymentMaintenanceRows(
+        List<MaintenancePaymentDTO> live =
+                maintenanceDao.findPaymentMaintenanceRows(
                         query.tenantId(),
                         query.dateFrom(),
                         query.dateTo(),
                         query.transactionType(),
                         query.currencyCodes(),
                         query.q());
-        List<TransactionDTO.PaymentMaintenanceRow> archived =
-                transactionDao.findPaymentMaintenanceDeletedRows(
+        List<MaintenancePaymentDTO> archived =
+                maintenanceDao.findPaymentMaintenanceDeletedRows(
                         query.tenantId(),
                         query.dateFrom(),
                         query.dateTo(),
@@ -80,7 +81,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                         query.currencyCodes(),
                         query.q());
 
-        List<TransactionDTO.PaymentMaintenanceRow> rows = new ArrayList<>(live.size() + archived.size());
+        List<MaintenancePaymentDTO> rows = new ArrayList<>(live.size() + archived.size());
         rows.addAll(live);
         rows.addAll(archived);
         rows.sort(ROW_ORDER);
@@ -88,27 +89,27 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     @Override
-    public List<TransactionDTO.BankProcessMaintenanceRow> findBankProcessMaintenanceRows(
-            TransactionDTO.BankProcessMaintenanceRequest request) {
+    public List<MaintenanceBankProcessDTO> findBankProcessMaintenanceRows(
+            MaintenanceBankProcessDTO request) {
         requireLoggedIn();
         BankProcessListQuery query = parseBankProcessListQuery(request);
 
-        List<TransactionDTO.BankProcessMaintenanceRow> live =
-                transactionDao.findBankProcessMaintenanceRows(
+        List<MaintenanceBankProcessDTO> live =
+                maintenanceDao.findBankProcessMaintenanceRows(
                         query.tenantId(),
                         query.dateFrom(),
                         query.dateTo(),
                         query.currencyCodes(),
                         query.q());
-        List<TransactionDTO.BankProcessMaintenanceRow> archived =
-                transactionDao.findBankProcessMaintenanceDeletedRows(
+        List<MaintenanceBankProcessDTO> archived =
+                maintenanceDao.findBankProcessMaintenanceDeletedRows(
                         query.tenantId(),
                         query.dateFrom(),
                         query.dateTo(),
                         query.currencyCodes(),
                         query.q());
 
-        List<TransactionDTO.BankProcessMaintenanceRow> rows =
+        List<MaintenanceBankProcessDTO> rows =
                 new ArrayList<>(live.size() + archived.size());
         rows.addAll(live);
         rows.addAll(archived);
@@ -119,7 +120,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Override
     @Transactional
     public void deletePaymentMaintenanceRows(
-            TransactionDTO.PaymentMaintenanceDeleteRequest request) {
+            MaintenancePaymentDTO request) {
         SessionUser session = requireWritableSession();
         int tenantId = requireTenantId(request);
         List<Integer> requestedIds = requireTransactionIds(request);
@@ -130,7 +131,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
 
         String deletedBy = session.login_id.trim();
-        int archived = transactionDao.archivePaymentMaintenanceToDeleted(
+        int archived = maintenanceDao.archivePaymentMaintenanceToDeleted(
                 tenantId, batch.ids(), deletedBy);
         if (archived <= 0) {
             throw new BusinessException("Failed to archive payment maintenance records");
@@ -140,20 +141,16 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             transactionRateDao.deleteByTenantIdAndRateGroupIds(tenantId, batch.rateGroupIds());
         }
 
-        int removed = transactionDao.deleteByIdsAndTenantId(tenantId, batch.ids());
+        int removed = maintenanceDao.deleteByIdsAndTenantId(tenantId, batch.ids());
         if (removed <= 0) {
             throw new BusinessException("Failed to delete payment maintenance records");
         }
-
-        TransactionDTO.PaymentMaintenanceDeleteResult result =
-                new TransactionDTO.PaymentMaintenanceDeleteResult();
-        result.setDeleted(removed);
     }
 
     @Override
     @Transactional
     public void deleteBankProcessMaintenanceRows(
-            TransactionDTO.BankProcessMaintenanceDeleteRequest request) {
+            MaintenanceBankProcessDTO request) {
         SessionUser session = requireWritableSession();
         int tenantId = requireTenantId(request);
         List<Integer> requestedIds = requireTransactionIds(request);
@@ -164,7 +161,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
 
         String deletedBy = session.login_id.trim();
-        int archived = transactionDao.archiveBankProcessMaintenanceToDeleted(
+        int archived = maintenanceDao.archiveBankProcessMaintenanceToDeleted(
                 tenantId, batch.ids(), deletedBy);
         if (archived <= 0) {
             throw new BusinessException("Failed to archive bank process maintenance records");
@@ -175,19 +172,15 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                     tenantId, batch.bankProcessIds());
         }
 
-        int removed = transactionDao.deleteByIdsAndTenantId(tenantId, batch.ids());
+        int removed = maintenanceDao.deleteByIdsAndTenantId(tenantId, batch.ids());
         if (removed <= 0) {
             throw new BusinessException("Failed to delete bank process maintenance records");
         }
-
-        TransactionDTO.PaymentMaintenanceDeleteResult result =
-                new TransactionDTO.PaymentMaintenanceDeleteResult();
-        result.setDeleted(removed);
     }
 
     private BankProcessDeletableBatch resolveBankProcessDeletableBatch(
             int tenantId, List<Integer> requestedIds) {
-        List<Transaction> selected = transactionDao.findByIdsAndTenantId(tenantId, requestedIds);
+        List<Transaction> selected = maintenanceDao.findByIdsAndTenantId(tenantId, requestedIds);
         List<Integer> ids = filterBankProcessDeletableIds(selected);
         if (ids.isEmpty()) {
             return new BankProcessDeletableBatch(List.of(), List.of());
@@ -197,12 +190,12 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (!postedIds.isEmpty()) {
             Set<Integer> expanded = new LinkedHashSet<>(ids);
             expanded.addAll(
-                    transactionDao.findBankProcessMaintenanceIdsByPostedIds(tenantId, postedIds));
+                    maintenanceDao.findBankProcessMaintenanceIdsByPostedIds(tenantId, postedIds));
             ids = new ArrayList<>(expanded);
         }
 
         List<Integer> bankProcessIds =
-                transactionDao.findBankProcessIdsByTransactionIds(tenantId, ids);
+                maintenanceDao.findBankProcessIdsByTransactionIds(tenantId, ids);
         return new BankProcessDeletableBatch(ids, bankProcessIds);
     }
 
@@ -249,7 +242,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     private DeletableBatch resolveDeletableBatch(int tenantId, List<Integer> requestedIds) {
-        List<Transaction> selected = transactionDao.findByIdsAndTenantId(tenantId, requestedIds);
+        List<Transaction> selected = maintenanceDao.findByIdsAndTenantId(tenantId, requestedIds);
         List<Integer> ids = filterDeletableIds(selected);
         if (ids.isEmpty()) {
             return new DeletableBatch(List.of(), List.of());
@@ -258,7 +251,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         List<String> rateGroupIds = rateGroupIdsFrom(selected, ids);
         if (!rateGroupIds.isEmpty()) {
             Set<Integer> expanded = new LinkedHashSet<>(ids);
-            expanded.addAll(transactionDao.findPaymentMaintenanceIdsByRateGroupIds(tenantId, rateGroupIds));
+            expanded.addAll(maintenanceDao.findPaymentMaintenanceIdsByRateGroupIds(tenantId, rateGroupIds));
             ids = new ArrayList<>(expanded);
         }
 
@@ -304,7 +297,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return new ArrayList<>(rateGroupIds);
     }
 
-    private static ListQuery parseListQuery(TransactionDTO.PaymentMaintenanceRequest request) {
+    private static ListQuery parseListQuery(MaintenancePaymentDTO request) {
         if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
             throw new BusinessException("Invalid tenant id");
         }
@@ -323,7 +316,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     private static BankProcessListQuery parseBankProcessListQuery(
-            TransactionDTO.BankProcessMaintenanceRequest request) {
+            MaintenanceBankProcessDTO request) {
         if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
             throw new BusinessException("Invalid tenant id");
         }
@@ -360,14 +353,14 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return session;
     }
 
-    private static int requireTenantId(TransactionDTO.PaymentMaintenanceDeleteRequest request) {
+    private static int requireTenantId(MaintenancePaymentDTO request) {
         if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
             throw new BusinessException("Invalid tenant id");
         }
         return request.getTenantId();
     }
 
-    private static int requireTenantId(TransactionDTO.BankProcessMaintenanceDeleteRequest request) {
+    private static int requireTenantId(MaintenanceBankProcessDTO request) {
         if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
             throw new BusinessException("Invalid tenant id");
         }
@@ -375,7 +368,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     private static List<Integer> requireTransactionIds(
-            TransactionDTO.PaymentMaintenanceDeleteRequest request) {
+            MaintenancePaymentDTO request) {
         List<Integer> ids = normalizeIds(request != null ? request.getTransactionIds() : null);
         if (ids.isEmpty()) {
             throw new BusinessException("Please select at least one record");
@@ -384,7 +377,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     private static List<Integer> requireTransactionIds(
-            TransactionDTO.BankProcessMaintenanceDeleteRequest request) {
+            MaintenanceBankProcessDTO request) {
         List<Integer> ids = normalizeIds(request != null ? request.getTransactionIds() : null);
         if (ids.isEmpty()) {
             throw new BusinessException("Please select at least one record");

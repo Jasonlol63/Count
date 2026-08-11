@@ -1,11 +1,12 @@
 package com.eazycount.service;
 
-import com.eazycount.dto.TransactionDTO;
+import com.eazycount.dto.TransactionSearchRequest;
+import com.eazycount.dto.TransactionSearchResult;
 
 public interface TransactionSearchService {
 
     /**
      * Transaction search grid: Bank Process (Win/Loss) + Domain Payment (Cr/Dr).
      */
-    TransactionDTO.SearchResult searchList(TransactionDTO.SearchRequest request);
+    TransactionSearchResult searchList(TransactionSearchRequest request);
 }
