@@ -6,6 +6,7 @@ import com.eazycount.dao.MaintenanceDao;
 import com.eazycount.dao.TransactionRateDao;
 import com.eazycount.dto.MaintenanceBankProcessDTO;
 import com.eazycount.dto.MaintenancePaymentDTO;
+import com.eazycount.dto.MaintenanceTransactionDTO;
 import com.eazycount.entity.Transaction;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
@@ -49,6 +50,13 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                             MaintenanceBankProcessDTO::getId,
                             Comparator.nullsLast(Comparator.reverseOrder()));
 
+    private static final Comparator<MaintenanceTransactionDTO> TC_ROW_ORDER =
+            Comparator
+                    .comparing(MaintenanceTransactionDTO::getDtsCreated,
+                               Comparator.nullsLast(Comparator.reverseOrder()))
+                    .thenComparing(MaintenanceTransactionDTO::getId,
+                                   Comparator.nullsLast(Comparator.reverseOrder()));
+
     @Autowired
     private MaintenanceDao maintenanceDao;
 
@@ -57,6 +65,22 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     @Autowired
     private BankProcessResendDao bankProcessResendDao;
+
+    @Override
+    public List<MaintenanceTransactionDTO> findMaintenanceTransactionsRows(MaintenanceTransactionDTO mt) {
+        requireLoggedIn();
+        TransactionListQuery query = parseTransactionListQuery(mt);
+
+        List<MaintenanceTransactionDTO> rows = maintenanceDao.findTransactionLineMaintenanceRows(
+                query.tenantId(),
+                query.dateFrom(),
+                query.dateTo(),
+                query.process(),
+                query.category(),
+                query.q());
+        rows.sort(TC_ROW_ORDER);
+        return rows;
+    }
 
     @Override
     public List<MaintenancePaymentDTO> findPaymentMaintenanceRows(
@@ -333,6 +357,39 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 normalizeQ(request.getQ()));
     }
 
+    private static TransactionListQuery parseTransactionListQuery(MaintenanceTransactionDTO request) {
+        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
+            throw new BusinessException("Invalid tenant id");
+        }
+        LocalDate dateFrom = TransactionDateParse.parseRequired(request.getDateFrom(), "dateFrom");
+        LocalDate dateTo = TransactionDateParse.parseRequired(request.getDateTo(), "dateTo");
+        if (dateTo.isBefore(dateFrom)) {
+            throw new BusinessException("dateTo must be on or after dateFrom");
+        }
+        return new TransactionListQuery(
+                request.getTenantId(),
+                dateFrom,
+                dateTo,
+                normalizeQ(request.getProcess()),
+                normalizeTransactionCategory(request.getCategory()),
+                normalizeQ(request.getQ()));
+    }
+
+    // Games/Gambling/Loan/Rate/Money share the GAME data_captures.category; Bank maps to BANK.
+    // Required (never defaulted): a missing/unrecognized category would let GAME and BANK rows mix in one response.
+    private static String normalizeTransactionCategory(String raw) {
+        String category = trimToNull(raw);
+        if (category == null) {
+            throw new BusinessException("category is required");
+        }
+        String lower = category.toLowerCase(Locale.ROOT);
+        return switch (lower) {
+            case "games", "gambling", "loan", "rate", "money" -> "GAME";
+            case "bank" -> "BANK";
+            default -> throw new BusinessException("Unsupported category: " + category);
+        };
+    }
+
     private static void requireLoggedIn() {
         if (SecurityUtils.currentUser() == null) {
             throw new BusinessException("Not logged in");
@@ -398,6 +455,14 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             LocalDate dateFrom,
             LocalDate dateTo,
             List<String> currencyCodes,
+            String q) {}
+
+    private record TransactionListQuery(
+            Integer tenantId,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            String process,
+            String category,
             String q) {}
 
     private record DeletableBatch(List<Integer> ids, List<String> rateGroupIds) {}

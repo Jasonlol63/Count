@@ -2,6 +2,7 @@ package com.eazycount.dao;
 
 import com.eazycount.dto.MaintenanceBankProcessDTO;
 import com.eazycount.dto.MaintenancePaymentDTO;
+import com.eazycount.dto.MaintenanceTransactionDTO;
 import com.eazycount.entity.Transaction;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -76,5 +77,14 @@ public interface MaintenanceDao {
             @Param("dateFrom") LocalDate dateFrom,
             @Param("dateTo") LocalDate dateTo,
             @Param("currencyCodes") List<String> currencyCodes,
+            @Param("q") String q);
+
+    // Transaction Maintenance (view-only): every data_capture_line row, MAIN+SUB, one category (GAME/BANK) at a time.
+    List<MaintenanceTransactionDTO> findTransactionLineMaintenanceRows(
+            @Param("tenantId") Integer tenantId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("process") String process,
+            @Param("category") String category,
             @Param("q") String q);
 }

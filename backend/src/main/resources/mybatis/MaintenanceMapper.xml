@@ -53,40 +53,14 @@
     <!-- Copy live Payment Maintenance rows into archive (excludes Bank Process posted lines). -->
     <insert id="archivePaymentMaintenanceToDeleted">
         INSERT INTO transactions_deleted (
-            transaction_id,
-            tenant_id,
-            transaction_type,
-            account_id,
-            from_account_id,
-            currency_id,
-            amount,
-            transaction_date,
-            description,
-            remark,
-            created_by,
-            created_at,
-            deleted_by,
-            deleted_at,
-            bank_process_posted_id,
-            rate_group_id
+            transaction_id, tenant_id, transaction_type, account_id, from_account_id, currency_id, amount,
+            transaction_date, description, remark, created_by, created_at, deleted_by, deleted_at,
+            bank_process_posted_id, rate_group_id
         )
         SELECT
-            t.id,
-            t.tenant_id,
-            t.transaction_type,
-            t.account_id,
-            t.from_account_id,
-            t.currency_id,
-            t.amount,
-            t.transaction_date,
-            t.description,
-            t.remark,
-            t.created_by,
-            t.created_at,
-            #{deletedBy},
-            NOW(),
-            t.bank_process_posted_id,
-            t.rate_group_id
+            t.id, t.tenant_id, t.transaction_type, t.account_id, t.from_account_id, t.currency_id, t.amount,
+            t.transaction_date, t.description, t.remark, t.created_by, t.created_at,  #{deletedBy}, NOW(),
+            t.bank_process_posted_id, t.rate_group_id
         FROM transactions t
         WHERE t.tenant_id = #{tenantId}
           AND t.bank_process_posted_id IS NULL
@@ -100,40 +74,13 @@
     <!-- Copy live Bank Process Maintenance rows into archive (posted WIN/LOSE only). -->
     <insert id="archiveBankProcessMaintenanceToDeleted">
         INSERT INTO transactions_deleted (
-            transaction_id,
-            tenant_id,
-            transaction_type,
-            account_id,
-            from_account_id,
-            currency_id,
-            amount,
-            transaction_date,
-            description,
-            remark,
-            created_by,
-            created_at,
-            deleted_by,
-            deleted_at,
-            bank_process_posted_id,
-            rate_group_id
-        )
+            transaction_id, tenant_id, transaction_type, account_id, from_account_id, currency_id, amount,
+            transaction_date, description, remark, created_by, created_at, deleted_by, deleted_at,
+            bank_process_posted_id, rate_group_id )
         SELECT
-            t.id,
-            t.tenant_id,
-            t.transaction_type,
-            t.account_id,
-            t.from_account_id,
-            t.currency_id,
-            t.amount,
-            t.transaction_date,
-            t.description,
-            t.remark,
-            t.created_by,
-            t.created_at,
-            #{deletedBy},
-            NOW(),
-            t.bank_process_posted_id,
-            t.rate_group_id
+            t.id, t.tenant_id, t.transaction_type, t.account_id, t.from_account_id, t.currency_id, t.amount,
+            t.transaction_date, t.description, t.remark, t.created_by, t.created_at, #{deletedBy}, NOW(),
+            t.bank_process_posted_id, t.rate_group_id
         FROM transactions t
         INNER JOIN bank_process_accounting_posted bpap ON bpap.id = t.bank_process_posted_id
         WHERE t.tenant_id = #{tenantId}
@@ -377,6 +324,50 @@
             )
         </if>
         ORDER BY td.created_at DESC, td.transaction_id DESC
+    </select>
+
+    <!-- Transaction Maintenance (view-only): every data_capture_line row (MAIN+SUB, one category at a time — never mix GAME/BANK). -->
+    <select id="findTransactionLineMaintenanceRows" resultType="com.eazycount.dto.MaintenanceTransactionDTO">
+        SELECT
+            dl.id AS id,
+            dl.created_at AS dtsCreated,
+            p.code AS process,
+            dl.id_product AS idProduct,
+            a.account_id AS account,
+            CASE WHEN dl.product_type = 'MAIN' THEN dl.description_main ELSE dl.description_sub END AS description,
+            dc.remark AS remark,
+            dl.source_percent AS percent,
+            UPPER(c.code) AS currency,
+            dl.rate_expression AS rate,
+            CASE WHEN dl.processed_amount &gt;= 0 THEN dl.processed_amount ELSE NULL END AS cr,
+            CASE WHEN dl.processed_amount &lt; 0 THEN ABS(dl.processed_amount) ELSE NULL END AS dr,
+            dc.created_by AS createdBy,
+            FALSE AS deleted,
+            NULL AS deletedBy,
+            NULL AS deletedAt
+        FROM data_capture_line dl
+        INNER JOIN data_captures dc ON dc.id = dl.capture_id AND dc.tenant_id = dl.tenant_id
+        INNER JOIN process p ON p.id = dc.process_id
+        INNER JOIN currency c ON c.id = dl.currency_id AND c.tenant_id = dl.tenant_id
+        INNER JOIN account a ON a.id = dl.account_id
+        WHERE dl.tenant_id = #{tenantId}
+          AND dc.capture_date &gt;= #{dateFrom}
+          AND dc.capture_date &lt;= #{dateTo}
+          AND dc.category = #{category}
+        <if test="process != null and process != ''">
+            AND (UPPER(p.code) = UPPER(#{process}) OR CAST(p.id AS CHAR) = #{process})
+        </if>
+        <if test="q != null and q != ''">
+            AND (
+                UPPER(dl.id_product) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(a.account_id) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(dl.description_main, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(dl.description_sub, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(dc.remark, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(dc.created_by, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+            )
+        </if>
+        ORDER BY dl.created_at DESC, dl.id DESC
     </select>
 
 </mapper>

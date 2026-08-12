@@ -3,6 +3,7 @@ package com.eazycount.controller;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dto.MaintenanceBankProcessDTO;
 import com.eazycount.dto.MaintenancePaymentDTO;
+import com.eazycount.dto.MaintenanceTransactionDTO;
 import com.eazycount.service.MaintenanceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -22,9 +23,21 @@ public class MaintenanceController {
     @Autowired
     private MaintenanceService maintenanceService;
 
+    @PostMapping("/transaction-maintenance/list")
+    public ResponseEntity<Map<String, Object>> listTransactionMaintenance(@RequestBody MaintenanceTransactionDTO mt) {
+        try {
+            List<MaintenanceTransactionDTO> rows = maintenanceService.findMaintenanceTransactionsRows(mt);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Transaction maintenance list retrieved",
+                    "data", rows));
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
     @PostMapping("/payment-maintenance/list")
-    public ResponseEntity<Map<String, Object>> listPaymentMaintenance(
-            @RequestBody MaintenancePaymentDTO request) {
+    public ResponseEntity<Map<String, Object>> listPaymentMaintenance(@RequestBody MaintenancePaymentDTO request) {
         try {
             List<MaintenancePaymentDTO> rows =
                     maintenanceService.findPaymentMaintenanceRows(request);
@@ -38,8 +51,7 @@ public class MaintenanceController {
     }
 
     @PostMapping("/payment-maintenance/delete")
-    public ResponseEntity<Map<String, Object>> deletePaymentMaintenance(
-            @RequestBody MaintenancePaymentDTO request) {
+    public ResponseEntity<Map<String, Object>> deletePaymentMaintenance(@RequestBody MaintenancePaymentDTO request) {
         try {
             maintenanceService.deletePaymentMaintenanceRows(request);
             final Map<String, Object> body = new LinkedHashMap<>();
@@ -53,8 +65,7 @@ public class MaintenanceController {
     }
 
     @PostMapping("/bankprocess-maintenance/list")
-    public ResponseEntity<Map<String, Object>> listBankProcessMaintenance(
-            @RequestBody MaintenanceBankProcessDTO request) {
+    public ResponseEntity<Map<String, Object>> listBankProcessMaintenance(@RequestBody MaintenanceBankProcessDTO request) {
         try {
             List<MaintenanceBankProcessDTO> rows =
                     maintenanceService.findBankProcessMaintenanceRows(request);
@@ -68,8 +79,7 @@ public class MaintenanceController {
     }
 
     @PostMapping("/bankprocess-maintenance/delete")
-    public ResponseEntity<Map<String, Object>> deleteBankProcessMaintenance(
-            @RequestBody MaintenanceBankProcessDTO request) {
+    public ResponseEntity<Map<String, Object>> deleteBankProcessMaintenance(@RequestBody MaintenanceBankProcessDTO request) {
         try {
             maintenanceService.deleteBankProcessMaintenanceRows(request);
             final Map<String, Object> body = new LinkedHashMap<>();
