@@ -370,4 +370,110 @@
         ORDER BY dl.created_at DESC, dl.id DESC
     </select>
 
+    <!-- Capture Maintenance (list only for now, delete not yet implemented): every data_capture_line row (MAIN+SUB, one category at a time). -->
+    <!-- W/L Group intentionally mirrors Product (dl.id_product) — not an account.account_id lookup. -->
+    <select id="findCaptureLineMaintenanceRows" resultType="com.eazycount.dto.MaintenanceCaptureDTO">
+        SELECT
+            dl.id AS id,
+            dl.created_at AS dtsCreated,
+            dl.id_product AS product,
+            p.code AS process,
+            UPPER(c.code) AS currency,
+            dl.id_product AS wlGroup,
+            dc.created_by AS createdBy,
+            FALSE AS deleted,
+            NULL AS deletedBy,
+            NULL AS deletedAt
+        FROM data_capture_line dl
+        INNER JOIN data_captures dc ON dc.id = dl.capture_id AND dc.tenant_id = dl.tenant_id
+        INNER JOIN process p ON p.id = dc.process_id
+        INNER JOIN currency c ON c.id = dl.currency_id AND c.tenant_id = dl.tenant_id
+        WHERE dl.tenant_id = #{tenantId}
+          AND dc.capture_date &gt;= #{dateFrom}
+          AND dc.capture_date &lt;= #{dateTo}
+          AND dc.category = #{category}
+        <if test="process != null and process != ''">
+            AND (UPPER(p.code) = UPPER(#{process}) OR CAST(p.id AS CHAR) = #{process})
+        </if>
+        <if test="q != null and q != ''">
+            AND (
+                UPPER(dl.id_product) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(p.code) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(c.code) LIKE CONCAT('%', UPPER(#{q}), '%')
+            )
+        </if>
+        ORDER BY dl.created_at DESC, dl.id DESC
+    </select>
+
+    <!-- Formula Maintenance (view-only): every data_capture_formula row for one process, one category (GAME/BANK) at a time. -->
+    <!-- No date range (config table, not per-day capture). Hard delete only — no deleted/deletedBy/deletedAt columns. -->
+    <select id="findFormulaMaintenanceRows" resultType="com.eazycount.dto.MaintenanceFormulaDTO">
+        SELECT
+            f.id AS id,
+            p.code AS process,
+            f.product_type AS productType,
+            f.id_product AS idProduct,
+            f.parent_id_product AS parentIdProduct,
+            f.formula_variant AS formulaVariant,
+            f.sub_order AS subOrder,
+            f.account_id AS accountId,
+            a.account_id AS account,
+            UPPER(c.code) AS currency,
+            f.description AS description,
+            f.source_columns AS sourceColumns,
+            f.columns_display AS columnsDisplay,
+            f.formula AS formula,
+            f.formula_operators AS formulaOperators,
+            f.input_method AS inputMethod,
+            f.source_percent AS sourcePercent,
+            f.enable_source_percent AS enableSourcePercent,
+            f.enable_input_method AS enableInputMethod,
+            f.created_by AS createdBy,
+            f.updated_by AS updatedBy,
+            f.created_at AS createdAt,
+            f.updated_at AS updatedAt
+        FROM data_capture_formula f
+        INNER JOIN process p ON p.id = f.process_id AND p.tenant_id = f.tenant_id
+        LEFT JOIN account a ON a.id = f.account_id
+        LEFT JOIN currency c ON c.id = f.currency_id AND c.tenant_id = f.tenant_id
+        WHERE f.tenant_id = #{tenantId}
+          AND p.category = #{category}
+        <if test="process != null and process != ''">
+            AND (UPPER(p.code) = UPPER(#{process}) OR CAST(p.id AS CHAR) = #{process})
+        </if>
+        <if test="q != null and q != ''">
+            AND (
+                UPPER(f.id_product) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(a.account_id, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(f.description, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(f.formula, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(f.created_by, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+            )
+        </if>
+        ORDER BY f.id_product ASC, f.product_type ASC, f.sub_order ASC, f.formula_variant ASC, f.id ASC
+    </select>
+
+    <!-- Formula Maintenance Edit: only account_id/source_percent/input_method/formula/description are editable. -->
+    <update id="updateFormulaMaintenanceRow">
+        UPDATE data_capture_formula
+        SET source_percent = #{sourcePercent},
+            input_method = #{inputMethod},
+            formula = #{formula},
+            description = #{description},
+            account_id = #{accountId},
+            updated_by = #{updatedBy}
+        WHERE id = #{id}
+          AND tenant_id = #{tenantId}
+    </update>
+
+    <!-- Formula Maintenance Delete: hard delete, batch by id, tenant-scoped. -->
+    <delete id="deleteFormulaMaintenanceRows">
+        DELETE FROM data_capture_formula
+        WHERE tenant_id = #{tenantId}
+          AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+    
 </mapper>

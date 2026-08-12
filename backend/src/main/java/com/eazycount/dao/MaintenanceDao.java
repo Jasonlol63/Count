@@ -1,6 +1,8 @@
 package com.eazycount.dao;
 
 import com.eazycount.dto.MaintenanceBankProcessDTO;
+import com.eazycount.dto.MaintenanceCaptureDTO;
+import com.eazycount.dto.MaintenanceFormulaDTO;
 import com.eazycount.dto.MaintenancePaymentDTO;
 import com.eazycount.dto.MaintenanceTransactionDTO;
 import com.eazycount.entity.Transaction;
@@ -87,4 +89,38 @@ public interface MaintenanceDao {
             @Param("process") String process,
             @Param("category") String category,
             @Param("q") String q);
+
+    // Capture Maintenance (list only for now, delete not yet implemented): every data_capture_line row, MAIN+SUB, one category (GAME/BANK) at a time.
+    List<MaintenanceCaptureDTO> findCaptureLineMaintenanceRows(
+            @Param("tenantId") Integer tenantId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("process") String process,
+            @Param("category") String category,
+            @Param("q") String q);
+
+    // Formula Maintenance (view-only): every data_capture_formula row for one process, one category (GAME/BANK) at a time.
+    // No date range — data_capture_formula is a persisted config table, not a per-day capture. Hard delete only.
+    List<MaintenanceFormulaDTO> findFormulaMaintenanceRows(
+            @Param("tenantId") Integer tenantId,
+            @Param("process") String process,
+            @Param("category") String category,
+            @Param("q") String q);
+
+    // Formula Maintenance Edit: only account_id/source_percent/input_method/formula/description are editable.
+    // enable_source_percent/enable_input_method are left untouched; updated_at auto-refreshes via ON UPDATE CURRENT_TIMESTAMP.
+    int updateFormulaMaintenanceRow(
+            @Param("tenantId") Integer tenantId,
+            @Param("id") Integer id,
+            @Param("accountId") Integer accountId,
+            @Param("sourcePercent") String sourcePercent,
+            @Param("inputMethod") String inputMethod,
+            @Param("formula") String formula,
+            @Param("description") String description,
+            @Param("updatedBy") String updatedBy);
+
+    // Formula Maintenance Delete: hard delete, batch by id, tenant-scoped (no soft-delete/archive).
+    int deleteFormulaMaintenanceRows(
+            @Param("tenantId") Integer tenantId,
+            @Param("ids") List<Integer> ids);
 }

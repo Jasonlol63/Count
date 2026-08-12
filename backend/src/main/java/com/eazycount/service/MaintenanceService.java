@@ -1,14 +1,26 @@
 package com.eazycount.service;
 
 import com.eazycount.dto.MaintenanceBankProcessDTO;
+import com.eazycount.dto.MaintenanceCaptureDTO;
+import com.eazycount.dto.MaintenanceFormulaDTO;
 import com.eazycount.dto.MaintenancePaymentDTO;
 import com.eazycount.dto.MaintenanceTransactionDTO;
+import com.eazycount.entity.DataCaptureFormula;
 
 import java.util.List;
 
 public interface MaintenanceService {
 
     List<MaintenanceTransactionDTO> findMaintenanceTransactionsRows(MaintenanceTransactionDTO mt);
+
+    // Capture Maintenance (list only for now — delete not yet implemented)
+    List<MaintenanceCaptureDTO> findMaintenanceCaptureRows(MaintenanceCaptureDTO mc);
+
+    List<MaintenanceFormulaDTO> findMaintenanceFormulaRows(MaintenanceFormulaDTO mf);
+
+    void updateFormulaMaintenance(MaintenanceFormulaDTO ft);
+
+    void deleteFormulaMaintenance(MaintenanceFormulaDTO ft);
 
     List<MaintenancePaymentDTO> findPaymentMaintenanceRows(MaintenancePaymentDTO request);
 

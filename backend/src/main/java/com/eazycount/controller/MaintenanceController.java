@@ -1,9 +1,7 @@
 package com.eazycount.controller;
 
 import com.eazycount.common.BusinessException;
-import com.eazycount.dto.MaintenanceBankProcessDTO;
-import com.eazycount.dto.MaintenancePaymentDTO;
-import com.eazycount.dto.MaintenanceTransactionDTO;
+import com.eazycount.dto.*;
 import com.eazycount.service.MaintenanceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -30,6 +28,19 @@ public class MaintenanceController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Transaction maintenance list retrieved",
+                    "data", rows));
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
+    @PostMapping("/capture-maintenance/list")
+    public ResponseEntity<Map<String, Object>> listCaptureMaintenance(@RequestBody MaintenanceCaptureDTO mc) {
+        try {
+            List<MaintenanceCaptureDTO> rows = maintenanceService.findMaintenanceCaptureRows(mc);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Capture maintenance list retrieved",
                     "data", rows));
         } catch (BusinessException e) {
             return error(e);
@@ -85,6 +96,47 @@ public class MaintenanceController {
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", true);
             body.put("message", "BankProcess deleted successfully");
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
+    @PostMapping("/formula-maintenance/list")
+    public ResponseEntity<Map<String, Object>> listFormulaMaintenance(@RequestBody MaintenanceFormulaDTO ft) {
+        try {
+            List<MaintenanceFormulaDTO> rows = maintenanceService.findMaintenanceFormulaRows(ft);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Formula maintenance list retrieved",
+                    "data", rows));
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
+    @PostMapping("/formula-maintenance/update")
+    public ResponseEntity<Map<String, Object>> updateFormulaMaintenance(@RequestBody MaintenanceFormulaDTO ft) {
+        try {
+            maintenanceService.updateFormulaMaintenance(ft);
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "Formula maintenance updated successfully");
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
+    @PostMapping("/formula-maintenance/delete")
+    public ResponseEntity<Map<String, Object>> deleteFormulaMaintenance(@RequestBody MaintenanceFormulaDTO ft) {
+        try {
+            maintenanceService.deleteFormulaMaintenance(ft);
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "Formula deleted successfully");
             body.put("data", null);
             return ResponseEntity.ok(body);
         } catch (BusinessException e) {

@@ -5,6 +5,8 @@ import com.eazycount.dao.BankProcessResendDao;
 import com.eazycount.dao.MaintenanceDao;
 import com.eazycount.dao.TransactionRateDao;
 import com.eazycount.dto.MaintenanceBankProcessDTO;
+import com.eazycount.dto.MaintenanceCaptureDTO;
+import com.eazycount.dto.MaintenanceFormulaDTO;
 import com.eazycount.dto.MaintenancePaymentDTO;
 import com.eazycount.dto.MaintenanceTransactionDTO;
 import com.eazycount.entity.Transaction;
@@ -57,6 +59,13 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                     .thenComparing(MaintenanceTransactionDTO::getId,
                                    Comparator.nullsLast(Comparator.reverseOrder()));
 
+    private static final Comparator<MaintenanceCaptureDTO> CC_ROW_ORDER =
+            Comparator
+                    .comparing(MaintenanceCaptureDTO::getDtsCreated,
+                               Comparator.nullsLast(Comparator.reverseOrder()))
+                    .thenComparing(MaintenanceCaptureDTO::getId,
+                                   Comparator.nullsLast(Comparator.reverseOrder()));
+
     @Autowired
     private MaintenanceDao maintenanceDao;
 
@@ -80,6 +89,72 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 query.q());
         rows.sort(TC_ROW_ORDER);
         return rows;
+    }
+
+    // Capture Maintenance (list only for now — delete not yet implemented).
+    @Override
+    public List<MaintenanceCaptureDTO> findMaintenanceCaptureRows(MaintenanceCaptureDTO mc) {
+        requireLoggedIn();
+        CaptureListQuery query = parseCaptureListQuery(mc);
+
+        List<MaintenanceCaptureDTO> rows = maintenanceDao.findCaptureLineMaintenanceRows(
+                query.tenantId(),
+                query.dateFrom(),
+                query.dateTo(),
+                query.process(),
+                query.category(),
+                query.q());
+        rows.sort(CC_ROW_ORDER);
+        return rows;
+    }
+
+    @Override
+    public List<MaintenanceFormulaDTO> findMaintenanceFormulaRows(MaintenanceFormulaDTO mf) {
+        requireLoggedIn();
+        FormulaListQuery query = parseFormulaListQuery(mf);
+
+        return maintenanceDao.findFormulaMaintenanceRows(
+                query.tenantId(),
+                query.process(),
+                query.category(),
+                query.q());
+    }
+
+    // Formula Maintenance Edit: only account_id/source_percent/input_method/formula/description are editable.
+    // enable_source_percent/enable_input_method are left untouched; updated_at auto-refreshes (ON UPDATE CURRENT_TIMESTAMP).
+    @Override
+    @Transactional
+    public void updateFormulaMaintenance(MaintenanceFormulaDTO ft) {
+        SessionUser session = requireWritableSession();
+        int tenantId = requireFormulaTenantId(ft);
+        int id = requireFormulaId(ft);
+
+        int updated = maintenanceDao.updateFormulaMaintenanceRow(
+                tenantId,
+                id,
+                ft.getAccountId(),
+                normalizeSourcePercent(ft.getSourcePercent()),
+                normalizeQ(ft.getInputMethod()),
+                normalizeQ(ft.getFormula()),
+                normalizeQ(ft.getDescription()),
+                session.login_id.trim());
+        if (updated <= 0) {
+            throw new BusinessException("Formula maintenance record not found");
+        }
+    }
+
+    // Formula Maintenance Delete: hard delete, batch by id, tenant-scoped — no archive/soft-delete.
+    @Override
+    @Transactional
+    public void deleteFormulaMaintenance(MaintenanceFormulaDTO ft) {
+        requireWritableSession();
+        int tenantId = requireFormulaTenantId(ft);
+        List<Integer> ids = requireFormulaIds(ft);
+
+        int removed = maintenanceDao.deleteFormulaMaintenanceRows(tenantId, ids);
+        if (removed <= 0) {
+            throw new BusinessException("No matching formula maintenance records to delete");
+        }
     }
 
     @Override
@@ -371,13 +446,42 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 dateFrom,
                 dateTo,
                 normalizeQ(request.getProcess()),
-                normalizeTransactionCategory(request.getCategory()),
+                normalizeMaintenanceCategory(request.getCategory()),
                 normalizeQ(request.getQ()));
     }
 
-    // Games/Gambling/Loan/Rate/Money share the GAME data_captures.category; Bank maps to BANK.
+    private static CaptureListQuery parseCaptureListQuery(MaintenanceCaptureDTO request) {
+        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
+            throw new BusinessException("Invalid tenant id");
+        }
+        LocalDate dateFrom = TransactionDateParse.parseRequired(request.getDateFrom(), "dateFrom");
+        LocalDate dateTo = TransactionDateParse.parseRequired(request.getDateTo(), "dateTo");
+        if (dateTo.isBefore(dateFrom)) {
+            throw new BusinessException("dateTo must be on or after dateFrom");
+        }
+        return new CaptureListQuery(
+                request.getTenantId(),
+                dateFrom,
+                dateTo,
+                normalizeQ(request.getProcess()),
+                normalizeMaintenanceCategory(request.getCategory()),
+                normalizeQ(request.getQ()));
+    }
+
+    private static FormulaListQuery parseFormulaListQuery(MaintenanceFormulaDTO request) {
+        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
+            throw new BusinessException("Invalid tenant id");
+        }
+        return new FormulaListQuery(
+                request.getTenantId(),
+                normalizeQ(request.getProcess()),
+                normalizeMaintenanceCategory(request.getCategory()),
+                normalizeQ(request.getQ()));
+    }
+
+    // Games/Gambling/Loan/Rate/Money share the GAME process.category; Bank maps to BANK.
     // Required (never defaulted): a missing/unrecognized category would let GAME and BANK rows mix in one response.
-    private static String normalizeTransactionCategory(String raw) {
+    private static String normalizeMaintenanceCategory(String raw) {
         String category = trimToNull(raw);
         if (category == null) {
             throw new BusinessException("category is required");
@@ -424,8 +528,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return request.getTenantId();
     }
 
-    private static List<Integer> requireTransactionIds(
-            MaintenancePaymentDTO request) {
+    private static List<Integer> requireTransactionIds(MaintenancePaymentDTO request) {
         List<Integer> ids = normalizeIds(request != null ? request.getTransactionIds() : null);
         if (ids.isEmpty()) {
             throw new BusinessException("Please select at least one record");
@@ -433,13 +536,40 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return ids;
     }
 
-    private static List<Integer> requireTransactionIds(
-            MaintenanceBankProcessDTO request) {
+    private static List<Integer> requireTransactionIds(MaintenanceBankProcessDTO request) {
         List<Integer> ids = normalizeIds(request != null ? request.getTransactionIds() : null);
         if (ids.isEmpty()) {
             throw new BusinessException("Please select at least one record");
         }
         return ids;
+    }
+
+    private static int requireFormulaTenantId(MaintenanceFormulaDTO request) {
+        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
+            throw new BusinessException("Invalid tenant id");
+        }
+        return request.getTenantId();
+    }
+
+    private static int requireFormulaId(MaintenanceFormulaDTO request) {
+        if (request == null || request.getId() == null || request.getId() <= 0) {
+            throw new BusinessException("Invalid formula id");
+        }
+        return request.getId();
+    }
+
+    private static List<Integer> requireFormulaIds(MaintenanceFormulaDTO request) {
+        List<Integer> ids = normalizeIds(request != null ? request.getFormulaIds() : null);
+        if (ids.isEmpty()) {
+            throw new BusinessException("Please select at least one record");
+        }
+        return ids;
+    }
+
+    // data_capture_formula.source_percent is NOT NULL DEFAULT '0'; a blank edit falls back to that default.
+    private static String normalizeSourcePercent(String raw) {
+        String trimmed = trimToNull(raw);
+        return trimmed != null ? trimmed : "0";
     }
 
     private record ListQuery(
@@ -461,6 +591,20 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             Integer tenantId,
             LocalDate dateFrom,
             LocalDate dateTo,
+            String process,
+            String category,
+            String q) {}
+
+    private record CaptureListQuery(
+            Integer tenantId,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            String process,
+            String category,
+            String q) {}
+
+    private record FormulaListQuery(
+            Integer tenantId,
             String process,
             String category,
             String q) {}
