@@ -47,6 +47,20 @@ public class MaintenanceController {
         }
     }
 
+    @PostMapping("/capture-maintenance/delete")
+    public ResponseEntity<Map<String, Object>> deleteCaptureMaintenance(@RequestBody MaintenanceCaptureDTO mc) {
+        try {
+            maintenanceService.deleteMaintenanceCaptureRows(mc);
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "Capture deleted successfully");
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
     @PostMapping("/payment-maintenance/list")
     public ResponseEntity<Map<String, Object>> listPaymentMaintenance(@RequestBody MaintenancePaymentDTO request) {
         try {

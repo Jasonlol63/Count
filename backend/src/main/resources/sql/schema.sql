@@ -623,11 +623,14 @@ CREATE TABLE `process_submitted` (
  `created_by`   VARCHAR(50) DEFAULT NULL COMMENT '操作人 login_id（admin=user.login_id；owner=owner_code）',
  `capture_date` DATE NOT NULL COMMENT '业务捕获日期',
  `created_at`   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ `capture_id`   INT UNSIGNED DEFAULT NULL COMMENT 'FK data_captures.id — 产生本条标记的那次提交；Capture Maintenance 按 capture 整体软删时据此清掉标记。历史行可能为 NULL（补加字段前的数据）',
  PRIMARY KEY (`id`),
  CONSTRAINT `fk_sp_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
  CONSTRAINT `fk_sp_process` FOREIGN KEY (`process_id`) REFERENCES `process` (`id`) ON DELETE CASCADE,
+ CONSTRAINT `fk_sp_capture` FOREIGN KEY (`capture_id`) REFERENCES `data_captures` (`id`) ON DELETE SET NULL,
  KEY `idx_sp_tenant_process_date` (`tenant_id`, `process_id`, `capture_date`),
- KEY `idx_sp_tenant_capture_date` (`tenant_id`, `capture_date`)
+ KEY `idx_sp_tenant_capture_date` (`tenant_id`, `capture_date`),
+ KEY `idx_sp_capture` (`capture_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='已提交记录：GAME/BANK Submit 都会写一行。GAME 当日同 process 去重靠 service 层 existsProcessSubmitted 挡（不再靠 DB 唯一键）；BANK 允许同一 process 同一天多次提交，按 created_at 区分，用于 GAME Data Capture 当日 option 过滤 + Submitted Processes 列表展示';
 
@@ -702,6 +705,7 @@ CREATE TABLE `data_capture_line` (
     `processed_amount`      DECIMAL(25, 8) NOT NULL DEFAULT 0 COMMENT '最终入账金额（Customer Report / History）',
     `rate`                  DECIMAL(25, 8) DEFAULT NULL COMMENT '解析后的数值 rate',
     `rate_expression`       VARCHAR(64) DEFAULT NULL COMMENT '原始 rate 文本 e.g. *3 /3 3',
+    `transaction_id`        INT UNSIGNED DEFAULT NULL COMMENT 'FK transactions.id — 本行生成的那条 WIN/LOSE 流水（一行至多一条；processed_amount=0 或本字段补加前提交的历史行为 NULL）',
     `created_at`            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_dcl_capture` (`capture_id`),
@@ -709,6 +713,7 @@ CREATE TABLE `data_capture_line` (
     KEY `idx_dcl_tenant_account` (`tenant_id`, `account_id`),
     KEY `idx_dcl_account` (`account_id`),
     KEY `idx_dcl_product` (`capture_id`, `id_product`, `account_id`, `formula_variant`),
+    KEY `idx_dcl_transaction` (`transaction_id`),
     CONSTRAINT `fk_dcl_tenant`
         FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_dcl_capture`
@@ -716,9 +721,48 @@ CREATE TABLE `data_capture_line` (
     CONSTRAINT `fk_dcl_account`
         FOREIGN KEY (`account_id`) REFERENCES `account` (`id`),
     CONSTRAINT `fk_dcl_currency`
-        FOREIGN KEY (`currency_id`) REFERENCES `currency` (`id`)
+        FOREIGN KEY (`currency_id`) REFERENCES `currency` (`id`),
+    CONSTRAINT `fk_dcl_transaction`
+        FOREIGN KEY (`transaction_id`) REFERENCES `transactions` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Data Capture Summary 最终 Submit 行快照（替代 legacy data_capture_details；无 scope_*）';
+
+-- Capture Maintenance 软删归档表：删除单位是「整个 capture」（同一 capture_id 下所有行一起删），
+-- 不是按单行选择删（业务约定：不会出现同一 capture 下部分行删、部分行保留的情况）。
+-- 归档 + 从 data_capture_line 硬删；data_captures header 永不清理，即便旗下所有行都已归档。
+CREATE TABLE `data_capture_line_deleted` (
+    `id`                    INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `line_id`               INT UNSIGNED NOT NULL COMMENT '原 data_capture_line.id',
+    `tenant_id`             INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+    `capture_id`            INT UNSIGNED NOT NULL COMMENT 'FK data_captures.id（header 不删，仍可查到）',
+    `product_type`          ENUM('MAIN', 'SUB') NOT NULL DEFAULT 'MAIN',
+    `id_product`            VARCHAR(255) NOT NULL,
+    `id_product_main`       VARCHAR(255) DEFAULT NULL,
+    `id_product_sub`        VARCHAR(255) DEFAULT NULL,
+    `description_main`      VARCHAR(255) DEFAULT NULL,
+    `description_sub`       VARCHAR(255) DEFAULT NULL,
+    `formula_variant`       TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    `display_order`         INT DEFAULT NULL,
+    `account_id`            INT UNSIGNED NOT NULL,
+    `currency_id`           INT UNSIGNED NOT NULL,
+    `source_columns`        TEXT DEFAULT NULL,
+    `source_value`          TEXT DEFAULT NULL,
+    `source_percent`        VARCHAR(255) NOT NULL DEFAULT '0',
+    `enable_source_percent` TINYINT(1) NOT NULL DEFAULT 1,
+    `formula`               TEXT DEFAULT NULL,
+    `processed_amount`      DECIMAL(25, 8) NOT NULL DEFAULT 0,
+    `rate`                  DECIMAL(25, 8) DEFAULT NULL,
+    `rate_expression`       VARCHAR(64) DEFAULT NULL,
+    `transaction_id`        INT UNSIGNED DEFAULT NULL COMMENT '原关联的 transactions.id（该条流水已单独归档进 transactions_deleted / 硬删，这里仅留痕）',
+    `created_at`            TIMESTAMP NULL DEFAULT NULL COMMENT '原 data_capture_line.created_at',
+    `deleted_by`            VARCHAR(100) DEFAULT NULL COMMENT '删除人 login_id',
+    `deleted_at`            TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    KEY `idx_dcld_line` (`line_id`),
+    KEY `idx_dcld_tenant_capture` (`tenant_id`, `capture_id`),
+    KEY `idx_dcld_deleted_at` (`deleted_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Archived soft-deleted data_capture_line rows (Capture Maintenance；按 capture 整体归档)';
 
 -- Summary 列表 + Edit Formula Save + Formula Maintenance（替代 legacy data_capture_templates）
 -- 配置与单次 capture 分离：不存 last_processed_amount / data_capture_id；Maintenance 为硬 DELETE

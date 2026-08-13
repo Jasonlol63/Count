@@ -13,8 +13,10 @@ public interface MaintenanceService {
 
     List<MaintenanceTransactionDTO> findMaintenanceTransactionsRows(MaintenanceTransactionDTO mt);
 
-    // Capture Maintenance (list only for now — delete not yet implemented)
     List<MaintenanceCaptureDTO> findMaintenanceCaptureRows(MaintenanceCaptureDTO mc);
+
+    // Soft-delete Capture Maintenance: whole capture (all its lines) at a time; cascades into
+    void deleteMaintenanceCaptureRows(MaintenanceCaptureDTO mc);
 
     List<MaintenanceFormulaDTO> findMaintenanceFormulaRows(MaintenanceFormulaDTO mf);
 

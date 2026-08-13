@@ -459,21 +459,26 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         dataCaptureSummaryDao.insertCapture(header);
         Integer captureId = header.getId();
 
-        // 2) data_capture_line rows + transactions (WIN/LOSE, one per non-zero line)
+        // 2) transactions first (WIN/LOSE, one per non-zero line) so each line can be stamped with the
+        // transaction it generated — Capture Maintenance delete needs that link to cascade-archive the
+        // right transaction per line (there is no other reliable way to correlate the two tables).
         List<DataCaptureLine> lineEntities = new ArrayList<>();
         int order = 0;
         for (ComputedLine computed : computedLines) {
-            lineEntities.add(toLineEntity(computed, tenantId, captureId, headerCurrencyId, order));
+            Integer lineTransactionId = null;
             if (computed.finalAmount.signum() != 0) {
-                transactionDao.insert(toTransaction(computed, tenantId, headerCurrencyId, captureDate, process.getCode(), session));
+                Transaction txn = toTransaction(computed, tenantId, headerCurrencyId, captureDate, process.getCode(), session);
+                transactionDao.insert(txn);
+                lineTransactionId = txn.getId();
             }
+            lineEntities.add(toLineEntity(computed, tenantId, captureId, headerCurrencyId, order, lineTransactionId));
             order++;
         }
         dataCaptureSummaryDao.insertLines(lineEntities);
 
         // 3) submitted record — GAME and BANK both log every submit; BANK may repeat the same
         // process/date (no dedup, distinguished by created_at in the Submitted Processes list).
-        dataCaptureDao.insertProcessSubmitted(tenantId, processId, session.login_id, captureDate);
+        dataCaptureDao.insertProcessSubmitted(tenantId, processId, session.login_id, captureDate, captureId);
 
         DataCaptureSummarySubmitDTO response = new DataCaptureSummarySubmitDTO();
         response.setCaptureId(captureId);
@@ -511,7 +516,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
     }
 
     private static DataCaptureLine toLineEntity(ComputedLine computed, Integer tenantId, Integer captureId,
-                                                 Integer headerCurrencyId, int order) {
+                                                 Integer headerCurrencyId, int order, Integer transactionId) {
         DataCaptureLineDTO dto = computed.dto;
 
         DataCaptureLine entity = new DataCaptureLine();
@@ -535,6 +540,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         entity.setProcessedAmount(computed.finalAmount);
         entity.setRate(computed.rate);
         entity.setRateExpression(trimToNull(dto.getRateValue()));
+        entity.setTransactionId(transactionId);
         return entity;
     }
 

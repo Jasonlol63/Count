@@ -18,7 +18,7 @@ public interface DataCaptureDao {
 
     boolean existsProcessSubmitted(@Param("tenantId") Integer tenantId, @Param("processId") Integer processId, @Param("captureDate") LocalDate captureDate);
 
-    void insertProcessSubmitted(@Param("tenantId") Integer tenantId, @Param("processId") Integer processId, @Param("createdBy") String createdBy, @Param("captureDate") LocalDate captureDate);
+    void insertProcessSubmitted(@Param("tenantId") Integer tenantId, @Param("processId") Integer processId, @Param("createdBy") String createdBy, @Param("captureDate") LocalDate captureDate, @Param("captureId") Integer captureId);
 
     //Find Process By Day
     List<DataCaptureGameDTO> findGameProcessesByDay(@Param("tenantId") Integer tenantId, @Param("captureDate") LocalDate captureDate, @Param("dayOfWeek") Integer dayOfWeek);

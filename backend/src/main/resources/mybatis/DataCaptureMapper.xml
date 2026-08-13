@@ -42,8 +42,8 @@
     </select>
 
     <insert id="insertProcessSubmitted">
-        INSERT INTO process_submitted (tenant_id, process_id, created_by, capture_date, created_at)
-        VALUES (#{tenantId}, #{processId}, #{createdBy}, #{captureDate}, NOW())
+        INSERT INTO process_submitted (tenant_id, process_id, created_by, capture_date, created_at, capture_id)
+        VALUES (#{tenantId}, #{processId}, #{createdBy}, #{captureDate}, NOW(), #{captureId})
     </insert>
 
     <resultMap id="GameProcessDetailMap" type="com.eazycount.dto.DataCaptureGameDTO">

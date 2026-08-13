@@ -78,7 +78,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Override
     public List<MaintenanceTransactionDTO> findMaintenanceTransactionsRows(MaintenanceTransactionDTO mt) {
         requireLoggedIn();
-        TransactionListQuery query = parseTransactionListQuery(mt);
+        ProcessCategoryListQuery query = parseTransactionListQuery(mt);
 
         List<MaintenanceTransactionDTO> rows = maintenanceDao.findTransactionLineMaintenanceRows(
                 query.tenantId(),
@@ -91,21 +91,66 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return rows;
     }
 
-    // Capture Maintenance (list only for now — delete not yet implemented).
     @Override
     public List<MaintenanceCaptureDTO> findMaintenanceCaptureRows(MaintenanceCaptureDTO mc) {
         requireLoggedIn();
-        CaptureListQuery query = parseCaptureListQuery(mc);
+        ProcessCategoryListQuery query = parseCaptureListQuery(mc);
 
-        List<MaintenanceCaptureDTO> rows = maintenanceDao.findCaptureLineMaintenanceRows(
+        List<MaintenanceCaptureDTO> live = maintenanceDao.findCaptureLineMaintenanceRows(
                 query.tenantId(),
                 query.dateFrom(),
                 query.dateTo(),
                 query.process(),
                 query.category(),
                 query.q());
+        List<MaintenanceCaptureDTO> archived = maintenanceDao.findCaptureLineMaintenanceDeletedRows(
+                query.tenantId(),
+                query.dateFrom(),
+                query.dateTo(),
+                query.process(),
+                query.category(),
+                query.q());
+
+        List<MaintenanceCaptureDTO> rows = new ArrayList<>(live.size() + archived.size());
+        rows.addAll(live);
+        rows.addAll(archived);
         rows.sort(CC_ROW_ORDER);
         return rows;
+    }
+
+    // Capture Maintenance delete: unit is always the whole capture (data_captures.id) — the list is already
+    // one row per capture, so `mc.captureIds` are exactly the ids to act on, no line-id resolution needed.
+    @Override
+    @Transactional
+    public void deleteMaintenanceCaptureRows(MaintenanceCaptureDTO mc) {
+        SessionUser session = requireWritableSession();
+        int tenantId = requireTenantId(mc != null ? mc.getTenantId() : null);
+        List<Integer> captureIds = requireIds(mc != null ? mc.getCaptureIds() : null);
+
+        String deletedBy = session.login_id.trim();
+
+        List<Integer> transactionIds =
+                maintenanceDao.findCaptureLineTransactionIdsByCaptureIdsAndTenantId(tenantId, captureIds);
+        if (!transactionIds.isEmpty()) {
+            int archivedTransactions =
+                    maintenanceDao.archiveCaptureTransactionsToDeleted(tenantId, transactionIds, deletedBy);
+            if (archivedTransactions <= 0) {
+                throw new BusinessException("Failed to archive linked transactions");
+            }
+            maintenanceDao.deleteByIdsAndTenantId(tenantId, transactionIds);
+        }
+
+        int archivedLines = maintenanceDao.archiveCaptureLineMaintenanceToDeleted(tenantId, captureIds, deletedBy);
+        if (archivedLines <= 0) {
+            throw new BusinessException("Failed to archive capture maintenance records");
+        }
+
+        int removed = maintenanceDao.deleteCaptureLineMaintenanceByCaptureIds(tenantId, captureIds);
+        if (removed <= 0) {
+            throw new BusinessException("Failed to delete capture maintenance records");
+        }
+
+        maintenanceDao.deleteProcessSubmittedByCaptureIds(tenantId, captureIds);
     }
 
     @Override
@@ -126,7 +171,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Transactional
     public void updateFormulaMaintenance(MaintenanceFormulaDTO ft) {
         SessionUser session = requireWritableSession();
-        int tenantId = requireFormulaTenantId(ft);
+        int tenantId = requireTenantId(ft != null ? ft.getTenantId() : null);
         int id = requireFormulaId(ft);
 
         int updated = maintenanceDao.updateFormulaMaintenanceRow(
@@ -148,8 +193,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Transactional
     public void deleteFormulaMaintenance(MaintenanceFormulaDTO ft) {
         requireWritableSession();
-        int tenantId = requireFormulaTenantId(ft);
-        List<Integer> ids = requireFormulaIds(ft);
+        int tenantId = requireTenantId(ft != null ? ft.getTenantId() : null);
+        List<Integer> ids = requireIds(ft != null ? ft.getFormulaIds() : null);
 
         int removed = maintenanceDao.deleteFormulaMaintenanceRows(tenantId, ids);
         if (removed <= 0) {
@@ -191,7 +236,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     public List<MaintenanceBankProcessDTO> findBankProcessMaintenanceRows(
             MaintenanceBankProcessDTO request) {
         requireLoggedIn();
-        BankProcessListQuery query = parseBankProcessListQuery(request);
+        ListQuery query = parseBankProcessListQuery(request);
 
         List<MaintenanceBankProcessDTO> live =
                 maintenanceDao.findBankProcessMaintenanceRows(
@@ -221,8 +266,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     public void deletePaymentMaintenanceRows(
             MaintenancePaymentDTO request) {
         SessionUser session = requireWritableSession();
-        int tenantId = requireTenantId(request);
-        List<Integer> requestedIds = requireTransactionIds(request);
+        int tenantId = requireTenantId(request != null ? request.getTenantId() : null);
+        List<Integer> requestedIds = requireIds(request != null ? request.getTransactionIds() : null);
 
         DeletableBatch batch = resolveDeletableBatch(tenantId, requestedIds);
         if (batch.ids().isEmpty()) {
@@ -251,8 +296,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     public void deleteBankProcessMaintenanceRows(
             MaintenanceBankProcessDTO request) {
         SessionUser session = requireWritableSession();
-        int tenantId = requireTenantId(request);
-        List<Integer> requestedIds = requireTransactionIds(request);
+        int tenantId = requireTenantId(request != null ? request.getTenantId() : null);
+        List<Integer> requestedIds = requireIds(request != null ? request.getTransactionIds() : null);
 
         BankProcessDeletableBatch batch = resolveBankProcessDeletableBatch(tenantId, requestedIds);
         if (batch.ids().isEmpty()) {
@@ -396,84 +441,78 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return new ArrayList<>(rateGroupIds);
     }
 
-    private static ListQuery parseListQuery(MaintenancePaymentDTO request) {
-        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
-        LocalDate dateFrom = TransactionDateParse.parseRequired(request.getDateFrom(), "dateFrom");
-        LocalDate dateTo = TransactionDateParse.parseRequired(request.getDateTo(), "dateTo");
+    private static DateRangeTenantQuery parseDateRangeTenantQuery(
+            Integer tenantId, String dateFromRaw, String dateToRaw) {
+        int validTenantId = requireTenantId(tenantId);
+        LocalDate dateFrom = TransactionDateParse.parseRequired(dateFromRaw, "dateFrom");
+        LocalDate dateTo = TransactionDateParse.parseRequired(dateToRaw, "dateTo");
         if (dateTo.isBefore(dateFrom)) {
             throw new BusinessException("dateTo must be on or after dateFrom");
         }
+        return new DateRangeTenantQuery(validTenantId, dateFrom, dateTo);
+    }
+
+    private static ListQuery parseListQuery(MaintenancePaymentDTO request) {
+        DateRangeTenantQuery base = parseDateRangeTenantQuery(
+                request != null ? request.getTenantId() : null,
+                request != null ? request.getDateFrom() : null,
+                request != null ? request.getDateTo() : null);
         return new ListQuery(
-                request.getTenantId(),
-                dateFrom,
-                dateTo,
+                base.tenantId(),
+                base.dateFrom(),
+                base.dateTo(),
                 normalizeType(request.getTransactionType()),
                 normalizeUpperList(request.getCurrencyCodes()),
                 normalizeQ(request.getQ()));
     }
 
-    private static BankProcessListQuery parseBankProcessListQuery(
+    private static ListQuery parseBankProcessListQuery(
             MaintenanceBankProcessDTO request) {
-        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
-        LocalDate dateFrom = TransactionDateParse.parseRequired(request.getDateFrom(), "dateFrom");
-        LocalDate dateTo = TransactionDateParse.parseRequired(request.getDateTo(), "dateTo");
-        if (dateTo.isBefore(dateFrom)) {
-            throw new BusinessException("dateTo must be on or after dateFrom");
-        }
-        return new BankProcessListQuery(
-                request.getTenantId(),
-                dateFrom,
-                dateTo,
+        DateRangeTenantQuery base = parseDateRangeTenantQuery(
+                request != null ? request.getTenantId() : null,
+                request != null ? request.getDateFrom() : null,
+                request != null ? request.getDateTo() : null);
+        return new ListQuery(
+                base.tenantId(),
+                base.dateFrom(),
+                base.dateTo(),
+                null,
                 normalizeUpperList(request.getCurrencyCodes()),
                 normalizeQ(request.getQ()));
     }
 
-    private static TransactionListQuery parseTransactionListQuery(MaintenanceTransactionDTO request) {
-        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
-        LocalDate dateFrom = TransactionDateParse.parseRequired(request.getDateFrom(), "dateFrom");
-        LocalDate dateTo = TransactionDateParse.parseRequired(request.getDateTo(), "dateTo");
-        if (dateTo.isBefore(dateFrom)) {
-            throw new BusinessException("dateTo must be on or after dateFrom");
-        }
-        return new TransactionListQuery(
-                request.getTenantId(),
-                dateFrom,
-                dateTo,
+    private static ProcessCategoryListQuery parseTransactionListQuery(MaintenanceTransactionDTO request) {
+        DateRangeTenantQuery base = parseDateRangeTenantQuery(
+                request != null ? request.getTenantId() : null,
+                request != null ? request.getDateFrom() : null,
+                request != null ? request.getDateTo() : null);
+        return new ProcessCategoryListQuery(
+                base.tenantId(),
+                base.dateFrom(),
+                base.dateTo(),
                 normalizeQ(request.getProcess()),
                 normalizeMaintenanceCategory(request.getCategory()),
                 normalizeQ(request.getQ()));
     }
 
-    private static CaptureListQuery parseCaptureListQuery(MaintenanceCaptureDTO request) {
-        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
-        LocalDate dateFrom = TransactionDateParse.parseRequired(request.getDateFrom(), "dateFrom");
-        LocalDate dateTo = TransactionDateParse.parseRequired(request.getDateTo(), "dateTo");
-        if (dateTo.isBefore(dateFrom)) {
-            throw new BusinessException("dateTo must be on or after dateFrom");
-        }
-        return new CaptureListQuery(
-                request.getTenantId(),
-                dateFrom,
-                dateTo,
+    private static ProcessCategoryListQuery parseCaptureListQuery(MaintenanceCaptureDTO request) {
+        DateRangeTenantQuery base = parseDateRangeTenantQuery(
+                request != null ? request.getTenantId() : null,
+                request != null ? request.getDateFrom() : null,
+                request != null ? request.getDateTo() : null);
+        return new ProcessCategoryListQuery(
+                base.tenantId(),
+                base.dateFrom(),
+                base.dateTo(),
                 normalizeQ(request.getProcess()),
                 normalizeMaintenanceCategory(request.getCategory()),
                 normalizeQ(request.getQ()));
     }
 
     private static FormulaListQuery parseFormulaListQuery(MaintenanceFormulaDTO request) {
-        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
+        int tenantId = requireTenantId(request != null ? request.getTenantId() : null);
         return new FormulaListQuery(
-                request.getTenantId(),
+                tenantId,
                 normalizeQ(request.getProcess()),
                 normalizeMaintenanceCategory(request.getCategory()),
                 normalizeQ(request.getQ()));
@@ -514,41 +553,19 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return session;
     }
 
-    private static int requireTenantId(MaintenancePaymentDTO request) {
-        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
+    private static int requireTenantId(Integer tenantId) {
+        if (tenantId == null || tenantId <= 0) {
             throw new BusinessException("Invalid tenant id");
         }
-        return request.getTenantId();
+        return tenantId;
     }
 
-    private static int requireTenantId(MaintenanceBankProcessDTO request) {
-        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
-        return request.getTenantId();
-    }
-
-    private static List<Integer> requireTransactionIds(MaintenancePaymentDTO request) {
-        List<Integer> ids = normalizeIds(request != null ? request.getTransactionIds() : null);
+    private static List<Integer> requireIds(List<Integer> raw) {
+        List<Integer> ids = normalizeIds(raw);
         if (ids.isEmpty()) {
             throw new BusinessException("Please select at least one record");
         }
         return ids;
-    }
-
-    private static List<Integer> requireTransactionIds(MaintenanceBankProcessDTO request) {
-        List<Integer> ids = normalizeIds(request != null ? request.getTransactionIds() : null);
-        if (ids.isEmpty()) {
-            throw new BusinessException("Please select at least one record");
-        }
-        return ids;
-    }
-
-    private static int requireFormulaTenantId(MaintenanceFormulaDTO request) {
-        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
-        return request.getTenantId();
     }
 
     private static int requireFormulaId(MaintenanceFormulaDTO request) {
@@ -558,19 +575,13 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return request.getId();
     }
 
-    private static List<Integer> requireFormulaIds(MaintenanceFormulaDTO request) {
-        List<Integer> ids = normalizeIds(request != null ? request.getFormulaIds() : null);
-        if (ids.isEmpty()) {
-            throw new BusinessException("Please select at least one record");
-        }
-        return ids;
-    }
-
     // data_capture_formula.source_percent is NOT NULL DEFAULT '0'; a blank edit falls back to that default.
     private static String normalizeSourcePercent(String raw) {
         String trimmed = trimToNull(raw);
         return trimmed != null ? trimmed : "0";
     }
+
+    private record DateRangeTenantQuery(Integer tenantId, LocalDate dateFrom, LocalDate dateTo) {}
 
     private record ListQuery(
             Integer tenantId,
@@ -580,22 +591,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             List<String> currencyCodes,
             String q) {}
 
-    private record BankProcessListQuery(
-            Integer tenantId,
-            LocalDate dateFrom,
-            LocalDate dateTo,
-            List<String> currencyCodes,
-            String q) {}
-
-    private record TransactionListQuery(
-            Integer tenantId,
-            LocalDate dateFrom,
-            LocalDate dateTo,
-            String process,
-            String category,
-            String q) {}
-
-    private record CaptureListQuery(
+    private record ProcessCategoryListQuery(
             Integer tenantId,
             LocalDate dateFrom,
             LocalDate dateTo,

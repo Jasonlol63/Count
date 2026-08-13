@@ -39,14 +39,14 @@
             tenant_id, capture_id, product_type, id_product, id_product_main, id_product_sub,
             description_main, description_sub, formula_variant, display_order,
             account_id, currency_id, source_columns, source_value, source_percent, enable_source_percent,
-            formula, processed_amount, rate, rate_expression, created_at
+            formula, processed_amount, rate, rate_expression, transaction_id, created_at
         ) VALUES
         <foreach collection="list" item="item" separator=",">
             (
                 #{item.tenantId}, #{item.captureId}, #{item.productType}, #{item.idProduct}, #{item.idProductMain}, #{item.idProductSub},
                 #{item.descriptionMain}, #{item.descriptionSub}, #{item.formulaVariant}, #{item.displayOrder},
                 #{item.accountId}, #{item.currencyId}, #{item.sourceColumns}, #{item.sourceValue}, #{item.sourcePercent}, #{item.enableSourcePercent},
-                #{item.formula}, #{item.processedAmount}, #{item.rate}, #{item.rateExpression}, NOW()
+                #{item.formula}, #{item.processedAmount}, #{item.rate}, #{item.rateExpression}, #{item.transactionId}, NOW()
             )
         </foreach>
     </insert>
@@ -74,6 +74,7 @@
             processed_amount      AS processedAmount,
             rate                  AS rate,
             rate_expression       AS rateExpression,
+            transaction_id        AS transactionId,
             created_at            AS createdAt
         FROM data_capture_line
         WHERE capture_id = #{captureId}

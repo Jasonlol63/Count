@@ -370,16 +370,36 @@
         ORDER BY dl.created_at DESC, dl.id DESC
     </select>
 
-    <!-- Capture Maintenance (list only for now, delete not yet implemented): every data_capture_line row (MAIN+SUB, one category at a time). -->
-    <!-- W/L Group intentionally mirrors Product (dl.id_product) — not an account.account_id lookup. -->
+    <!-- Capture Maintenance (live rows): one row per data_captures header — a submission can cover several -->
+    <!-- products (data_capture_line rows), rolled up here, not shown per-product. Product/W-L Group mirror -->
+    <!-- each other: BANK -> process.code (already the fixed SALARY/BONUS/PROFIT/COMMISSION code); GAME -> the -->
+    <!-- description(s) selected at submit time (data_capture_description), comma-joined if more than one, -->
+    <!-- falling back to process.code when none were selected. -->
+    <sql id="captureDescriptionAgg">
+        (
+            SELECT dcd.capture_id, GROUP_CONCAT(DISTINCT pd.name ORDER BY pd.name SEPARATOR ', ') AS description_names
+            FROM data_capture_description dcd
+            INNER JOIN process_description pd ON pd.id = dcd.description_id
+            GROUP BY dcd.capture_id
+        )
+    </sql>
+
+    <sql id="captureProductExpr">
+        CASE
+            WHEN p.category = 'BANK' THEN p.code
+            WHEN desc_agg.description_names IS NOT NULL AND desc_agg.description_names &lt;&gt; '' THEN desc_agg.description_names
+            ELSE p.code
+        END
+    </sql>
+
     <select id="findCaptureLineMaintenanceRows" resultType="com.eazycount.dto.MaintenanceCaptureDTO">
         SELECT
-            dl.id AS id,
-            dl.created_at AS dtsCreated,
-            dl.id_product AS product,
+            dc.id AS id,
+            dc.created_at AS dtsCreated,
             p.code AS process,
             UPPER(c.code) AS currency,
-            dl.id_product AS wlGroup,
+            <include refid="captureProductExpr"/> AS product,
+            <include refid="captureProductExpr"/> AS wlGroup,
             dc.created_by AS createdBy,
             FALSE AS deleted,
             NULL AS deletedBy,
@@ -387,7 +407,8 @@
         FROM data_capture_line dl
         INNER JOIN data_captures dc ON dc.id = dl.capture_id AND dc.tenant_id = dl.tenant_id
         INNER JOIN process p ON p.id = dc.process_id
-        INNER JOIN currency c ON c.id = dl.currency_id AND c.tenant_id = dl.tenant_id
+        INNER JOIN currency c ON c.id = dc.currency_id AND c.tenant_id = dc.tenant_id
+        LEFT JOIN <include refid="captureDescriptionAgg"/> desc_agg ON desc_agg.capture_id = dc.id
         WHERE dl.tenant_id = #{tenantId}
           AND dc.capture_date &gt;= #{dateFrom}
           AND dc.capture_date &lt;= #{dateTo}
@@ -397,13 +418,130 @@
         </if>
         <if test="q != null and q != ''">
             AND (
-                UPPER(dl.id_product) LIKE CONCAT('%', UPPER(#{q}), '%')
-                OR UPPER(p.code) LIKE CONCAT('%', UPPER(#{q}), '%')
+                UPPER(p.code) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(desc_agg.description_names, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
                 OR UPPER(c.code) LIKE CONCAT('%', UPPER(#{q}), '%')
             )
         </if>
-        ORDER BY dl.created_at DESC, dl.id DESC
+        GROUP BY dc.id
+        ORDER BY dc.created_at DESC, dc.id DESC
     </select>
+
+    <!-- Capture Maintenance archived (soft-deleted) rows — same rollup, sourced from data_capture_line_deleted. -->
+    <!-- A capture is archived as a whole (never partially), so every line under one capture_id shares the same -->
+    <!-- deleted_by/deleted_at; MAX() here is just to satisfy GROUP BY, not a real aggregation of differing values. -->
+    <select id="findCaptureLineMaintenanceDeletedRows" resultType="com.eazycount.dto.MaintenanceCaptureDTO">
+        SELECT
+            dc.id AS id,
+            dc.created_at AS dtsCreated,
+            p.code AS process,
+            UPPER(c.code) AS currency,
+            <include refid="captureProductExpr"/> AS product,
+            <include refid="captureProductExpr"/> AS wlGroup,
+            dc.created_by AS createdBy,
+            TRUE AS deleted,
+            MAX(dld.deleted_by) AS deletedBy,
+            MAX(dld.deleted_at) AS deletedAt
+        FROM data_capture_line_deleted dld
+        INNER JOIN data_captures dc ON dc.id = dld.capture_id AND dc.tenant_id = dld.tenant_id
+        INNER JOIN process p ON p.id = dc.process_id
+        INNER JOIN currency c ON c.id = dc.currency_id AND c.tenant_id = dc.tenant_id
+        LEFT JOIN <include refid="captureDescriptionAgg"/> desc_agg ON desc_agg.capture_id = dc.id
+        WHERE dld.tenant_id = #{tenantId}
+          AND dc.capture_date &gt;= #{dateFrom}
+          AND dc.capture_date &lt;= #{dateTo}
+          AND dc.category = #{category}
+        <if test="process != null and process != ''">
+            AND (UPPER(p.code) = UPPER(#{process}) OR CAST(p.id AS CHAR) = #{process})
+        </if>
+        <if test="q != null and q != ''">
+            AND (
+                UPPER(p.code) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(COALESCE(desc_agg.description_names, '')) LIKE CONCAT('%', UPPER(#{q}), '%')
+                OR UPPER(c.code) LIKE CONCAT('%', UPPER(#{q}), '%')
+            )
+        </if>
+        GROUP BY dc.id
+        ORDER BY MAX(dld.deleted_at) DESC, dc.id DESC
+    </select>
+
+    <!-- Capture Maintenance delete cascade. Delete unit is always the whole capture (data_captures.id); the -->
+    <!-- list above is already one row per capture, so the caller already has exactly the ids to act on. -->
+
+    <!-- transaction_id of every live line under the given captures (non-null only) — what to cascade-archive. -->
+    <select id="findCaptureLineTransactionIdsByCaptureIdsAndTenantId" resultType="int">
+        SELECT dl.transaction_id
+        FROM data_capture_line dl
+        WHERE dl.tenant_id = #{tenantId}
+          AND dl.transaction_id IS NOT NULL
+          AND dl.capture_id IN
+        <foreach collection="captureIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <!-- Archive the WIN/LOSE transactions those lines generated (explicit id list — capture-generated rows -->
+    <!-- have bank_process_posted_id NULL and type WIN/LOSE, so neither Payment's nor BankProcess Maintenance's -->
+    <!-- archive method would match them; caller hard-deletes afterward via the existing deleteByIdsAndTenantId). -->
+    <insert id="archiveCaptureTransactionsToDeleted">
+        INSERT INTO transactions_deleted (
+            transaction_id, tenant_id, transaction_type, account_id, from_account_id, currency_id, amount,
+            transaction_date, description, remark, created_by, created_at, deleted_by, deleted_at,
+            bank_process_posted_id, rate_group_id
+        )
+        SELECT
+            t.id, t.tenant_id, t.transaction_type, t.account_id, t.from_account_id, t.currency_id, t.amount,
+            t.transaction_date, t.description, t.remark, t.created_by, t.created_at, #{deletedBy}, NOW(),
+            t.bank_process_posted_id, t.rate_group_id
+        FROM transactions t
+        WHERE t.tenant_id = #{tenantId}
+          AND t.id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </insert>
+
+    <!-- Archive every live line under the given captures into data_capture_line_deleted. -->
+    <insert id="archiveCaptureLineMaintenanceToDeleted">
+        INSERT INTO data_capture_line_deleted (
+            line_id, tenant_id, capture_id, product_type, id_product, id_product_main, id_product_sub,
+            description_main, description_sub, formula_variant, display_order, account_id, currency_id,
+            source_columns, source_value, source_percent, enable_source_percent, formula,
+            processed_amount, rate, rate_expression, transaction_id, created_at, deleted_by, deleted_at
+        )
+        SELECT
+            dl.id, dl.tenant_id, dl.capture_id, dl.product_type, dl.id_product, dl.id_product_main, dl.id_product_sub,
+            dl.description_main, dl.description_sub, dl.formula_variant, dl.display_order, dl.account_id, dl.currency_id,
+            dl.source_columns, dl.source_value, dl.source_percent, dl.enable_source_percent, dl.formula,
+            dl.processed_amount, dl.rate, dl.rate_expression, dl.transaction_id, dl.created_at, #{deletedBy}, NOW()
+        FROM data_capture_line dl
+        WHERE dl.tenant_id = #{tenantId}
+          AND dl.capture_id IN
+        <foreach collection="captureIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </insert>
+
+    <!-- Hard delete every line under the given captures from data_capture_line (post-archive). -->
+    <delete id="deleteCaptureLineMaintenanceByCaptureIds">
+        DELETE FROM data_capture_line
+        WHERE tenant_id = #{tenantId}
+          AND capture_id IN
+        <foreach collection="captureIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+    <!-- Drop the "already submitted" marker for fully-deleted captures — unconditional, since delete unit -->
+    <!-- is the whole capture (no "still has live lines" check needed). -->
+    <delete id="deleteProcessSubmittedByCaptureIds">
+        DELETE FROM process_submitted
+        WHERE tenant_id = #{tenantId}
+          AND capture_id IN
+        <foreach collection="captureIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
 
     <!-- Formula Maintenance (view-only): every data_capture_formula row for one process, one category (GAME/BANK) at a time. -->
     <!-- No date range (config table, not per-day capture). Hard delete only — no deleted/deletedBy/deletedAt columns. -->

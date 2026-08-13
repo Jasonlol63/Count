@@ -90,7 +90,7 @@ public interface MaintenanceDao {
             @Param("category") String category,
             @Param("q") String q);
 
-    // Capture Maintenance (list only for now, delete not yet implemented): every data_capture_line row, MAIN+SUB, one category (GAME/BANK) at a time.
+    // Capture Maintenance (live rows): every data_capture_line row, MAIN+SUB, one category (GAME/BANK) at a time.
     List<MaintenanceCaptureDTO> findCaptureLineMaintenanceRows(
             @Param("tenantId") Integer tenantId,
             @Param("dateFrom") LocalDate dateFrom,
@@ -99,8 +99,43 @@ public interface MaintenanceDao {
             @Param("category") String category,
             @Param("q") String q);
 
+    // Capture Maintenance archived (soft-deleted) rows — data_capture_line_deleted.
+    List<MaintenanceCaptureDTO> findCaptureLineMaintenanceDeletedRows(
+            @Param("tenantId") Integer tenantId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("process") String process,
+            @Param("category") String category,
+            @Param("q") String q);
+
+    // transaction_id of every live line under the given captures (non-null only) — what to cascade-archive.
+    List<Integer> findCaptureLineTransactionIdsByCaptureIdsAndTenantId(
+            @Param("tenantId") Integer tenantId,
+            @Param("captureIds") List<Integer> captureIds);
+
+    // Archive the WIN/LOSE transactions those lines generated into transactions_deleted
+    int archiveCaptureTransactionsToDeleted(
+            @Param("tenantId") Integer tenantId,
+            @Param("ids") List<Integer> ids,
+            @Param("deletedBy") String deletedBy);
+
+    // Archive every live line under the given captures into data_capture_line_deleted.
+    int archiveCaptureLineMaintenanceToDeleted(
+            @Param("tenantId") Integer tenantId,
+            @Param("captureIds") List<Integer> captureIds,
+            @Param("deletedBy") String deletedBy);
+
+    // Hard delete every line under the given captures from data_capture_line (post-archive).
+    int deleteCaptureLineMaintenanceByCaptureIds(
+            @Param("tenantId") Integer tenantId,
+            @Param("captureIds") List<Integer> captureIds);
+
+    // Drop the "already submitted" marker for fully-deleted captures
+    int deleteProcessSubmittedByCaptureIds(
+            @Param("tenantId") Integer tenantId,
+            @Param("captureIds") List<Integer> captureIds);
+
     // Formula Maintenance (view-only): every data_capture_formula row for one process, one category (GAME/BANK) at a time.
-    // No date range — data_capture_formula is a persisted config table, not a per-day capture. Hard delete only.
     List<MaintenanceFormulaDTO> findFormulaMaintenanceRows(
             @Param("tenantId") Integer tenantId,
             @Param("process") String process,
@@ -108,7 +143,6 @@ public interface MaintenanceDao {
             @Param("q") String q);
 
     // Formula Maintenance Edit: only account_id/source_percent/input_method/formula/description are editable.
-    // enable_source_percent/enable_input_method are left untouched; updated_at auto-refreshes via ON UPDATE CURRENT_TIMESTAMP.
     int updateFormulaMaintenanceRow(
             @Param("tenantId") Integer tenantId,
             @Param("id") Integer id,

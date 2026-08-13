@@ -48,6 +48,9 @@ public class DataCaptureLine {
     private BigDecimal rate;
     private String rateExpression;
 
+    // The WIN/LOSE transactions.id this line generated (NULL if processedAmount=0).
+    private Integer transactionId;
+
     private LocalDateTime createdAt;
 
     @Getter

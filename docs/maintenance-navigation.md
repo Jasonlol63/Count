@@ -301,7 +301,7 @@ org.springframework.web.HttpRequestMethodNotSupportedException: Request method '
 - [ ] 实机验证：单公司、Group 聚合、Games/Bank 切换、Select All 不选 process 时不出现 GAME/BANK 混列、Process 下拉能列出当前公司全部 process、Bank category（含 payroll-only 公司）能查到 SALARY/BONUS/PROFIT/COMMISSION 数据、切公司不再 500
 - [ ] 排查 Capture/Payment/BankProcess Maintenance 的 Process 下拉是否也在用 `maintenanceCompanyApi.js` 的 `fetchMaintenanceProcesses`（旧 PHP），有的话需要单独修
 - [ ] 决定要不要把 §10.3.3 里其余 6 处 `switch-tenant` 缺 `method: "POST"` 的地方一并修掉
-- [ ] Capture Maintenance 软删归档表（`data_capture_line_deleted`）落地后，回来把 `deleted`/`deletedBy`/`deletedAt` 接上 live+archived 合并查询（同 §5.6 Payment Maintenance 的模式）
+- [x] ~~Capture Maintenance 软删归档表（`data_capture_line_deleted`）落地后，回来把 `deleted`/`deletedBy`/`deletedAt` 接上 live+archived 合并查询~~ —— 用户已确认不需要，Transaction Maintenance 只看活跃行即可（见 §13.4）
 
 ## 11. Formula Maintenance 数据契约（Spring，List + Edit + Delete 已切换）
 
@@ -579,38 +579,42 @@ WHERE tenant_id = #{tenantId}
 - [x] `updateSessionCompany` 切公司 500 修复（同 §10.3.3 根因）：`formulaMaintenanceLogic.js` 的 `updateSessionCompany` 裸 `fetch()` 默认 GET，`AuthController.switchTenant` 只收 POST；补上 `method: "POST"`
 - [ ] 实机验证：Games/Bank 切换、Select All 不选 process 时不出现 GAME/BANK 混列、Process 下拉能列出当前公司全部 process、Bank category（SALARY/BONUS/PROFIT/COMMISSION）能查到数据、MAIN/SUB 行的 Product 列展示符合预期、Edit 保存后本地行正确刷新、Delete 批量勾选后确实从 DB 消失（硬删，刷新页面也不会再出现）
 
-## 12. Capture Maintenance 数据契约（Spring，List 全链路已切换 — 删除仍是旧 PHP，本轮明确排除）
+## 12. Capture Maintenance 数据契约（Spring，List + Delete 全链路已切换，行粒度为 capture）
 
-只读列表（本轮范围明确不含删除）。一行 = 一条 `data_capture_line`，MAIN+SUB 全展示，不筛 `product_type`，跟 §10 Transaction Maintenance 同一套表、同一个 `MaintenanceDao`/`MaintenanceMapper.xml`（未新建 Dao/Mapper 文件）。**当前进度：DTO + Dao 方法 + Mapper SQL + Service + Controller + 前端均已实现；Delete 仍打旧 PHP，未动。**
+只读列表。**行粒度改过一次**：最初做的是"一行 = 一条 `data_capture_line`"（一个 capture 里每个 Product 各占一行），用户看实机效果后纠正为"一行 = 一条 `data_captures`"（一个 capture/一次提交只占一行，不展开到 Product 明细），已经按新粒度重做完。跟 §10 Transaction Maintenance 同一套表、同一个 `MaintenanceDao`/`MaintenanceMapper.xml`（未新建 Dao/Mapper 文件）。**当前进度：DTO + Dao + Mapper SQL + Service + Controller + 前端全部按新粒度对齐完成；Delete 走 Spring（新粒度）。**
 
-### 12.1 字段来源
+### 12.1 字段来源（capture 级别，已重做）
 
 | JSON 字段 | 来源 | 备注 |
 |-----------|------|------|
-| `dtsCreated` | `data_capture_line.created_at` | |
-| `product` | `data_capture_line.id_product` | |
+| `id` | `data_captures.id` | 行 key；**不再是** `data_capture_line.id` |
+| `dtsCreated` | `data_captures.created_at` | header 级别，不再取某一行的 |
 | `process` | `process.code`（经 `data_captures.process_id`） | 同一字段既是请求过滤参数也是响应列，跟 §10 一致 |
-| `currency` | `currency.code`（经 `data_capture_line.currency_id`） | |
-| `wlGroup` | **`data_capture_line.id_product`（跟 `product` 同一个字段值）** | 用户明确纠正过：不是 `account.account_id`。所以这次 SQL **没有 join `account` 表**，比 §10 Transaction Maintenance 少一个 join |
-| `createdBy` | `data_captures.created_by` | header 字段（line 本身无 `created_by`） |
-| `deleted`/`deletedBy`/`deletedAt` | 固定 `false`/`null`/`null` | 本轮不做删除，没有归档表可查 |
+| `currency` | `currency.code`（经 **`data_captures.currency_id`**，不是某一行的） | |
+| `product` / `wlGroup`（两列同一个表达式） | `CASE WHEN p.category='BANK' THEN p.code WHEN 有选 description THEN 逗号拼接的 description 名 ELSE p.code END` | BANK 直接用 process code（本来就是 SALARY/BONUS/PROFIT/COMMISSION）；GAME 取 `data_capture_description` 关联的 `process_description.name`，多选逗号拼接，**没选任何 description 时回退显示 process code**（用户确认，已用真实数据验证：3 条测试 capture 都没选过 description，回退后显示 "SALARY"/"BONUS"，不会出现空白格） |
+| `createdBy` | `data_captures.created_by` | header 字段，不变 |
+| `deleted`/`deletedBy`/`deletedAt` | 活跃行固定 `false`/`null`/`null`；归档行来自 `data_capture_line_deleted` 按 `capture_id` 分组，`deletedBy`/`deletedAt` 用 `MAX()` 聚合（同一 capture 底下所有行是同一次批量归档写入的，值本来就一样，`MAX` 只是满足 GROUP BY 语法，不是真的在聚合不同的值） | |
+
+SQL 结构：`FROM data_capture_line dl`（或归档行是 `data_capture_line_deleted dld`）`JOIN data_captures dc ...`，**`GROUP BY dc.id`** 把同一 capture 下的多条 line 折叠成一行——`dc.id` 是主键，其余选出来的字段都跟它函数依赖，不用把所有字段塞进 GROUP BY。`process`/`q` 两个 `<if>` 过滤条件的 SQL 片段基本没变，只是 `q` 不再搜 `id_product`（Product 列已经不来自它了），改成搜 `p.code` / `desc_agg.description_names` / `c.code`。两条 `<sql>` 片段（`captureDescriptionAgg` 子查询、`captureProductExpr` CASE 表达式）活跃/归档两条 SELECT 共用，没有重复写两遍。
 
 `category` 必填硬过滤（`dc.category = #{category}`，不是 `<if>`），跟 §10 同样的教训——防止 Select All 不选 process 时 GAME/BANK 混列。
 
 `process` 请求参数兼容 code 或数字 id：`UPPER(p.code)=UPPER(#{process}) OR CAST(p.id AS CHAR)=#{process}`。
 
-`q` 搜索覆盖 `id_product` / `process.code` / `currency.code`（对应页面 Search 框占位符 "E.G. PROCESS / PRODUCT / CURRENCY"）。
+### 12.1.1 连带简化：删除不用再"选中行反查 capture"了
+
+因为列表本身已经是一行一个 capture，前端勾选的行 id 直接就是 `data_captures.id`，**`findCaptureIdsByLineIdsAndTenantId` 这个中间转换方法整个删掉了**，`MaintenanceCaptureDTO.lineIds` 也改名成 `captureIds`（不再需要"选中的 line id → distinct capture_id"这一步）。`deleteMaintenanceCaptureRows` 现在直接拿 `mc.captureIds` 进级联（归档 line → 联动归档/硬删 transaction → 硬删 line → 删 process_submitted），比上一版少一次查询往返。
 
 ### 12.2 关键文件索引
 
 | 层 | 路径 |
 |----|------|
-| DTO | `backend/.../dto/MaintenanceCaptureDTO.java`（请求字段 `tenantId`/`dateFrom`/`dateTo`/`process`/`category`/`q` 与响应列共用同一个类，风格对齐 `MaintenanceTransactionDTO`） |
-| Dao | `backend/.../dao/MaintenanceDao.java` → `findCaptureLineMaintenanceRows` |
-| Mapper | `backend/.../resources/mybatis/MaintenanceMapper.xml` → `findCaptureLineMaintenanceRows` |
-| Service | `backend/.../service/MaintenanceService.java` / `impl/MaintenanceServiceImpl.java` → `findMaintenanceCaptureRows`（`CC_ROW_ORDER`：`dtsCreated` desc, `id` desc；复用 §11 的 `normalizeMaintenanceCategory`，没有再写一份 category 归一化） |
-| Controller | `backend/.../controller/MaintenanceController.java` → `POST /api/maintenance/capture-maintenance/list`（用户自行实现，已核对） |
-| 前端 | `Count-frontend/.../capture/captureMaintenanceLogic.js`（`CaptureMaintenancePage.jsx`/`CaptureVirtualRows.jsx`/`CaptureVirtualDataRow.jsx` 均未改一行） |
+| DTO | `backend/.../dto/MaintenanceCaptureDTO.java`（请求字段 `tenantId`/`dateFrom`/`dateTo`/`process`/`category`/`q`/`captureIds`(删除用) 与响应列共用同一个类，风格对齐 `MaintenanceTransactionDTO`） |
+| Dao | `backend/.../dao/MaintenanceDao.java` → `findCaptureLineMaintenanceRows`/`findCaptureLineMaintenanceDeletedRows` |
+| Mapper | `backend/.../resources/mybatis/MaintenanceMapper.xml` → 同名两条 SQL + `captureDescriptionAgg`/`captureProductExpr` 两个共用 `<sql>` 片段 |
+| Service | `backend/.../service/MaintenanceService.java` / `impl/MaintenanceServiceImpl.java` → `findMaintenanceCaptureRows`（`CC_ROW_ORDER`：`dtsCreated` desc, `id` desc；复用 §11 的 `normalizeMaintenanceCategory`）+ `deleteMaintenanceCaptureRows` |
+| Controller | `backend/.../controller/MaintenanceController.java` → `POST /api/maintenance/capture-maintenance/{list,delete}`（用户自行实现，已核对） |
+| 前端 | `Count-frontend/.../capture/captureMaintenanceLogic.js`（`CaptureMaintenancePage.jsx`/`CaptureVirtualRows.jsx`/`CaptureVirtualDataRow.jsx` 均未改一行——`row.capture_id` 字段名从一开始就是通用命名，现在后端 `id` 语义变成 capture 级别之后天然对得上，不用改前端展示层） |
 
 ### 12.3 前端改动（`captureMaintenanceLogic.js`）
 
@@ -619,11 +623,11 @@ WHERE tenant_id = #{tenantId}
 | 项 | 说明 |
 |----|------|
 | `searchCaptureData` | `api/capture_maintenance/search_api.php`（旧 PHP）→ `POST api/maintenance/capture-maintenance/list`（Spring）。请求体只有 `{tenantId, dateFrom, dateTo, process, category, q}`，不再传 `company_id`/`view_group`/`group_id`/`report_scope`/`group_only`/`group_aggregate` |
-| `normalizeSpringCaptureMaintenanceRow` | camelCase → 表格字段：`capture_id`（= `data_capture_line.id`，跟页面已有的 `row.capture_id` 选中/删除 key 天然对上，`CaptureVirtualRows.jsx`/`CaptureMaintenancePage.jsx` 不用改）、`dts_created`、`product`、`process`、`currency`、`wl_group`、`submitted_by`、`is_deleted`、`deleted_by`、`dts_deleted` |
+| `normalizeSpringCaptureMaintenanceRow` | camelCase → 表格字段：`capture_id`（**现在 = `data_captures.id`**，行粒度改过之后语义变了，见 §12.1；字段名 `row.capture_id` 从一开始就是通用命名，页面选中/删除逻辑不用改）、`dts_created`、`product`、`process`、`currency`、`wl_group`、`submitted_by`、`is_deleted`、`deleted_by`、`dts_deleted` |
 | **`category` 怎么定的（⚠️ 推断，需要实机验证）** | 本页**没有** Transaction Maintenance 那种 `activePermission` 状态，`searchCaptureData` 调用点也从没传过 `category`。新写的 `resolveCaptureMaintenanceCategory(scope)` 复用了 `fetchProcesses` 里本来就有的判断：`scope.c168Channel \|\| scope.companyPayrollChannel` → `"Bank"`，否则 `"Games"`——这跟"该用固定 4 个 Bank process 还是查真实 process 表"是同一个条件，不是凭空猜的，但**没有另外的信号源交叉验证过**，如果某个公司同时有 Game 权限又需要看 Bank 分类数据，这个判断会不够用，需要实测确认 |
 | `fetchProcesses`（Company 模式） | 同 §10.3.1 的修复：从旧 PHP `fetchMaintenanceProcesses` 改打 Spring `fetchProcessListByTenantId`（`/api/process/process-list`） |
 | `updateSessionCompany` | 补 `method: "POST"`（同 §10.3.3 根因，本页 `updateSessionCompany` 之前也是裸 `fetch()`） |
-| `deleteCaptureItems` | **未改**，仍打旧 PHP `delete_api.php`——本轮明确不做删除。之后接 Spring 删除时要注意：`capture_id` 现在的值已经是 `data_capture_line.id`（新语义），跟旧 PHP 删除接口原本期望的 id 不一定是同一套，接的时候要重新核对，不能假设兼容 |
+| `deleteCaptureItems` | 已切到 `POST api/maintenance/capture-maintenance/delete`，请求体 `{tenantId, captureIds}`（字段名跟着后端 `MaintenanceCaptureDTO.captureIds` 改的，之前叫 `lineIds`）。`row.capture_id` 现在就是 `data_captures.id`，勾选哪几行就直接把那几个 id 传过去，不用再转换 |
 | 顺手清掉 | 未再使用的 `appendScopeToParams`（原来给旧 PHP 拼 scope 参数）、`GROUP_ONLY_PROCESS_CODES` 导入 |
 
 ### 12.4 待办
@@ -632,6 +636,135 @@ WHERE tenant_id = #{tenantId}
 - [x] Service：`findMaintenanceCaptureRows` + `parseCaptureListQuery`（`CaptureListQuery` record），跟 `findMaintenanceTransactionsRows` 同一套写法，`category` 复用 `normalizeMaintenanceCategory`
 - [x] Controller：`POST /api/maintenance/capture-maintenance/list`（无 delete 端点）
 - [x] 前端 `captureMaintenanceLogic.js` 切到新接口，Process 下拉换 Spring process-list，`updateSessionCompany` 补 `method: "POST"`
-- [ ] 删除功能（软删归档表 `data_capture_line_deleted`）本轮不做，明确排除在外；`deleteCaptureItems` 仍是旧 PHP
-- [ ] 实机验证：能查到数据、W/L Group 列跟 Product 列显示一致、Bank category（payroll-only 公司）和 Games category 都能各自查到数据不混列、**尤其要验证 §12.3 里 `category` 推断逻辑对不对**（有没有 Game 权限公司需要看 Bank 数据的场景）
+- [x] 删除功能全链路已实现（schema/Dao/Service/Controller/前端，见 §12.5），已按"一行一个 capture"的新粒度重做过一次
+- [ ] 实机验证：能查到数据、Product/W-L Group 列在 GAME 无 description 时正确回退成 process code、Bank category（payroll-only 公司）和 Games category 都能各自查到数据不混列、**尤其要验证 §12.3 里 `category` 推断逻辑对不对**（有没有 Game 权限公司需要看 Bank 数据的场景）、多个不同 Product 属于同一 capture 时列表正确合并成一行、删除后列表正确标红
 - [ ] §10.3.3 提到的其余几处（Payment/BankProcess Maintenance + UserListPage + useMemberWinLoss）仍未修，需要的话再统一处理
+
+### 12.5 删除级联设计（schema + Service + Controller + 前端均已实现）
+
+**删除单位是「整个 capture」**（同一 `data_captures.id` 下所有 `data_capture_line` 一起删），不是按单行勾选删——业务约定：不会出现同一 capture 下部分行删、部分行保留的情况。前端勾选到某一行时，后端要按该行的 `capture_id` 反查出该 capture 下的全部行一起处理，不能只删被勾选的那几行。
+
+删除时要联动的三个地方，以及为什么各自需要加字段（详见对话记录，这里只记结论）：
+
+| 联动目标 | 现状 | 加的字段 |
+|---|---|---|
+| `transactions`（旧版 Transaction 菜单页读的表） | 完全没有指回 `data_captures`/`data_capture_line` 的字段；一条 `data_capture_line`（金额非0）对应至多一条 `transactions`，不是一个 capture 对一条——已用真实数据核对（`capture_id=4` 的 4 条 line → 4 条 transaction，逐行一对一） | `data_capture_line.transaction_id`（nullable FK → `transactions.id`） |
+| `process_submitted`（Data Capture 页面「已提交」标记，决定当天该 process 能不能重新提交） | 跟 `data_captures.id` 没有任何关联，只按 `tenant_id+process_id+capture_date` 存在性判断；因为删除单位已经是整个 capture，标记可以无条件删（不用再判断"底下还有没有活着的行"） | `process_submitted.capture_id`（nullable FK → `data_captures.id`） |
+| Transaction Maintenance（§10，直接读 `data_capture_line`） | 已经是同一份数据源，只要归档表建好、列表查询 UNION 上去，删除会自动反映过去，不需要额外的删除动作 | 无需加字段，靠 `data_capture_line_deleted` 归档表 |
+
+**Schema 改动（已完成，`backend/src/main/resources/sql/schema.sql` + 迁移脚本 `sql/migrate_capture_maintenance_delete.sql`，本地跑法见脚本头注释 `mysql -u root testcount < ...`，脚本内所有 ALTER 都做了 `INFORMATION_SCHEMA` 存在性检查，可重复执行）：**
+
+1. `data_capture_line` 加 `transaction_id INT UNSIGNED NULL`（FK `transactions.id`，`ON DELETE SET NULL`）+ `idx_dcl_transaction` 索引。**历史数据限制**：这次改动前提交的行，`transaction_id` 永远 NULL，删这些老行时联动不了 transaction，只能软删 capture 侧本身。
+2. **新建** `data_capture_line_deleted` 归档表：字段跟 `data_capture_line` 一一对应（含 `transaction_id`）+ `line_id`（原 id）+ `capture_id` + `deleted_by` + `deleted_at`，`data_captures` header 永不清理，即便旗下所有行都归档了。
+3. `process_submitted` 加 `capture_id INT UNSIGNED NULL`（FK `data_captures.id`，`ON DELETE SET NULL`）+ `idx_sp_capture` 索引。
+
+**Mapper/Dao/DTO 已完成**（Service 本轮明确不看）：
+
+| 方法 | 作用 |
+|------|------|
+| `MaintenanceCaptureDTO.lineIds` | 删除请求字段：勾选的 `data_capture_line.id` 列表；语义上是"选中了哪些行"，不是"要删哪些 capture"——后续 Service 要先转成 distinct capture_id |
+| `findCaptureLineMaintenanceDeletedRows` | Capture Maintenance 归档行查询，读 `data_capture_line_deleted`，跟活跃行同一套过滤/字段映射，`deleted=TRUE` |
+| `findCaptureIdsByLineIdsAndTenantId` | 选中的 line id → distinct capture_id（第一步反查） |
+| `findCaptureLineTransactionIdsByCaptureIdsAndTenantId` | 这些 capture 下所有活跃行的非空 `transaction_id`（要联动归档的） |
+| `archiveCaptureTransactionsToDeleted` | 按显式 id 归档进 `transactions_deleted`（不是按 type/`bank_process_posted_id` 过滤——capture 生成的 WIN/LOSE 行两边都对不上，只能用显式 id 列表） |
+| `archiveCaptureLineMaintenanceToDeleted` | 按 capture_id 归档进 `data_capture_line_deleted` |
+| `deleteCaptureLineMaintenanceByCaptureIds` | 按 capture_id 硬删 `data_capture_line` |
+| `deleteProcessSubmittedByCaptureIds` | 按 capture_id 删 `process_submitted`（无条件，因为删除单位就是整个 capture） |
+
+硬删 transaction 那一步复用现成的 `deleteByIdsAndTenantId`，没有再写一个。
+
+**⚠️ 依赖上一步的 schema 迁移**：这些方法引用了 `data_capture_line.transaction_id`、`data_capture_line_deleted` 表、`process_submitted.capture_id`——如果本地库还没跑 `sql/migrate_capture_maintenance_delete.sql`，调用会直接报字段/表不存在。
+
+**Service 已完成**（Controller 用户自己写）：
+
+- `MaintenanceService.deleteMaintenanceCaptureRows(MaintenanceCaptureDTO mc)` + `MaintenanceServiceImpl` 实现，`@Transactional`，顺序：
+  1. `requireWritableSession`（非只读）+ `requireCaptureTenantId` + `requireCaptureLineIds`（`mc.lineIds` 不能为空）
+  2. `lineIds` → `findCaptureIdsByLineIdsAndTenantId` 反查 distinct `captureIds`；查不到任何 capture 直接抛 `No matching capture maintenance records to delete`
+  3. `findCaptureLineTransactionIdsByCaptureIdsAndTenantId` 拿这些 capture 下所有非空 `transaction_id`；非空才归档（`archiveCaptureTransactionsToDeleted`）+ 硬删（复用 `deleteByIdsAndTenantId`）——**没有关联 transaction 是正常情况**（历史行、或金额为 0 的行），不当错误处理，跳过即可
+  4. 归档 line（`archiveCaptureLineMaintenanceToDeleted`）、硬删 line（`deleteCaptureLineMaintenanceByCaptureIds`），归档/删除数为 0 都当异常抛错（理论上不该发生，因为 captureIds 是刚从活跃行反查出来的）
+  5. 删 `process_submitted`（`deleteProcessSubmittedByCaptureIds`）——**不检查返回条数**，因为历史 capture 的 `process_submitted.capture_id` 本来就可能是 NULL（补字段前的旧数据），查不到不算错误
+- `MaintenanceServiceImpl.findMaintenanceCaptureRows` 改成合并 `findCaptureLineMaintenanceRows`（活跃）+ `findCaptureLineMaintenanceDeletedRows`（归档），按 `CC_ROW_ORDER` 排序——列表现在会真正显示已删除行了（红色/划线交给前端，后端只负责把两批数据合并返回）
+
+**Controller 已完成**（用户自行实现，已核对）：`POST /api/maintenance/capture-maintenance/delete`，跟其余 Maintenance 端点同一套 `try/catch BusinessException` 写法。
+
+**前端已完成**（`captureMaintenanceLogic.js`）：
+
+- `deleteCaptureItems` 从旧 PHP `capture_maintenance/delete_api.php` 切到 `POST api/maintenance/capture-maintenance/delete`。请求体只有 `{tenantId, lineIds}`，`tenantId` 走 `resolveCaptureMaintenanceTenantId(scope)`（跟 `searchCaptureData` 同一个函数，同一套 `scope.scopeCompanyId ?? scope.uiCompanyId` 取法），`lineIds` 从调用方传入的 `items`（`[{capture_id, process_id, currency_id}]`，`process_id`/`currency_id` 是旧 PHP 时代留下的字段，新接口用不上）里提取 `capture_id`（= `data_capture_line.id`）去重后组装
+- 函数签名从 `{items, dateFrom, dateTo, scope}` 简化成 `{items, scope}`——`dateFrom`/`dateTo` 新接口不需要（删除操作直接按 id 走，不用日期范围过滤），`CaptureMaintenancePage.jsx` 调用点还是照旧传 `dateFrom`/`dateTo`，多传的字段被忽略，不会报错，**没有改 `CaptureMaintenancePage.jsx`**
+- 顺手清掉了不再使用的 `captureMaintenanceScopeApiParams` 导入（原来只有 `deleteCaptureItems` 拼 `company_id`/`view_group`/... 这些 scope 参数时用，现在整个文件已经找不到第二处用它的地方了）
+
+### 12.6 Submit 流程回填 `transaction_id` / `capture_id`（已完成）
+
+`DataCaptureSummaryServiceImpl.submit()`（[DataCaptureSummaryServiceImpl.java:462-479](../backend/src/main/java/com/eazycount/service/impl/DataCaptureSummaryServiceImpl.java)）调整了插入顺序：
+
+- 原来：每行先 `toLineEntity(...)` 建好丢进 `lineEntities` 列表，金额非0再 `transactionDao.insert(...)`——line 实体建好时根本不知道自己的 transaction id 是多少。
+- 现在：金额非0先 `transactionDao.insert(txn)`（`TransactionMapper.xml` 的 `insert` 本来就是 `useGeneratedKeys="true" keyProperty="id"`，insert 完 `txn.getId()` 立刻能拿到），把这个 id 传给 `toLineEntity(..., lineTransactionId)`，再统一批量插入 `data_capture_line`。金额为 0 的行 `lineTransactionId` 传 `null`（`data_capture_line.transaction_id` 本来就允许 NULL）。
+- `insertProcessSubmitted` 调用加了 `captureId` 参数（`header.getId()` 在这行执行前早就有了，改起来比 transaction_id 简单，插入顺序都不用动）。
+
+配套改动：`DataCaptureLine` 实体加 `transactionId` 字段；`DataCaptureSummaryMapper.xml` 的 `insertLines`（写入）和 `findLinesByCaptureId`（读取，供其它地方回填用）都加了 `transaction_id` 列；`DataCaptureDao.insertProcessSubmitted` 签名加 `captureId` 参数，`DataCaptureMapper.xml` 对应 INSERT 加 `capture_id` 列——全仓库只有 `DataCaptureSummaryServiceImpl.submit()` 一处调用，改签名不影响别处。
+
+**至此，新提交的数据会自动带上 `transaction_id`/`capture_id`，Capture Maintenance 删除时的三处联动（transactions / process_submitted / 归档表）对新数据完全生效**。历史数据（这次改动前提交的）两个字段仍是 NULL，删历史 capture 时只能软删 capture 侧本身，联动不了 transaction/process_submitted——这是之前就确认过、无法回填的已知限制。
+
+### 12.7 前端删除确认弹窗文案（已完成）
+
+`MaintenanceDeleteConfirmModal` 本来就支持 `messageKey` prop 覆盖默认提示文案（`BankprocessMaintenancePage` 已经用 `deleteConfirmBankProcess` 这个先例）。加了 `deleteConfirmCaptureRecords`（`translateFile/pages/maintenanceTranslate.js` 的 `en`/`zh` 两个语言块都加了），`CaptureMaintenancePage.jsx` 的 `MaintenanceDeleteConfirmModal` 传 `messageKey="deleteConfirmCaptureRecords"`，文案明确提示"会连带删除同一次提交下的其它所有 Product"，不是默认那句通用的"删除已选中的 N 条记录"。
+
+**还没做（下一轮）**：
+- ~~`findTransactionLineMaintenanceRows` 也要拆活跃+归档，UNION 上 `data_capture_line_deleted`~~ ——**用户 2026-08-14 明确决定不需要**：Transaction Maintenance 只看有数据（活跃）的行即可，不必跟 Capture Maintenance 一样合并显示已删除行，见 §13.4
+- 实机验证：
+  1. 提交一条新 Data Capture（GAME 或 BANK 都测），去数据库确认对应的 `data_capture_line.transaction_id` 和 `process_submitted.capture_id` 都正确回填了（不是 NULL）
+  2. 在 Capture Maintenance 里删掉这条新提交的数据，确认 `transactions`/`process_submitted` 两张表对应行都消失了（或者说 transactions 那边进了 `transactions_deleted`）
+  3. 删一条改动前就存在的老数据，确认能正常软删（capture 侧），但 `transactions`/`process_submitted` 不会有变化（预期内，不是 bug）
+  4. 前端删除确认弹窗文案在 Capture Maintenance 页面显示正确（跟 Payment/BankProcess Maintenance 默认文案不一样）
+  5. 前提：本地库要先跑过 `migrate_capture_maintenance_delete.sql`
+
+---
+
+## 13. 已知待修问题（2026-08-13 复查记录）
+
+对五个 Maintenance 页面（Payment / Bank Process / Capture / Formula / Transaction）做了一轮 company/games-bank 相关的复查（group 部分未看）。核心 List/Edit/Delete 端点确认全部已在 Spring，没有整支功能漏做的页面；但发现下面几个仍未修的具体缺口，先记录，不在这轮动手改。
+
+### 13.1 Payment / Bank Process Maintenance 切公司仍是裸 GET（405/500）
+
+`updateSessionCompany` 在 Capture / Formula / Transaction 三页已经补上 `method: "POST"`（见 §10.3.3），但 **Payment 和 Bank Process 这两页还没修**：
+
+- `Count-frontend/src/pages/maintenance/payment/paymentMaintenanceLogic.js:230` —— 裸 `fetch(...)`，无 `method`，默认 GET
+- `Count-frontend/src/pages/maintenance/bankprocess/bankprocessMaintenanceLogic.js:310` —— 同上
+
+`AuthController.switchTenant` 只收 POST，这两页切公司会 405/500。修法就是照抄 Capture/Formula 已经改好的写法加一行 `method: "POST"`。
+
+### 13.2 `api/domain/domain_api.php` 从未在 Spring 实现，Capture/Formula/Transaction 仍在调用
+
+`maintenanceCompanyApi.js` 的 `fetchDomainCompanyPermissions` 打的是 `api/domain/domain_api.php`，Spring `DomainController` 没有对应路由（只有 `/list`/`/add`/`/update`/`/delete`/`/list-fee`/`/add-fee`，没有 `get_company_permissions` 这个 action），必然 500，catch 后静默 fallback 成写死的默认权限列表（`["Games","Bank",...]`，Games 排最前）。
+
+- Formula/Transaction 已经靠繞開這条路径解决了实际症状（改读 scope 上的 `c168Channel`/`companyPayrollChannel`，不再依赖这个权限列表本身），但底层这个坏接口没有被替换，只是被绕开——如果以后有新逻辑直接信了这个权限列表的值，会重新踩坑。
+- 顺手确认：`paymentMaintenanceLogic.js` 里的 `fetchCompanyPermissions`（同样打这个坏接口）在 Payment Maintenance 页面里全仓库 grep 确认零调用，是死代码，目前无实际影响。
+- 同文件里的 `fetchMaintenanceProcesses`（打另一个旧 PHP `api/processes/processlist_api.php`）也是全仓库零调用的死代码。
+- 三个都在 `Count-frontend/src/pages/maintenance/shared/maintenanceCompanyApi.js`。
+
+### 13.3 Capture Maintenance 的 category 二选一逻辑覆盖不了「Game+Bank 都有权限」的公司
+
+`Count-frontend/src/pages/maintenance/capture/captureMaintenanceLogic.js` 的 `resolveCaptureMaintenanceCategory`：
+
+```js
+function resolveCaptureMaintenanceCategory(scope) {
+  const payrollChannel = Boolean(scope?.c168Channel || scope?.companyPayrollChannel);
+  return payrollChannel ? "Bank" : "Games";
+}
+```
+
+`category` 在 SQL 里是必填硬条件（§12.1，防 Select All 时 GAME/BANK 混列），所以选错等于那部分数据对这页面完全不可见。如果一间公司同时有 Game 和 Bank 权限、但没被判定成 C168 或 bank-only（没打上 `companyPayrollChannel`），这页会永远只查 Games 分类，Bank 分类的 capture 记录完全查不到，UI 上也没有手动切换的地方。
+
+已核对过 `captureMaintenanceScope.js` 的 enrich 逻辑本身没问题（跟 Transaction Maintenance 抄的是同一份写法），不是 §11.3.3 那种"忘记补 flag"的重演，是这个二分类设计本身覆盖不了"两种权限都有"的公司——跟文件 §12.3/§12.4 当初标注的「⚠️ 推断，需要实机验证」是同一个未解决项，复查后确认到现在仍未修。
+
+### 13.4 Transaction Maintenance 看不到已删除行 —— **非缺口，用户已确认不需要**
+
+`findTransactionLineMaintenanceRows` 没有接 `data_capture_line_deleted` 归档表的 UNION 查询，跟 Capture Maintenance 的 live+archived 合并不同步（§10.4、§12.7 曾记过这项 TODO）。**2026-08-14 用户明确决定**：Transaction Maintenance 只需要看有数据（活跃）的行，不需要展示已删除行，这项不用做，§10.4/§12.7 里的对应 TODO 已作废。
+
+### 13.5 待办清单
+
+- [ ] `paymentMaintenanceLogic.js` / `bankprocessMaintenanceLogic.js` 的 `updateSessionCompany` 补 `method: "POST"`（见 §13.1）
+- [ ] 实机验证一间「Game+Bank 都有权限、非 C168/非 bank-only」的公司，确认 §13.3 的 Capture Maintenance Bank 数据不可见问题是否真的复现
+- [ ] 视 §13.3 验证结果决定怎么修 `resolveCaptureMaintenanceCategory`（可能需要 UI 加分类切换，而不是纯二选一自动判断）
+- [ ] `api/domain/domain_api.php` 要嘛在 Spring 补一个真正的权限查询端点，要嘛把 `fetchDomainCompanyPermissions`/`fetchCompanyPermissions`（Payment 死代码）/`fetchMaintenanceProcesses`（死代码）一并从 `maintenanceCompanyApi.js` 清掉（见 §13.2）
+- [x] ~~`findTransactionLineMaintenanceRows` 补 `data_capture_line_deleted` 归档表 UNION~~ —— 用户已确认不需要，Transaction Maintenance 只看活跃行即可（见 §13.4）
