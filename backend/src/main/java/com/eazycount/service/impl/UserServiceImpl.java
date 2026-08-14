@@ -1,8 +1,10 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
+import com.eazycount.dao.TenantDao;
 import com.eazycount.dao.UserDao;
 import com.eazycount.dto.UserListDTO;
+import com.eazycount.entity.Tenant;
 import com.eazycount.entity.UserLink;
 import com.eazycount.entity.User;
 import com.eazycount.entity.UserTenantAccess;
@@ -28,17 +30,50 @@ public class UserServiceImpl implements UserService {
     private UserDao userDao;
 
     @Autowired
+    private TenantDao tenantDao;
+
+    @Autowired
     private CurrencyService currencyService;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    private List<Integer> normalizeTenantIds(List<Integer> raw) {
+        LinkedHashSet<Integer> out = new LinkedHashSet<>();
+        if (raw != null) {
+            for (Integer id : raw) {
+                if (id != null && id > 0) out.add(id);
+            }
+        }
+        return new ArrayList<>(out);
+    }
+
+    private void assertCompanyTenants(List<Integer> tenantIds) {
+        for (Integer tenantId : tenantIds) {
+            Tenant tenant = tenantDao.findTenantById(tenantId);
+            if (tenant == null || tenant.getTenantType() != Tenant.TenantType.COMPANY) {
+                throw new BusinessException("Selected tenant is not a company: " + tenantId);
+            }
+        }
+    }
+
+    private void assertAccountCodeAvailable(int tenantId, String accountCode, Integer excludeAccountId) {
+        Integer existing = userDao.findAccountIdByTenantIdAndCode(tenantId, accountCode);
+        if (existing != null && existing > 0 && !existing.equals(excludeAccountId)) {
+            throw new BusinessException("Account ID already exists in this company");
+        }
+    }
 
     @Override
     public List<UserListDTO> findUserByTenantId(Integer tenantId) {
         if (tenantId == null) {
             throw new BusinessException("Tenant ID not found!");
         }
-        return userDao.findUserByTenantId(tenantId);
+        List<UserListDTO> rows = userDao.findUserByTenantId(tenantId);
+        for (UserListDTO row : rows) {
+            row.setTenantIds(userDao.findTenantIdsByUserId(row.getId()));
+        }
+        return rows;
     }
 
     private String normalizeAccountLedgerRole(String role) {
@@ -48,9 +83,6 @@ public class UserServiceImpl implements UserService {
         String normalized = role.trim().toUpperCase(Locale.ROOT);
         if ("PARTHER".equals(normalized)) {
             normalized = "PARTNER";
-        }
-        if ("UPLINE".equals(normalized)) {
-            normalized = "SUPPLIER";
         }
         if (!ALLOWED_ACCOUNT_LEDGER_ROLES.contains(normalized)) {
             throw new BusinessException("Invalid role selected");
@@ -80,9 +112,14 @@ public class UserServiceImpl implements UserService {
         if (accountCode.isEmpty()) {
             throw new BusinessException("Account ID is required");
         }
-        Integer existingInTenant = userDao.findAccountIdByTenantIdAndCode(tenantId, accountCode);
-        if (existingInTenant != null && existingInTenant > 0) {
-            throw new BusinessException("Account ID already exists in this company");
+
+        List<Integer> targetTenantIds = normalizeTenantIds(userListDTO.getTenantIds());
+        if (targetTenantIds.isEmpty()) {
+            targetTenantIds = List.of(tenantId);
+        }
+        assertCompanyTenants(targetTenantIds);
+        for (Integer targetTenantId : targetTenantIds) {
+            assertAccountCodeAvailable(targetTenantId, accountCode, null);
         }
 
         User user = new User();
@@ -114,12 +151,17 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException("Create user failed!");
         }
 
-        UserTenantAccess userTenantAccess = new UserTenantAccess();
-        userTenantAccess.setAccountId(user.getId());
-        userTenantAccess.setTenantId(userListDTO.getScopeTenantId());
-
+        Long primaryTenantAccessId = null;
         try {
-            userDao.insertAccountTenantAccess(userTenantAccess);
+            for (Integer targetTenantId : targetTenantIds) {
+                UserTenantAccess userTenantAccess = new UserTenantAccess();
+                userTenantAccess.setAccountId(user.getId());
+                userTenantAccess.setTenantId(targetTenantId);
+                userDao.insertAccountTenantAccess(userTenantAccess);
+                if (targetTenantId.equals(tenantId)) {
+                    primaryTenantAccessId = userTenantAccess.getId();
+                }
+            }
         } catch (Exception e) {
             throw new BusinessException("Create user tenant access failed!");
         }
@@ -130,8 +172,9 @@ public class UserServiceImpl implements UserService {
                 userListDTO.getCurrencyIds());
 
         userListDTO.setId(user.getId());
-        userListDTO.setTenantAccessId(userTenantAccess.getId());
+        userListDTO.setTenantAccessId(primaryTenantAccessId);
         userListDTO.setScopeTenantId(userListDTO.getScopeTenantId());
+        userListDTO.setTenantIds(targetTenantIds);
         return userListDTO;
 
     }
@@ -179,26 +222,61 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException("Update User failed!");
         }
 
+        List<Integer> desiredTenantIds = normalizeTenantIds(userListDTO.getTenantIds());
+        if (desiredTenantIds.isEmpty()) {
+            desiredTenantIds = List.of(tenantId);
+        }
+        assertCompanyTenants(desiredTenantIds);
+
+        List<Integer> currentTenantIds = userDao.findTenantIdsByUserId(userListDTO.getId());
+        Set<Integer> currentSet = new HashSet<>(currentTenantIds);
+        Set<Integer> desiredSet = new HashSet<>(desiredTenantIds);
+
+        List<Integer> toAdd = new ArrayList<>();
+        for (Integer tid : desiredSet) {
+            if (!currentSet.contains(tid)) toAdd.add(tid);
+        }
+        List<Integer> toRemove = new ArrayList<>();
+        for (Integer tid : currentSet) {
+            if (!desiredSet.contains(tid)) toRemove.add(tid);
+        }
+
         try {
-            UserTenantAccess userTenantAccess = new UserTenantAccess();
-            userTenantAccess.setAccountId(userListDTO.getId());
-            userTenantAccess.setTenantId(userListDTO.getScopeTenantId());
-            userDao.updateAccountTenantAccess(userTenantAccess);
+            for (Integer targetTenantId : toAdd) {
+                assertAccountCodeAvailable(targetTenantId, existing.getAccountId(), userListDTO.getId());
+                UserTenantAccess userTenantAccess = new UserTenantAccess();
+                userTenantAccess.setAccountId(userListDTO.getId());
+                userTenantAccess.setTenantId(targetTenantId);
+                userDao.insertAccountTenantAccess(userTenantAccess);
+            }
+            for (Integer targetTenantId : toRemove) {
+                userDao.deleteUserTenantAccessByAccountIdAndTenantId(userListDTO.getId(), targetTenantId);
+                currencyService.deleteByAccountIdAndTenantId(userListDTO.getId(), targetTenantId);
+            }
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             throw new BusinessException("Update UserTenantAccess failed!");
         }
-        UserListDTO updated = userDao.findUserByIdAndTenantId(userListDTO.getId(), userListDTO.getScopeTenantId());
+
+        // scopeTenantId itself may have been unchecked (account moved out of the tenant you're editing from) —
+        // fall back to any remaining tenant so the response can still be built.
+        Integer resultTenantId = desiredSet.contains(tenantId) ? tenantId : desiredTenantIds.get(0);
+        UserListDTO updated = userDao.findUserByIdAndTenantId(userListDTO.getId(), resultTenantId);
         if (updated == null) {
             throw new BusinessException("User not found after update!");
         }
+        updated.setTenantIds(desiredTenantIds);
 
-        currencyService.deleteByAccountIdAndTenantId(
-                userListDTO.getId(),
-                userListDTO.getScopeTenantId());
-        currencyService.insertAccountCurrency(
-                userListDTO.getId(),
-                userListDTO.getScopeTenantId(),
-                userListDTO.getCurrencyIds());
+        if (desiredSet.contains(tenantId)) {
+            currencyService.deleteByAccountIdAndTenantId(
+                    userListDTO.getId(),
+                    userListDTO.getScopeTenantId());
+            currencyService.insertAccountCurrency(
+                    userListDTO.getId(),
+                    userListDTO.getScopeTenantId(),
+                    userListDTO.getCurrencyIds());
+        }
 
         return updated;
     }
@@ -276,14 +354,20 @@ public class UserServiceImpl implements UserService {
 
         try {
             userDao.deleteUserTenantAccessByAccountIdAndTenantId(id, scopeTenantId);
+            currencyService.deleteByAccountIdAndTenantId(id, scopeTenantId);
         } catch (Exception e) {
             throw new BusinessException("Delete UserTenantAccess failed!");
         }
 
-        try {
-            userDao.deleteUserByIdAndStatus(id, User.AccountStatus.INACTIVE);
-        } catch (Exception e) {
-            throw new BusinessException("Delete User failed!");
+        // Only hard-delete the shared account row once it has no remaining company access —
+        // it may still be legitimately in use by other companies.
+        List<Integer> remainingTenantIds = userDao.findTenantIdsByUserId(id);
+        if (remainingTenantIds == null || remainingTenantIds.isEmpty()) {
+            try {
+                userDao.deleteUserByIdAndStatus(id, User.AccountStatus.INACTIVE);
+            } catch (Exception e) {
+                throw new BusinessException("Delete User failed!");
+            }
         }
     }
 

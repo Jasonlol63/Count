@@ -27,8 +27,6 @@ public interface UserDao {
 
     void updateUserDetails(User user);
 
-    void updateAccountTenantAccess(UserTenantAccess userTenantAccess);
-
     void deleteUserByIdAndStatus(@Param("id") int id, @Param("status") User.AccountStatus status);
 
     void deleteUserTenantAccessByAccountIdAndTenantId(@Param("accountId") int accountId, @Param("tenantId") int tenantId);

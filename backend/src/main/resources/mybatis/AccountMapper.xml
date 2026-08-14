@@ -127,15 +127,6 @@
         WHERE id = #{id}
     </update>
 
-    <update id="updateAccountTenantAccess">
-        UPDATE account_tenant_access
-        SET account_id = #{accountId},
-            tenant_id = #{tenantId},
-            updated_at = NOW()
-        WHERE account_id = #{accountId}
-          AND tenant_id = #{tenantId}
-    </update>
-
     <update id="updateStatusByUserId">
         update account
         set status = #{status}
