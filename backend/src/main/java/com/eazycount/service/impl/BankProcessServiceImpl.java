@@ -24,6 +24,11 @@ import java.util.Set;
 @Service
 public class BankProcessServiceImpl implements BankProcessService {
 
+    private static final Set<BankProcess.Status> EDIT_LOCKED_STATUS = Set.of(
+            BankProcess.Status.OFFICIAL,
+            BankProcess.Status.E_INVOICE,
+            BankProcess.Status.BLOCK);
+
     @Autowired
     private BankProcessDao bankProcessDao;
 
@@ -194,6 +199,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         if (existing == null) {
             throw new BusinessException("Bank process not found!");
         }
+        assertEditable(existing);
 
         try {
             bankProcessDao.updateRemark(id, tenantId, remark, sessionUser.login_id);
@@ -278,12 +284,21 @@ public class BankProcessServiceImpl implements BankProcessService {
         return bankProcess;
     }
 
+    /* OFFICIAL / E_INVOICE / BLOCK are locked from edits; only the status control can move them out. */
+    private static void assertEditable(BankProcess existing) {
+        if (existing.getStatus() != null && EDIT_LOCKED_STATUS.contains(existing.getStatus())) {
+            throw new BusinessException("Bank process is " + existing.getStatus()
+                    + " and cannot be edited. Change its status first.");
+        }
+    }
+
     private BankProcess updateBankProcess(BankProcessDTO bankProcessDTO, SessionUser sessionUser) {
         BankProcess existing = bankProcessDao.findBKProcessByIdAndTenantId(
                 bankProcessDTO.getId(), bankProcessDTO.getTenantId());
         if (existing == null) {
             throw new BusinessException("Bank process not found!");
         }
+        assertEditable(existing);
 
         BankProcess.Frequency frequency = parseFrequency(bankProcessDTO.getFrequency());
 

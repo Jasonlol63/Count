@@ -39,12 +39,18 @@ import java.util.Locale;
 import java.util.Set;
 
 @Service
-public class AccountingDueServiceImpl implements AccountingDueService {
+public class BankAccountingDueServiceImpl implements AccountingDueService {
 
     private static final Set<BankProcess.Status> BILLABLE_STATUS = EnumSet.of(
             BankProcess.Status.ACTIVE,
             BankProcess.Status.OFFICIAL,
             BankProcess.Status.E_INVOICE);
+
+    /** OFFICIAL / E_INVOICE / BLOCK: 1+N contracts under these statuses go to COMPENSATION instead of normal dues. */
+    private static final Set<BankProcess.Status> COMPENSATION_ELIGIBLE_STATUS = EnumSet.of(
+            BankProcess.Status.OFFICIAL,
+            BankProcess.Status.E_INVOICE,
+            BankProcess.Status.BLOCK);
 
     private static final Set<BkProcessAccountingPosted.PeriodType> FIRST_OF_MONTH_POST_TYPES = EnumSet.of(
             BkProcessAccountingPosted.PeriodType.FIRST_MONTH,
@@ -260,34 +266,26 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         }
     }
 
-    /**
-     * Normal dues: ACTIVE / OFFICIAL / E_INVOICE.
-     * 1+N + INACTIVE/BLOCK with no normal POSTED yet: still generate so Case A first bill can be posted as compensation.
-     * After any normal POSTED, INACTIVE/BLOCK stop normal dues (Case B COMPENSATION only).
+    /*
+     * Normal periodic dues: ACTIVE always; OFFICIAL / E_INVOICE / BLOCK only for non-1+N contracts
+     * (bounded by dayEnd like everyone else — see resolveFirstOfMonthDues etc.).
+     * OFFICIAL / E_INVOICE / BLOCK + 1+N contracts get a dedicated COMPENSATION due instead
+     * (see resolveOnePlusCompensationDue), never a normal periodic due. INACTIVE never generates any due.
      */
     private boolean isBillableForDueGeneration(BankProcess bp, Integer tenantId) {
         if (bp.getStatus() == null) {
             return false;
         }
-        if (BILLABLE_STATUS.contains(bp.getStatus())) {
+        if (bp.getStatus() == BankProcess.Status.ACTIVE) {
             return true;
         }
-        if (!isOnePlusContract(bp.getContract())) {
-            return false;
-        }
-        if (bp.getStatus() != BankProcess.Status.INACTIVE
-                && bp.getStatus() != BankProcess.Status.BLOCK) {
-            return false;
-        }
-        if (bp.getId() == null || tenantId == null) {
-            return false;
-        }
-        return accountingDueDao.countNormalPosted(tenantId, bp.getId()) <= 0;
+        return COMPENSATION_ELIGIBLE_STATUS.contains(bp.getStatus()) && !isOnePlusContract(bp.getContract());
     }
 
-    /**
-     * Case B: 1+N contract, status ≠ ACTIVE, at least one normal POSTED, no settled COMPENSATION yet.
-     * Ledger anchor = dayStart + COMPENSATION.
+    /*
+     * 1+N contract + OFFICIAL/E_INVOICE/BLOCK: unconditional compensation, regardless of whether any
+     * normal due was already posted before the process entered that status. INACTIVE never triggers
+     * compensation. Ledger anchor = dayStart + COMPENSATION.
      */
     private AccountingDueDTO resolveOnePlusCompensationDue(BankProcessDTO dto, Integer tenantId) {
         BankProcess bp = dto.getBankProcess();
@@ -297,13 +295,10 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         if (!isOnePlusContract(bp.getContract())) {
             return null;
         }
-        if (bp.getStatus() == null || bp.getStatus() == BankProcess.Status.ACTIVE) {
+        if (bp.getStatus() == null || !COMPENSATION_ELIGIBLE_STATUS.contains(bp.getStatus())) {
             return null;
         }
-        if (accountingDueDao.countNormalPosted(tenantId, bp.getId()) <= 0) {
-            return null;
-        }
-        // Case A already wrote COMPENSATION txns — settle COMPENSATION slot and do not re-list.
+        // Compensation already posted for this process — settle the slot and do not re-list.
         if (accountingDueDao.countCompensationTransactions(tenantId, bp.getId()) > 0) {
             settleCompensationSlot(tenantId, bp, null);
             return null;
@@ -319,7 +314,7 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         return contract.trim().matches("(?i)1\\+[123]");
     }
 
-    /** 1+1 → 1, 1+2 → 2, 1+3 → 3; others → 0 (not a compensation contract). */
+    /* 1+1 → 1, 1+2 → 2, 1+3 → 3; others → 0 (not a compensation contract). */
     private static int compensationMultiplier(String contract) {
         if (contract == null || contract.isBlank()) {
             return 0;
@@ -369,8 +364,17 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         YearMonth creationMonth = YearMonth.from(creationMonthFloor(bp, dayStart));
         YearMonth loopStart = startMonth.isBefore(creationMonth) ? creationMonth : startMonth;
 
+        // ACTIVE + Day-end cap OFF: contract expiry does not stop billing — keep generating
+        // FULL_MONTH dues indefinitely (buildFirstOfMonthDueForMonth already falls through to
+        // FULL_MONTH for any month past endMonth once useDayEndTail is false) until status
+        // moves away from ACTIVE. Day-end cap ON keeps the existing stop-at-dayEnd behavior.
+        boolean useDayEndTail = Boolean.TRUE.equals(bp.getDayEndMonthlyCapEnabled());
+        boolean extendPastDayEnd = bp.getStatus() == BankProcess.Status.ACTIVE && !useDayEndTail;
+        YearMonth todayMonth = YearMonth.from(today);
+        YearMonth loopEnd = (extendPastDayEnd && todayMonth.isAfter(endMonth)) ? todayMonth : endMonth;
+
         List<AccountingDueDTO> dues = new ArrayList<>();
-        for (YearMonth month = loopStart; !month.isAfter(endMonth); month = month.plusMonths(1)) {
+        for (YearMonth month = loopStart; !month.isAfter(loopEnd); month = month.plusMonths(1)) {
             AccountingDueDTO due = buildFirstOfMonthDueForMonth(dto, bp, month, dayStart, dayEnd);
             if (due == null || due.getPostedDate() == null) {
                 continue;
@@ -442,9 +446,14 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         YearMonth month = startMonth.isBefore(creationMonth) ? creationMonth : startMonth;
         LocalDate posted = month.equals(startMonth) ? dayStart : monthlyAnchor(month, dayStart);
 
+        // ACTIVE: contract expiry does not stop billing — keep rolling the monthly anchor
+        // indefinitely (no dayEnd clamp, no stop-at-endMonth break) until status moves away
+        // from ACTIVE; the periodPosted > today check is the only thing that halts the loop.
+        boolean extendPastDayEnd = bp.getStatus() == BankProcess.Status.ACTIVE;
+
         List<AccountingDueDTO> dues = new ArrayList<>();
         while (true) {
-            LocalDate periodPosted = posted.isAfter(dayEnd) ? dayEnd : posted;
+            LocalDate periodPosted = (!extendPastDayEnd && posted.isAfter(dayEnd)) ? dayEnd : posted;
             if (periodPosted.isAfter(today)) {
                 break;
             }
@@ -452,7 +461,7 @@ public class AccountingDueServiceImpl implements AccountingDueService {
                 dues.add(buildDue(dto, bp, periodPosted, periodPosted, periodPosted.plusMonths(1),
                         BkProcessAccountingPosted.PeriodType.MONTHLY));
             }
-            if (!month.isBefore(endMonth)) {
+            if (!extendPastDayEnd && !month.isBefore(endMonth)) {
                 break;
             }
             month = month.plusMonths(1);
@@ -755,21 +764,22 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         }
         if (periodType == BkProcessAccountingPosted.PeriodType.COMPENSATION) {
             return isOnePlusContract(bankProcess.getContract())
-                    && bankProcess.getStatus() != BankProcess.Status.ACTIVE;
+                    && COMPENSATION_ELIGIBLE_STATUS.contains(bankProcess.getStatus());
         }
-        if (BILLABLE_STATUS.contains(bankProcess.getStatus())) {
+        if (bankProcess.getStatus() == BankProcess.Status.ACTIVE) {
             return true;
         }
-        // Case A: 1+N dues posted while already non-ACTIVE (e.g. INACTIVE/BLOCK).
-        return isOnePlusContract(bankProcess.getContract())
-                && bankProcess.getStatus() != BankProcess.Status.ACTIVE;
+        return COMPENSATION_ELIGIBLE_STATUS.contains(bankProcess.getStatus())
+                && !isOnePlusContract(bankProcess.getContract());
     }
 
-    /**
+    /*
      * Resend make-up post ({@code RESEND_CONSOLIDATED}): same amount/desc rules as the make-up
      * frequency, using the user-chosen billing window. Once make-up does not change status.
      */
-    private int postResendConsolidatedPeriod(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType, LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd, String createdBy) {
+    private int postResendConsolidatedPeriod(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType,
+                                             LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd,
+                                             String createdBy) {
         if (periodType != BkProcessAccountingPosted.PeriodType.RESEND_CONSOLIDATED) {
             throw new BusinessException("Invalid resend period type!");
         }
@@ -788,7 +798,7 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         return created;
     }
 
-    /** Prefer open make-up frequency; fall back to process frequency. */
+    /* Prefer open make-up frequency; fall back to process frequency. */
     private static BankProcess.Frequency resolveResendPostFrequency(BankProcess bankProcess) {
         if (bankProcess.getResendScheduleFrequency() != null) {
             return bankProcess.getResendScheduleFrequency();
@@ -799,7 +809,7 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         throw new BusinessException("Resend frequency is required!");
     }
 
-    /**
+    /*
      * 1st Resend amount: split user window by calendar month, sum segment ratios
      * (partial = days/days-in-month, full month = 1). One Due / one Post.
      */
@@ -827,23 +837,27 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         return total;
     }
 
-    /** Case B: dedicated compensation due (COMPENSATION), full amount × 1/2/3, txn date = today. */
-    private int postCompensationPeriod(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType, LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd, String createdBy) {
+    /* Case B: dedicated compensation due (COMPENSATION), full amount × 1/2/3, txn date = today. */
+    private int postCompensationPeriod(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType,
+                                       LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd,
+                                       String createdBy) {
         if (periodType != BkProcessAccountingPosted.PeriodType.COMPENSATION) {
             throw new BusinessException("Invalid compensation period type!");
         }
         if (!isOnePlusContract(bankProcess.getContract())) {
             throw new BusinessException("Compensation posting requires a 1+1 / 1+2 / 1+3 contract!");
         }
-        if (bankProcess.getStatus() == BankProcess.Status.ACTIVE) {
-            throw new BusinessException("Compensation posting requires non-ACTIVE status!");
+        if (bankProcess.getStatus() == null || !COMPENSATION_ELIGIBLE_STATUS.contains(bankProcess.getStatus())) {
+            throw new BusinessException("Compensation posting requires OFFICIAL, E_INVOICE or BLOCK status!");
         }
         return writePostedTransactions(
                 tenantId, bankProcess, periodType, postedDate, billingStart, billingEnd, createdBy, BigDecimal.ONE);
     }
 
-    /** 1st of every month: full / first = 1; partial / day-end tail = days / days-in-month. */
-    private int postFirstOfEveryMonthPeriod(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType, LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd, String createdBy) {
+    /* 1st of every month: full / first = 1; partial / day-end tail = days / days-in-month. */
+    private int postFirstOfEveryMonthPeriod(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType,
+                                            LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd,
+                                            String createdBy) {
         if (!FIRST_OF_MONTH_POST_TYPES.contains(periodType)) {
             throw new BusinessException("Invalid period type for 1st of every month frequency!");
         }
@@ -852,8 +866,9 @@ public class AccountingDueServiceImpl implements AccountingDueService {
                 tenantId, bankProcess, periodType, postedDate, billingStart, billingEnd, createdBy, ratio);
     }
 
-    /** Monthly: always full Buy / Sell / Profit / optional PS (no proration). */
-    private int postMonthlyPeriod(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType, LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd, String createdBy) {
+    /* Monthly: always full Buy / Sell / Profit / optional PS (no proration). */
+    private int postMonthlyPeriod(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType,
+                                  LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd, String createdBy) {
         if (periodType != BkProcessAccountingPosted.PeriodType.MONTHLY) {
             throw new BusinessException("Only monthly period type is supported for monthly frequency!");
         }
@@ -861,7 +876,8 @@ public class AccountingDueServiceImpl implements AccountingDueService {
                 tenantId, bankProcess, periodType, postedDate, billingStart, billingEnd, createdBy, BigDecimal.ONE);
     }
 
-    private int postOncePeriod(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType, LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd, String createdBy) {
+    private int postOncePeriod(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType,
+                               LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd, String createdBy) {
         if (periodType != BkProcessAccountingPosted.PeriodType.ONCE_ONE_OFF) {
             throw new BusinessException("Only once period type is supported for once frequency!");
         }
@@ -875,8 +891,9 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         return created;
     }
 
-    /** Week: always full Buy / Sell / Profit / optional PS (no proration). */
-    private int postWeeklyPeriod(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType, LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd, String createdBy) {
+    /* Week: always full Buy / Sell / Profit / optional PS (no proration). */
+    private int postWeeklyPeriod(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType,
+                                 LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd, String createdBy) {
         if (periodType != BkProcessAccountingPosted.PeriodType.WEEKLY) {
             throw new BusinessException("Only weekly period type is supported for week frequency!");
         }
@@ -884,8 +901,9 @@ public class AccountingDueServiceImpl implements AccountingDueService {
                 tenantId, bankProcess, periodType, postedDate, billingStart, billingEnd, createdBy, BigDecimal.ONE);
     }
 
-    /** Day: always full Buy / Sell / Profit / optional PS (no proration). */
-    private int postDayPeriod(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType, LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd, String createdBy) {
+    /* Day: always full Buy / Sell / Profit / optional PS (no proration). */
+    private int postDayPeriod(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType,
+                              LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd, String createdBy) {
         if (periodType != BkProcessAccountingPosted.PeriodType.DAILY) {
             throw new BusinessException("Only daily period type is supported for day frequency!");
         }
@@ -893,10 +911,7 @@ public class AccountingDueServiceImpl implements AccountingDueService {
                 tenantId, bankProcess, periodType, postedDate, billingStart, billingEnd, createdBy, BigDecimal.ONE);
     }
 
-    /**
-     * Full month / first month on the 1st → ratio 1.
-     * Partial first month / day-end tail → inclusive days / days in that calendar month.
-     */
+    /* Full month / first month on the 1st → ratio 1. Partial first month / day-end tail → inclusive days / days in that calendar month. */
     static BigDecimal resolveFirstOfMonthAmountRatio(
             BkProcessAccountingPosted.PeriodType periodType,
             LocalDate billingStart,
@@ -918,7 +933,9 @@ public class AccountingDueServiceImpl implements AccountingDueService {
     }
 
     /* Shared ledger + Buy / Sell / Profit / PS write after frequency-specific amounts are resolved. */
-    private int writePostedTransactions(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType, LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd, String createdBy, BigDecimal ratio) {
+    private int writePostedTransactions(Integer tenantId, BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType,
+                                        LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd,
+                                        String createdBy, BigDecimal ratio) {
         Integer currencyId = resolveCurrencyId(tenantId, bankProcess.getCountryId());
         String bankName = resolveBankName(tenantId, bankProcess);
 
@@ -932,6 +949,12 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         BigDecimal buy = scaleMoney(nz(bankProcess.getSupplierPrice()).multiply(ratio).multiply(compensationMult));
         BigDecimal sell = scaleMoney(nz(bankProcess.getCustomerPrice()).multiply(ratio).multiply(compensationMult));
         BigDecimal profit = scaleMoney(nz(bankProcess.getCompanyPrice()).multiply(ratio).multiply(compensationMult));
+
+        // Description shows the account's original (un-prorated) price, not the ratio-scaled
+        // billed amount — the ledger/transaction "amount" column stays the actual billed amount.
+        BigDecimal buyBase = scaleMoney(nz(bankProcess.getSupplierPrice()));
+        BigDecimal sellBase = scaleMoney(nz(bankProcess.getCustomerPrice()));
+        BigDecimal profitBase = scaleMoney(nz(bankProcess.getCompanyPrice()));
 
         // Case B compensation: economic date = today; Case A keeps the due postedDate (may also be compensation).
         LocalDate transactionDate = (periodType == BkProcessAccountingPosted.PeriodType.COMPENSATION)
@@ -959,21 +982,21 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         if (buy.compareTo(BigDecimal.ZERO) > 0) {
             insertTxnLine(tenantId, Transaction.TransactionType.WIN, bankProcess.getSupplierAccountId(),
                     currencyId, buy, transactionDate,
-                    buildLineDescription(bankProcess, periodType, postedDate, billingStart, billingEnd, buy, bankName, compensation),
+                    buildLineDescription(bankProcess, periodType, postedDate, billingStart, billingEnd, buy, buyBase, bankName, compensation),
                     createdBy, approvedAt, postedId);
             created++;
         }
         if (sell.compareTo(BigDecimal.ZERO) > 0) {
             insertTxnLine(tenantId, Transaction.TransactionType.LOSE, bankProcess.getCustomerAccountId(),
                     currencyId, sell, transactionDate,
-                    buildLineDescription(bankProcess, periodType, postedDate, billingStart, billingEnd, sell, bankName, compensation),
+                    buildLineDescription(bankProcess, periodType, postedDate, billingStart, billingEnd, sell, sellBase, bankName, compensation),
                     createdBy, approvedAt, postedId);
             created++;
         }
         if (profit.compareTo(BigDecimal.ZERO) >= 0) {
             insertTxnLine(tenantId, Transaction.TransactionType.WIN, bankProcess.getCompanyAccountId(),
                     currencyId, profit, transactionDate,
-                    buildLineDescription(bankProcess, periodType, postedDate, billingStart, billingEnd, profit, bankName, compensation),
+                    buildLineDescription(bankProcess, periodType, postedDate, billingStart, billingEnd, profit, profitBase, bankName, compensation),
                     createdBy, approvedAt, postedId);
             created++;
         }
@@ -988,15 +1011,14 @@ public class AccountingDueServiceImpl implements AccountingDueService {
                 if (shareAmount.compareTo(BigDecimal.ZERO) <= 0) {
                     continue;
                 }
+                BigDecimal shareBase = scaleMoney(nz(share.getAmount()));
                 insertTxnLine(tenantId, Transaction.TransactionType.WIN, share.getAccountId(), currencyId, shareAmount, transactionDate,
-                        buildLineDescription(bankProcess, periodType, postedDate, billingStart, billingEnd, shareAmount, bankName, compensation),
+                        buildLineDescription(bankProcess, periodType, postedDate, billingStart, billingEnd, shareAmount, shareBase, bankName, compensation),
                         createdBy, approvedAt, postedId);
                 created++;
             }
         }
 
-        // Case A already applied ×N compensation on a normal period row — settle COMPENSATION
-        // so Case B does not re-open a lookalike Due (same dayStart) after refresh.
         if (compensation && periodType != BkProcessAccountingPosted.PeriodType.COMPENSATION) {
             settleCompensationSlot(tenantId, bankProcess, createdBy);
         }
@@ -1004,10 +1026,7 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         return created;
     }
 
-    /**
-     * Mark 1+N Case B slot ({@code COMPENSATION} @ dayStart) as POSTED if missing,
-     * so Inbox will not regenerate a second compensation due after Case A.
-     */
+    /* Mark 1+N Case B slot "COMPENSATION @ dayStart" as POSTED if missing, so Inbox will not regenerate a second compensation due after Case A. */
     private void settleCompensationSlot(Integer tenantId, BankProcess bankProcess, String createdBy) {
         if (bankProcess == null || bankProcess.getId() == null || bankProcess.getDayStart() == null) {
             return;
@@ -1036,14 +1055,17 @@ public class AccountingDueServiceImpl implements AccountingDueService {
         accountingDueDao.insertLedgerEntry(row);
     }
 
-    private static String buildLineDescription(BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType, LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd, BigDecimal amount, String bankName, boolean compensation) {
+    private static String buildLineDescription(BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType,
+                                               LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd,
+                                               BigDecimal amount, BigDecimal baseAmount, String bankName, boolean compensation) {
         if (compensation) {
             return buildCompensationDescription(bankProcess.getContract(), amount, bankName);
         }
         BankProcess.Frequency frequency = periodType == BkProcessAccountingPosted.PeriodType.RESEND_CONSOLIDATED
                 ? resolveResendPostFrequency(bankProcess)
                 : bankProcess.getFrequency();
-        return buildPostDescription(frequency, periodType, postedDate, billingStart, billingEnd, amount, bankName);
+
+        return buildPostDescription(frequency, periodType, postedDate, billingStart, billingEnd, baseAmount, bankName);
     }
 
     /*Description for Compensation*/
@@ -1054,7 +1076,9 @@ public class AccountingDueServiceImpl implements AccountingDueService {
     }
 
     /* Description Format By All Frequency, include format Date, Capital Letter... */
-    static String buildPostDescription(BankProcess.Frequency frequency, BkProcessAccountingPosted.PeriodType periodType, LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd, BigDecimal amount, String bankName) {
+    static String buildPostDescription(BankProcess.Frequency frequency, BkProcessAccountingPosted.PeriodType periodType,
+                                       LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd,
+                                       BigDecimal amount, String bankName) {
         String amt = formatDescriptionAmount(amount);
         String bank = bankName != null && !bankName.isBlank() ? bankName.trim() : "";
         if (frequency == BankProcess.Frequency.MONTHLY) {
@@ -1134,7 +1158,9 @@ public class AccountingDueServiceImpl implements AccountingDueService {
     }
 
 
-    private void insertTxnLine(Integer tenantId, Transaction.TransactionType type, Integer accountId, Integer currencyId, BigDecimal amount, LocalDate transactionDate, String description, String createdBy, LocalDateTime approvedAt, Integer bankProcessPostedId) {
+    private void insertTxnLine(Integer tenantId, Transaction.TransactionType type, Integer accountId, Integer currencyId,
+                               BigDecimal amount, LocalDate transactionDate, String description, String createdBy,
+                               LocalDateTime approvedAt, Integer bankProcessPostedId) {
         Transaction txn = new Transaction();
         txn.setTenantId(tenantId);
         txn.setTransactionType(type);

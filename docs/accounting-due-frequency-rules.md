@@ -4,12 +4,17 @@
 
 ## 通用规则
 
-- 只有 `ACTIVE`、`OFFICIAL`、`E_INVOICE` 状态可以生成账单。
-- `INACTIVE`、`BLOCK` 等非可出账状态不生成账单。
+- `ACTIVE`：一律可生成正常账单，不分合同类型。
+- `OFFICIAL`、`E_INVOICE`、`BLOCK`：**非 1+N 合同**可正常生成账单（各 frequency 原规则）；**1+N 合同**不生成正常账单，改走赔款（见下方「Contract 1+1 / 1+2 / 1+3（赔款，已实现）」章节）。
+- `INACTIVE`、`WAITING`：不生成任何账单，也不触发赔款。
 - `postedDate` 是账单锚点，也是账期唯一键的一部分。
 - 已 `POSTED` 或 `SKIPPED` 的账期通过 `bankProcessId + postedDate + periodType` 排除。
 - Accounting Due 只返回尚未结算的账期。
 - **非当月跳过（对照月 = 合同 `createdAt` 所在自然月）**：`dayStart` 早于创建月时，创建月之前的账期不出；只从创建月起（及之后）展示。例：7 月创建、`dayStart` 在 6 月 → 跳过 6 月，只出 7 月及往后。
+- **合约到期（过 `dayEnd`）后是否继续出账（已实现）**：
+  - `ACTIVE`：合约到期**不停止**出账，`Monthly` / `Week` / `Day` 持续按原周期无限期生成，直到手动把 status 切成 `INACTIVE` 才立即停止（Accounting Due 全程即时计算，一旦 status 变更，下次读取立刻反映，不需要额外清理）。`1st of Every Month` 见下方特例。
+  - `OFFICIAL` / `E_INVOICE` / `BLOCK`（非 1+N 合同）：合约到期**照常停止**，不套用上述延伸，行为与旧版 `ACTIVE` 一致（到 `dayEnd` 所在月 / 周期为止）。
+  - `Week`、`Day` 本来就不需要 `dayEnd`（合约无到期概念），因此这两个 frequency 不受此规则影响，一直以来都是持续出账直到手动切 `INACTIVE`。
 
 ## 1st of Every Month
 
@@ -19,10 +24,12 @@
   - `dayStart` 非当月 1 日：`PARTIAL_FIRST_MONTH`。
 - 中间完整月份：`FULL_MONTH`，账期为当月 1 日至月末。
 - 最后一个月若 `dayEnd` 早于月末：
-  - Day end 开关 **ON**（`dayEndMonthlyCapEnabled=true`）→ `DAY_END_TAIL`，账期 `[1st, dayEnd]`（例：9/1–9/9）。
+  - Day end 开关 **ON**（`dayEndMonthlyCapEnabled=true`）→ `DAY_END_TAIL`，账期 `[1st, dayEnd]`（例：9/1–9/9）；此时 **不延伸**，出到 `dayEnd` 所在月即止，`ACTIVE` 与 `OFFICIAL`/`E_INVOICE`/`BLOCK` 行为一致。
   - Day end 开关 **OFF** → 仍走 `FULL_MONTH`，账期 `[1st, 月末]`（例：9/1–9/30）。
+    - **`ACTIVE`**：过了 `dayEnd` 所在月之后**继续**逐月生成 `FULL_MONTH`，无限期出到 `today` 所在月，直到手动切 `INACTIVE`。
+    - **`OFFICIAL` / `E_INVOICE` / `BLOCK`（非 1+N）**：仍在 `dayEnd` 所在月停止，不延伸。
 - 首月 `postedDate = dayStart`，之后月份 `postedDate = 当月 1 日`。
-- 返回 **所有** `postedDate <= today`、且落在合约月内、**不早于创建月** 的账期（可多笔并列）。
+- 返回 **所有** `postedDate <= today`、且落在合约月内（`ACTIVE` + Day end 关闭时不受合约月上限约束）、**不早于创建月** 的账期（可多笔并列）。
 - **非当月跳过**：7 月创建 + `dayStart` 在 6 月 → 跳过 6 月账单，从 7 月起算。
 - **未提交保留**：7 月未提交时，到 8 月仍保留 7 月；若 8 月已到 posted day，同时出现 8 月。
 - **Delete（Skip）**：删掉某月后该月不再显示；到了下月照常显示已到期的下月。
@@ -45,30 +52,32 @@
 - Buy / Sell / Profit / PS（若有）共用同一比例；进账金额按 [transaction-amount-precision.md](./transaction-amount-precision.md)：普通交易最多 **6** 位小数、**不** round-to-2；系统折算仅当结果超过 6 位时才 HALF_UP 到 6 位。API / 库为真值，UI 展示再 round 2。
 - 写入顺序：先 `bank_process_accounting_posted`（`outcome=POSTED`）→ 再写 N 条 `transactions`（共用 `bank_process_posted_id`）。
 - `transaction_date` = 该行 `postedDate`；审批一律 `APPROVED`。
-- Description（每行金额 = 该行实际进账金额；银行名 = Bank Name）：
-  - `FULL_MONTH` / `FIRST_MONTH`：`FULL MONTH (MAY 2026) @MONTHLY 200 | RHB`
-  - `PARTIAL_FIRST_MONTH` / `DAY_END_TAIL`：`PRORATED(15/7 - 31/7 | 17 DAYS)@MONTHLY 3200 | RHB`（`d/M` 闭区间 + 天数）
+- Description（银行名 = Bank Name）：
+  - `FULL_MONTH` / `FIRST_MONTH`：`FULL MONTH (MAY 2026) @MONTHLY 200 | RHB`——`200` = 该账户原价（ratio = 1，跟实际进账金额相同）。
+  - `PARTIAL_FIRST_MONTH` / `DAY_END_TAIL`：`PRORATED(15/7 - 31/7 | 17 DAYS)@MONTHLY 3200 | RHB`（`d/M` 闭区间 + 天数）——**`3200` 是该账户的原价（未按比例换算）**，不是这 17 天实际进账的金额（实际进账金额 = 原价 × 比例，仍照常写入 `transactions.amount` / 显示在列表 WIN/LOSS 栏）。`@MONTHLY` 是给读者的参照基准（"这是月费原价"），实际进账多少要看交易金额栏，不能直接从 description 读出来。
   - 1st 进账固定写 `@MONTHLY`
 - 已 `POSTED` / `SKIPPED` 的账期拒绝重复入账。
 
 ### Contract 1+1 / 1+2 / 1+3（赔款，已实现）
 
 - 仅 Contract 值为 `1+1` / `1+2` / `1+3`（租期按 **1 个月**；前端 Day end 也只按 1 个月算）。
-- **正常出账 / 进账仍按各 frequency 原规则**（1st 仍可有 Partial First Month 等）；`ACTIVE` 时金额不因 +N 放大。
-- **非 ACTIVE**（`INACTIVE` / `OFFICIAL` / `E_INVOICE` / `BLOCK` 等）时走赔款：
+- **ACTIVE**：正常出账 / 进账仍按各 frequency 原规则（1st 仍可有 Partial First Month 等），金额不因 +N 放大。
+- **OFFICIAL / E_INVOICE / BLOCK**：进入这三个状态中任一个时，**无条件立即**走赔款——不看之前是否已出过正常账、不看合约是否仍在有效期内，忽略正常账单排程，直接生成一笔赔款账期。
   - 倍数：1+1 → ×1；1+2 → ×2；1+3 → ×3（Buy / Sell / Profit / 可选 PS）。
+  - `postedDate = billingStart = billingEnd = dayStart`；Post 时 `transaction_date = today`。
   - Description：`COMPENSATION ONE|TWO|THREE MONTH {amt} | {bank}`。
-- **情况 A**：Due 已生成、尚未 Post，status 已非 ACTIVE → **同一行** Post 即赔款（frequency 比例仍算，再 × 倍数）。成功后同时将 `COMPENSATION`@`dayStart` 记为 `POSTED`，避免刷新后又冒出 Case B 同行。
-- **情况 B**：已有至少一笔正常 `POSTED` 后，status 才非 ACTIVE → Inbox **额外**一笔 `COMPENSATION`，`postedDate = billingStart = billingEnd = dayStart`；Post 时金额 × 倍数，`transaction_date = today`。
-- `INACTIVE` / `BLOCK` 且尚无任何正常 POSTED：仍生成正常 frequency Due（便于情况 A 首笔赔款）；一旦有正常 POSTED 后不再出正常 Due，只出 `COMPENSATION`。
+  - 赔款只生成一次：已 Post 过赔款（`countCompensationTransactions > 0`）后，Inbox 不再重复列出，自动结清该 slot。
+- **INACTIVE**：不生成任何账单，也**不**触发赔款。
 - 不做：延长 `day_end`、因赔款改 status。
+- 实现：`BankAccountingDueServiceImpl` 的 `COMPENSATION_ELIGIBLE_STATUS = {OFFICIAL, E_INVOICE, BLOCK}`；`isBillableForDueGeneration` / `isPostAllowed` 让这三个状态 + 1+N 合同**不**进入正常 frequency 出账路径，只由 `resolveOnePlusCompensationDue` 生成赔款；三个状态 + 非 1+N 合同则维持正常出账（见上方通用规则）。
 
 ## Monthly
 
 - 需要 `dayStart`、`dayEnd`。
 - 以 `dayStart` 为首个 posted 锚点，后续月份使用月度锚点（`dayStart` 日 − 1，见 `monthlyAnchor`）。
 - `billingStart = postedDate`，`billingEnd = postedDate + 1 个月`。
-- 最后一期 posted 锚点为 `dayEnd`；`periodType = MONTHLY`。
+- **`OFFICIAL` / `E_INVOICE` / `BLOCK`（非 1+N）**：最后一期 posted 锚点为 `dayEnd`；`periodType = MONTHLY`，到期即停。
+- **`ACTIVE`**：锚点不再 clamp 到 `dayEnd`，也不在到期月停止，持续按月滚动无限期生成，直到手动切 `INACTIVE`。
 - 返回 **所有** `postedDate <= today`、**不早于创建月** 的锚点账期（可多笔并列）。
 - **非当月跳过**：与 1st 相同（创建月之前的锚点不出）。
 - **未提交保留 / Delete / Refresh** 与 1st of Every Month 相同。
@@ -214,7 +223,7 @@ Resend 在正常 Accounting Due **之外**追加一笔 make-up 账单。不修�
 | Week | 全额 | `WEEK (start - end) @ {amt} \| {bank}`（用户那一周） |
 | Day | 全额 | `DAY (单日) @ {amt} \| {bank}` |
 | Once | 全额 | `ONCE (单日) @ {amt} \| {bank}`；不 → INACTIVE |
-| 1st of every month | 按月切段加总（见下） | **一律** `PRORATED(d/M - d/M \| N DAYS)@MONTHLY {amt} \| {bank}`（整段起止；N = 闭区间总天数；即使全是整月也不写 FULL MONTH） |
+| 1st of every month | 按月切段加总（见下） | **一律** `PRORATED(d/M - d/M \| N DAYS)@MONTHLY {amt} \| {bank}`（整段起止；N = 闭区间总天数；即使全是整月也不写 FULL MONTH；`{amt}` = 该账户原价，不是按比例算出的实际进账金额，见上方 1st of Every Month 的说明） |
 
 #### 1st Resend 金额（按月切段加总，仍一笔 Due / 一笔 Post）
 
