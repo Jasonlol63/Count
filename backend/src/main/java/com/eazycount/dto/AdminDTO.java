@@ -45,7 +45,7 @@ public class AdminDTO {
     private List<AccountPermissionItem> accountPermissions;
     private List<ProcessPermissionItem> processPermissions;
 
-    /** Synthetic owner row in admin list (from {@code owner} table, not {@code user}). */
+    /** Synthetic owner row in admin list (from owner table, not user). */
     private Boolean isOwnerShadow;
 
     @Getter

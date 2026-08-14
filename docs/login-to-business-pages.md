@@ -788,7 +788,7 @@ flowchart LR
 
 **RATE：** … Fee 份额仅 middleman **+Win/Loss**（不对 leg2 付款方记 −WL，因手续费已含在第一币金额）；Rate Multiplier 仍 To−/From+。
 
-**CONTRA Submit** 与 PAYMENT 相同：即时 `APPROVED` 进 Cr/Dr（Contra Inbox 审批 API 仍 PHP，未接）。
+**CONTRA Submit** 与 PAYMENT 相同：即时 `APPROVED` 进 Cr/Dr（无 pending Contra Inbox）。
 
 **前端路由：** `transactionApi.submitTransaction` — `PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`/`ADJUSTMENT`/`PROFIT`/`RATE` → Spring JSON。
 

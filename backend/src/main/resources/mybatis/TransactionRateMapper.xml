@@ -16,7 +16,9 @@
             amount_to,
             middleman_account_id,
             middleman_rate,
-            middleman_amount
+            middleman_rate_expression,
+            middleman_amount,
+            platform_fee_amount
         ) VALUES (
             #{tenantId},
             #{rateGroupId},
@@ -30,7 +32,9 @@
             #{amountTo},
             #{middlemanAccountId},
             #{middlemanRate},
-            #{middlemanAmount}
+            #{middlemanRateExpression},
+            #{middlemanAmount},
+            #{platformFeeAmount}
         )
     </insert>
 

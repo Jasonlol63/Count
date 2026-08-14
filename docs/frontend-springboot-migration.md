@@ -4,7 +4,7 @@
 > **后端契约说明**见同目录 [`login-to-business-pages.md`](./login-to-business-pages.md)。  
 > **前端仓库路径**：`../Count-frontend/`（与本 `Count/` 后端仓库并列）。
 
-**最后更新**：2026-07-20（Domain Share % Add Account tenant 对齐 + Domain 页全量 Spring + Account 页面全量 Spring + Share % owner_type/Profit percentage 业务对齐 + Domain Confirm Charge on Save 记账落地）
+**最后更新**：2026-08-14（Transaction Payment 页剩余 PHP meta / Contra Inbox / realtime ticket 改直调 Spring；Login / Auth 前端回归修复见第 15 节；Account 页面 network tab PHP 残留排查 + `apiUrl.js` 重写表回归修复见第 16 节）
 
 ---
 
@@ -24,6 +24,8 @@
 12. [彻底去除 UPLINE 账户角色（2026-07-20）](#12-彻底去除-upline-账户角色2026-07-20)
 13. [Account List 全量 Spring（2026-07-20）](#13-account-list-全量-spring2026-07-20)
 14. [Domain Share % Add Account tenant 对齐（2026-07-20）](#14-domain-share--add-account-tenant-对齐2026-07-20)
+15. [Login / Auth 前端回归修复（2026-08-14）](#15-login--auth-前端回归修复2026-08-14)
+16. [Account 页面 Network Tab PHP 残留排查（2026-08-14）](#16-account-页面-network-tab-php-残留排查2026-08-14)
 
 ---
 
@@ -58,7 +60,7 @@ res.success === true || res.status === "success"
 
 | 模块 | 状态 | Spring 前缀 | 前端适配方式 |
 |------|------|-------------|--------------|
-| **Auth / Session** | ✅ 已迁移 | `/auth/*` | **直调** `authApi.js`（无 PHP session 路径 / 无 rewrite） |
+| **Auth / Session** | ⚠️ 部分（2026-08-14 重新核实） | `/auth/*` | Login / Secondary Password 页 **直调** `authApi.js`（已于 2026-08-14 修复回归，见第 15 节）；`AuthenticatedLayout.jsx` / `companySessionSync.js` / `resetPassword.js` 目前**仍是 PHP**，待修（§15.4） |
 | **Tenant 列表** | ✅ 已迁移 | `GET /auth/tenant-accessible` | `tenantAccessibleApi.js` |
 | **Domain** | ✅ 已迁移 | `/api/domain/*` | `domainApi.js` + `domainHelpers.js` |
 | **Admin (User List)** | ✅ 已迁移 | `/api/userlist/*` | `userListApi.js` |
@@ -69,7 +71,7 @@ res.success === true || res.status === "success"
 | **Ownership** | ✅ API 已迁移 + **数据层已对齐 Spring** | `/api/ownership/*` | `apiUrl.js` 重写 + `ownershipRowHelpers` normalize |
 | **Process** | ✅ Games List 已迁移 | `/api/process/*` + `/api/currency/list` | 见 [`process-list-spring-api.md`](./process-list-spring-api.md)；`processListApi.js` 直调 Spring |
 | **Bank Process** | ⚠️ 部分 | `/api/bank-process/*`、`/api/bank-country-option/*`、`/api/account/*` | **列表（含 shares）+ catalog + Add/Update/Status/Delete/Remark + Edit list 回填** 已 Spring；Due 仍 PHP |
-| **Transaction / Report / Data Capture / Member** | ⚠️ 部分 | `/api/transaction/search` + `/history` + `/submit` + Meta；**Data Capture Games form / 币别 / description / tenant picker** 已 Spring；**Add/Edit/Source Formula** `.../formula/save|update`；**Delete Formula** `.../formula/delete`；**Account 下拉** `POST /api/account/list`；选中后币别 `POST /api/currency/available` | **Submit**：`PAYMENT`/`CLAIM`/… 已 Spring；**Data Capture**：Games + Formula CRUD（含 Source 行内 / Delete）已 Spring（见 [`datacapture-spring-api.md`](./datacapture-spring-api.md)）；submissions / Summary submit 仍 PHP |
+| **Transaction / Report / Data Capture / Member** | ⚠️ 部分 | `/api/transaction/search` + `/history` + `/submit` + Meta（account/list + currency/list）；**Data Capture Games form / 币别 / description / tenant picker** 已 Spring；**Add/Edit/Source Formula** `.../formula/save|update`；**Delete Formula** `.../formula/delete`；**Account 下拉** `POST /api/account/list`；选中后币别 `POST /api/currency/available` | **Transaction Payment 页** Meta / Search / History / Submit（含 RATE）已 Spring；Contra Inbox 无 pending（Submit 即时 APPROVED）；SSE ticket 未接 Spring。**Data Capture**：Games + Formula CRUD 已 Spring；submissions / Summary submit 仍 PHP |
 
 ---
 
@@ -125,14 +127,16 @@ Maintenance 侧边栏与 Bank Process 入口规则：[`maintenance-navigation.md
 
 ### 4.1 Auth / Login
 
-| 文件 | 改动 |
-|------|------|
-| `pages/login/LoginPage.jsx` | `authApi.loginWithTenant` / `fetchCurrentUser` |
-| `pages/login/SecondaryPasswordPage.jsx` | `verifyOwner/UserSecondaryPassword` + `logoutSession` |
-| `pages/login/resetPassword.js` | `sendResetTacRequest` / `resetPasswordRequest` |
-| `utils/auth/authApi.js` | 统一 Spring `/auth/*`（login / current-user / logout / switch-tenant / secondary / reset） |
-| `components/AuthenticatedLayout.jsx` | `fetchCurrentUser` + `logoutSession` + `permissions` / `tenant_has_*` |
-| `utils/company/companySessionSync.js` | `switchSessionTenant`（不再走 PHP update_company_session） |
+> **2026-08-14 状态核实**：本表原先整体标为已迁移，但实测仓库一度整体回归 PHP 约定。下表按**当前实际状态**列出，✅=本次已修复/确认走 Spring，❌=仍是 PHP（详见 [§15.4](#154-已知仍未修复本次明确不处理超出仅-login-范围)）。
+
+| 文件 | 状态 | 改动 |
+|------|------|------|
+| `pages/login/LoginPage.jsx` | ✅ | `authApi.loginWithTenant` / `fetchCurrentUser`；维护公告改 `GET /api/announcement/getMaintenanceInLogin` |
+| `pages/login/SecondaryPasswordPage.jsx` | ✅ | `verifyOwner/UserSecondaryPassword` + `logoutSession` + `fetchCurrentUser` |
+| `utils/auth/authApi.js` | ✅ | 统一 Spring `/auth/*`（login / current-user / logout / switch-tenant / secondary / reset）——本身未回归，只是未被上两个页面调用 |
+| `pages/login/resetPassword.js` | ❌ | 仍调 `api/users/send_reset_tac_api.php` / `api/users/reset_password_api.php`；`authApi.js` 已有 `sendResetTacRequest` / `resetPasswordRequest` 待接线 |
+| `components/AuthenticatedLayout.jsx` | ❌ | 仍调 `api/session/current_user_api.php`（×3）/ `api/session/logout_api.php` / `api/announcements/announcement_get_dashboard_api.php` |
+| `utils/company/companySessionSync.js` | ❌ | 仍调 `api/session/update_company_session_api.php`，应改 `authApi.switchSessionTenant()` |
 
 ### 4.2 Domain
 
@@ -411,7 +415,8 @@ Group 候选完全依赖 Spring `GET /api/ownership/available-accounts`。
 以下模块**未**在 `apiUrl.js` 中做 Spring 重写，或仅部分 endpoint 迁移：
 
 - **Process 写操作 / 详情**：部分 form meta 仍 PHP；**列表 + description CRUD + add/update/status/delete + Edit 自 list 回填** 已走 Spring / 前端
-- **Transaction / Payment**：`api/transactions/*`
+- **Transaction Payment 页**：Meta / Search / History / Submit 已直调 Spring（见第 11 节）；**Maintenance transaction** 仍 PHP
+- **Report**：`api/reports/*`
 - **Report**：`api/reports/*`
 - **Data Capture / Summary**：Games 表单 + Add/Edit Formula（save/update + Account + Currency + Source 行内）见 [`datacapture-spring-api.md`](./datacapture-spring-api.md)；submit / submissions 仍 PHP
 - **Bank Process List**：列表已 Spring；**写操作 / 国家银行选择 / Accounting Due / 账户弹窗**仍混用 `api/bankprocesses/*`、`api/accounts/*` PHP
@@ -713,7 +718,7 @@ URL **不**带 `tenant_id` / `id`。`ProcessListPage` 的 `loadFormMeta` / `relo
 | **手动 ADJUSTMENT Submit** | `submit_api.php` | ✅ `POST /api/transaction/submit` | 仅 `toAccountId`；signed amount → Win/Loss |
 | **手动 PROFIT Submit** | `submit_api.php` | ✅ `POST /api/transaction/submit` | From + To；正数 amount；Win/Loss（From + / To −） |
 | **手动 RATE Submit** | `submit_api.php` | ✅ `POST /api/transaction/submit` | 两腿 Cr/Dr + 可选 Middle-Man Win/Loss + `transactions_rate`；账户+rate 成对 |
-| Contra Inbox / 审批 | `contra_*` | — | Submit 已 Spring（即时生效）；Inbox 仍 PHP |
+| Contra Inbox / 审批 | `contra_*` | — | Submit 即时 `APPROVED`；Inbox 前端返回空列表（无 PHP） |
 
 ### 11.2 Meta 层复用约定
 
@@ -821,7 +826,7 @@ Response `data`：
 | `get_categories_api.php` | 固定 priority 列表 `deriveCategoryList()` |
 | `user_currency_order_api.php` | localStorage only |
 
-Type Search / Capture-only / show 0 balance 等 **v1 未实现**；Search 固定走 Spring `POST /api/transaction/search`。
+- Type Search / Capture-only / show 0 balance 等 **v1 未实现独立 API**；Search 固定走 Spring `POST /api/transaction/search`（Type Search 用同期 Search 再前端筛有动账行）。
 
 ### 11.6 Payment History API（已实现 2026-07-20）
 
@@ -935,7 +940,7 @@ Response `data`：
 
 前端 `transactionHistoryNormalize.js` → `getHistory()`；`TransactionHistoryTable` 无需改列。
 
-**v1 不做（History）**：`pure_type_search`；Member PDF export（仍 `history_api.php`）。
+**v1 不做（History）**：`pure_type_search`；Member PDF 描述规则（`member_view`）仍用 Spring history 原字段。
 
 ### 11.7 手动 PAYMENT / CLAIM / CLEAR / CONTRA / ADJUSTMENT / PROFIT Submit API（已实现 2026-07-22；PROFIT 2026-07-23）
 
@@ -1087,7 +1092,7 @@ Response `data`：
   - History：Rate → `MARKUP {rate} …`；Fee → `MARKUP X …`（仅 middleman）；有 Fee 时 leg1 remark = `CHARGE …`- History desc（Middle-Man）：见上；leg2 付款方 fee/rate 行不展示
 - DB：[`migrate_rate_tables_optimized.sql`](../backend/src/main/resources/sql/migrate_rate_tables_optimized.sql)
 
-- `transactionApi.js`：`submitTransaction` — `PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`/`ADJUSTMENT`/`PROFIT`/`RATE` → Spring JSON
+- `transactionApi.js`：`submitTransaction` — `PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA`/`ADJUSTMENT`/`PROFIT`/`RATE` → Spring JSON（不再回退 PHP）
 - `transactionSubmitNormalize.js`：`buildSpringSubmitRequest` / `normalizeSpringSubmitResponse`（含 RATE `leg1*`/`leg2*`/`exchangeRate`/`rateExpression`/`middleman*`）
 - `useTransactionForm.js`：RATE Middle-Man 支持 Fee 和/或 Rate Multiplier
 
@@ -1114,7 +1119,9 @@ Legacy payload → Spring 映射：
 
 | 文件 | 改动 |
 |------|------|
-| `transactionApi.js` | Meta → Spring；Search → `/search`；History → `/history`；**PAYMENT/CLAIM/CLEAR/CONTRA/ADJUSTMENT/PROFIT Submit → `/submit`** |
+| `transactionApi.js` | Meta → Spring account/currency/list + localStorage 币种排序；Search → `/search`；History → `/history`；**全部手动 Submit 含 RATE → `/submit`**；Contra Inbox 空列表；不再请求任何 `api/transactions/*.php` |
+| `subscribeAppRealtime.js` | 不再打 `ticket_api.php`（Spring 无 SSE ticket） |
+| `paymentHistoryMemberReportExport.js` | 币种 → `/api/currency/available`；明细 → `/api/transaction/history` |
 | `transactionSubmitNormalize.js` | **新建** — Submit request/response 适配 |
 | `transactionHistoryNormalize.js` | Spring history → BF + 明细行 |
 | `transactionSearchNormalize.js` | Spring `rows` → `left_table` / `right_table`（balance 正负分列） |
@@ -1126,10 +1133,10 @@ Legacy payload → Spring 映射：
 - Data Capture 行合并进 Search
 - RATE legacy `transaction_entry` / `transactions_rate_details`（已用优化表）
 - RATE Middle-Man 的 Service Fees remark 展示（History MARKUP 已支持）
-- **Contra Inbox** 审批（仍 PHP）
-- `type_account_search` / `type_transaction_search`
-- Member / PDF export 的 `history_api.php`（主 Payment History 页已 Spring）
-- `user_currency_order_api` 服务端持久化
+- **Contra Inbox** 审批（Spring CONTRA 即时 APPROVED，无 pending 队列）
+- `type_account_search` / `type_transaction_search` 独立 API（Type Search 改走 period `/search`）
+- SSE / realtime ticket
+- `user_currency_order_api` 服务端持久化（localStorage）
 
 ---
 
@@ -1313,6 +1320,128 @@ Fee share 持久化仍用 `feeShareUiToSpring` 的 `shareType`（`SALES`/`CS`/`I
 - 后端 `DomainServiceImpl.validateAndPrepareFeeShareRows` 新增一致性校验：`PROFIT` 行的 `owner_type` 必须是 `owner`；`SALES/CS/IT` 行必须是 `user`；不满足则 `BusinessException`（`owner_type: "group"` 仍保留用于未来跨 tenant 分账，不受此规则约束）。
 - **改动文件**：`Count-frontend/src/pages/domain/domainHelpers.js`（新增 `distributeProfitPercentages`，`computeShareTotals` 复用，重写 `feeShareUiToSpring`）；`backend/src/main/java/com/eazycount/service/impl/DomainServiceImpl.java`（`validateAndPrepareFeeShareRows`）。
 - **遗留待办**（未实现，仅存分配比例）：实际扣款/入账逻辑——从公司账户扣钱、按比例写入 Sales/CS/IT 及 C168 Profit 的交易台账。这是用户描述的完整业务闭环里尚未开发的部分。
+
+---
+
+## 15. Login / Auth 前端回归修复（2026-08-14）
+
+### 15.1 背景
+
+本次会话开始时 `Count-frontend` 的 `git status` 显示 `vite.config.js`、`.env.example`、`LoginPage.jsx`、`SecondaryPasswordPage.jsx` 等一批文件相对最近一次提交（`d7f8207 feat: migrate auth and bank process to Spring Boot...`）**倒退回了 PHP 约定**（`VITE_PHP_PROXY_TARGET`、`/api/session/login_api.php` 等），导致前端登录走不通 Spring。用户要求**先只修 Login 功能**，其余页面暂不处理。
+
+**未改动后端**：`AuthController` / `SessionUser` / `GlobalExceptionHandler` 等 Spring 代码本次**完全未修改**。租户驱动模型（登录只认 `tenant_code` + `login_role` + `login_id`/`account_id`，不接受 `scope`/`company_id`/`group_id`/`group_only`）在后端本来就是既有实现（`Count/backend` 是纯 Spring Boot 项目，仓库内**没有任何 PHP 服务**）——本节只是把前端重新接回这套已存在的后端契约。
+
+### 15.2 Dev Proxy 恢复指向 Spring 8082
+
+| 文件 | 修复前（倒退状态） | 修复后 |
+|------|--------------------|--------|
+| `Count-frontend/.env.example` | `VITE_PHP_PROXY_TARGET=http://127.0.0.1:8000` | `VITE_SPRING_PROXY_TARGET=http://127.0.0.1:8082` |
+| `Count-frontend/vite.config.js` | `server.proxy` 把 `/dashboard.php` `/member.php` `/owner_secondary_password.php` `/api` `/reset-password.php` `/images` `/js` 全部指到不存在的 PHP target | 只保留 `/auth` 与 `/api` → `springTarget`（默认 `http://127.0.0.1:8082`），与 `d7f8207` 提交时一致 |
+
+本地未纳入版本控制的 `Count-frontend/.env` 其实一直是对的（`VITE_SPRING_PROXY_TARGET=8082`）——只有 `.env.example` 的示例值和 `vite.config.js` 的 fallback 默认值、代理表倒退了。
+
+### 15.3 Login 页面改回直调 Spring `/auth/*`
+
+`utils/auth/authApi.js` 本身没有倒退，是完整可用的 Spring 封装；问题在于 `LoginPage.jsx` / `SecondaryPasswordPage.jsx` 没有调用它，而是手写了指向 `.php` 文件的 `fetch`。本次把两个页面重新接回 `authApi.js`：
+
+| 文件 | 改动 |
+|------|------|
+| `pages/login/LoginPage.jsx` | 会话 bootstrap → `fetchCurrentUser()`；维护公告 banner → `GET /api/announcement/getMaintenanceInLogin`（原 `api/maintenance/get_public_api.php`，`AnnouncementController` 已有此 endpoint）；**删除** `company_id` 输入时的 debounce 静默校验请求（原 `api/company/verify_api.php` 无 Spring 对应端点；该请求本来就是 best-effort 且注释写明「silent; login validates」，登录本身会校验 tenant_code）；提交 → `loginWithTenant()` → `POST /auth/login` |
+| `pages/login/SecondaryPasswordPage.jsx` | 改用 `fetchCurrentUser()` / `verifyOwnerSecondaryPassword()` / `verifyUserSecondaryPassword()` / `logoutSession()` |
+
+**登录提交请求字段对照**
+
+| 旧 PHP FormData | Spring `POST /auth/login` |
+|------------------|---------------------------|
+| `action=login` | 无需此字段（Spring 用 HTTP method + path 区分动作） |
+| `company_id` | `tenant_code` |
+| `login_role` / `login_id` / `account_id` / `remember_me` | 字段名不变 |
+| （PHP 侧从未真正使用，前端也未传） | 后端**不接受** `scope` / `group_id` / `group_only`；身份与租户完全由 `tenant_code` + `login_role`（+ `login_id` 或 `account_id`）解出 |
+
+**登录成功响应字段对照**
+
+| 旧 PHP 响应字段 | Spring `POST /auth/login` 响应 | 前端取值方式 |
+|-------------------|-------------------------------|--------------------|
+| `status` / `redirect` / `user_type` | 字段名不变 | 不变 |
+| `login_scope`（`"group"` \| `"company"`） | `tenant.type`（`"GROUP"` \| `"COMPANY"`） | `String(tenant.type).toLowerCase()` |
+| `login_identifier` | `tenant.code` | 直接取 `tenant.code` |
+| `company_id`（数字） | `tenant.id`（仅 `tenant.type === "COMPANY"` 时对应旧语义） | `Number(tenant.id)` |
+| （无） | 另有 `login_tenant`（用户实际输入登录的租户对象，Owner 跨租户登录时可能与 `tenant` 不同）、`tenant.parent_id` / `tenant.parent_code` | 前端暂未消费，预留 |
+
+失败响应统一为 `GlobalExceptionHandler` 产出的 `{ "status": "error", "message": "..." }`（HTTP 200），前端读 `data.message` 的逻辑不变。
+
+`seedDashboardFilterFromLogin()`（`utils/company/sharedCompanyFilter.js`）**本身未改动**——它仍然接收 `loginScope` / `loginIdentifier` / `sessionCompanyId` / `sessionCompanyCode` 这组参数名；`LoginPage.jsx` 现在从 Spring 返回的 `tenant` 对象派生出这些值再传入，而不是直接透传后端字段（因为后端已不再直接返回 `login_scope` / `company_id` 这些字段名）。
+
+### 15.4 已知仍未修复（本次明确不处理，超出「仅 Login」范围）
+
+以下文件同样在本次会话开始时相对 Spring 迁移状态回归了 PHP，且旧版 §4.1 曾错误记录为「已迁移」——**实测当前仍在调用 PHP 端点**，留给下一次任务处理，本次未动：
+
+| 文件 | 仍在调用的 PHP 端点 | 建议对应的 Spring 调用 |
+|------|----------------------|---------------------------|
+| `pages/login/resetPassword.js` | `api/users/send_reset_tac_api.php`、`api/users/reset_password_api.php` | `authApi.sendResetTacRequest()` / `authApi.resetPasswordRequest()`（已封装 `POST /auth/send-reset-tac`、`POST /auth/reset-password`，未接线） |
+| `components/AuthenticatedLayout.jsx` | ~~`api/session/current_user_api.php`（3 处）、`api/session/logout_api.php`~~ ✅ **已确认修复**（2026-08-14 第 16 节复核：`4f00f14` 提交已把这三处改回 `authApi.fetchCurrentUser()` / `authApi.logoutSession()`，当前 `AuthenticatedLayout.jsx` 内已无 `current_user_api.php` / `logout_api.php`）；`api/announcements/announcement_get_dashboard_api.php`（通知铃铛，仅点击时触发）经 `apiUrl.js` 重写表已可用，见第 16 节 | 通知铃铛 → `GET /api/announcement/getDashboardAnnouncements`（`AnnouncementController`，经 `apiUrl.js` 重写） |
+| `utils/company/companySessionSync.js` | `api/session/update_company_session_api.php` | `authApi.switchSessionTenant()` → `POST /auth/switch-tenant?tenant_id=` |
+| `utils/auth/sidebarPermissions.js` / `utils/company/loginScope.js` | 未直接调用 PHP API，但仍按旧字段名读 `SessionUser`：`company_has_gambling` / `company_has_bank` / `company_code` / `is_current_company_c168`，与 Spring 实际返回的 `tenant_has_game` / `tenant_has_bank` / `tenant_code` / `is_current_tenant_c168` **不匹配** | 需要逐个字段核对改名；影响面包括 `resolveDefaultLandingPath()` 的 Bank-only Process 路由分支和 datacapture 可见性判断，可能选错登录后落地页。范围明显大于「仅 Login」，建议单独立项处理，**本次未动** |
+
+### 15.5 验证
+
+- `npx vite build`：编译通过，无报错，`dist/` 未纳入版本控制。
+- 未在本次会话内做端到端人工验证（需要本地起 Spring Boot `8082` 服务）；建议下次验证：Admin / Member 两种角色登录，确认 `POST /auth/login` 请求体只含 `tenant_code`/`password`/`login_role`/`login_id` 或 `account_id`/`remember_me`；Owner 首次登录若需二级密码，能正确跳转 `/owner-secondary-password` 并验证成功后落地到正确页面。
+
+---
+
+## 16. Account 页面 Network Tab PHP 残留排查（2026-08-14）
+
+### 16.1 背景
+
+用户反馈：停留在 Account List 页面时，DevTools Network tab 出现一批 500 的 PHP 请求（`dashboard_bootstrap_api.php`、`processlist_api.php?permission=Bank/Games`、`get_company_currencies_api.php`、`user_currency_order_api.php`），要求「account 页面所有 API 都必须是 Spring Boot 格式，不再出现 PHP」。
+
+排查结论：**Account 页面自身的 API 调用本来就是纯 Spring**（`POST /api/account/list?tenant_id=`、`GET auth/current-user`、`GET auth/switch-tenant`，均 200）。PHP 请求另有两个来源，均**不在** Account 模块代码内：
+
+1. **`AuthenticatedLayout.jsx` 的页面无关 idle-warm 逻辑**：只要 `me` 加载完成，就会在每个已登录页面（不只是 Account）后台预热 Dashboard 与 Process List 的路由缓存：
+   - `warmDashboardRouteCache()`（来自 `pages/dashboard/dashboardRoutePrefetch.js`）→ 打 `dashboard_bootstrap_api.php`；Dashboard 模块整体从未迁移到 Spring，无对应端点。
+   - `warmProcessListRouteCache()` / `warmBankProcessListRouteCache()`（来自 `pages/processlist/processRoutePrefetch.js`）→ 打 `processlist_api.php` + `get_company_currencies_api.php` + `user_currency_order_api.php`；且**停留在 Account List / Add Account 页面时会额外被 eager 触发一次**（`pathnameIs("account-list", path) || pathnameIs("add-account", path)` 分支），这是网络面板里这批请求反复出现的直接原因。
+2. **`apiUrl.js` 的 PHP→Spring 重写表在当天 `4f00f147`（"...already change account/admin/transaction page to springboot api"）提交中被整体删空**，`buildApiUrl()` 退化成纯直通（`new URL(pathAndQuery, base).href`）。该重写表原本覆盖 Ownership / Announcement / Maintenance / Auto-Renew 等模块的只读接口（把旧 PHP 路径映射到已存在的 Spring 端点），删除后这些模块即使代码没变也会直接命中已下线的 PHP 路径并 500——**与 Account 页面无关，但是当天引入的明显回归**，一并处理。
+
+### 16.2 深挖后发现的额外风险（改变了原定修复方案）
+
+原计划是把 `processRoutePrefetch.js` 里的 `processlist_api.php` / `get_company_currencies_api.php` 换成看似已存在的 Spring 调用（`processListApi.fetchProcessListByTenantId` + `currencyApi.fetchCurrencyListByTenantId`）。深入代码后发现这条路径**不能直接切换**，原因：
+
+- `pages/processlist/processListApi.js` 顶部 `import { normalizeProcessListRows, normalizeProcessStatusKey, PROCESS_WEEKDAY_OPTIONS, resolveProcessListActiveTenantId } from "./processListHelpers.js"` —— **这四个 named export 在 `processListHelpers.js` 里根本不存在**（全仓库 grep 只有 `processListApi.js` 自己引用这些名字）。`fetchProcessListByTenantId()` 因此是**死代码 + 运行期必炸**（调用即 `TypeError: normalizeProcessListRows is not a function`），此前从未被任何页面实际调用过，所以这个 bug 一直没暴露。
+- `ProcessListPage.jsx` 真正的「实时」列表加载（`fetchRows` → `fetchGamesProcessListSlice`）以及 `useBankProcessListPage.js` 的列表加载（`prefetchBankProcessListPayload` / `resolveBankProcessListRouteCache`），**其实都是走 `processRoutePrefetch.js` 里那几个 PHP 调用**——也就是说 Process List / Bank Process List 两个页面本身（不只是 Account 页触发的预热）目前也在因为 PHP 后端下线而整页 500，这是比 Account 页 network tab 更大范围的既有故障，且旧文档 §2/§9/§10 把它们标成「已迁移」是不准确的。
+- Spring `POST /api/process/process-list` 不支持服务端 `search` / `showActive` / `showInactive` / `showAll` 过滤（§9.7 已知缺口），而 `ProcessListPage.jsx` 目前**没有**对应的客户端过滤兜底——贸然把数据源换成 Spring 会让搜索框和 Show Active/Inactive/All 开关直接失效，是比「network tab 有 500」更糟的功能回归。
+
+结论：**Process List / Bank Process List 的 Spring 化需要单独立项**（补 `processListHelpers.js` 缺失的 normalize 函数 + 客户端过滤逻辑 + 回归测试两个页面），不适合在本次「清理 Account 页面 network tab」任务里顺手改掉。
+
+### 16.3 本次实际改动
+
+| 文件 | 改动 | 原因 |
+|------|------|------|
+| `Count-frontend/src/utils/core/apiUrl.js` | 从 `d7f8207` 提交恢复完整的 `buildApiUrl()` PHP→Spring 重写表（`get_owner_companies_api.php` / `auto_renew_api.php` / ownership 系列 / announcements 系列 / maintenance 系列） | 修复 `4f00f14` 引入的回归；Ownership / Announcement / Maintenance / Auto-Renew 重新可用 |
+| `Count-frontend/src/components/AuthenticatedLayout.jsx` | `warmDashboardRouteCache()` 调用整段移除（保留 `prefetchRouteModule(spaPath("dashboard"))` 纯 JS chunk 预取，无网络请求）；`runProcessListWarm` 改成空函数（`() => {}`），并加注释说明原因 | Dashboard 和 Process List 两个目标模块自身都还没有可用的 Spring 数据源，继续预热只会在无关页面（含 Account）打出必炸的 PHP 请求；改成 no-op 后停留在 Account 页面时不再产生这批 500 |
+
+**未改动**（明确排除在本次范围外，留给后续任务）：
+
+- `pages/processlist/processRoutePrefetch.js`（以及它依赖的 `processListApi.js` / `processListHelpers.js`）本身仍是 PHP + 有死代码 bug；用户主动导航进 Process List / Bank Process List 页面时仍会看到 PHP 500（这是既有故障，不是本次改动引入的）。
+- `pages/dashboard/dashboardRoutePrefetch.js` / `useDashboardPage.js` 仍调用 `dashboard_bootstrap_api.php`；Dashboard 页面本身仍是纯 PHP，本次只是不再从其他页面背景预热它。
+
+### 16.4 验证
+
+- `npx esbuild` 对改动的两个文件做语法检查通过（未跑完整 `vite build`，因为仓库内当时还有另一批与本任务无关的未提交改动 `transaction/` 相关文件，避免混淆改动来源）。
+- 未做浏览器端到端验证（需要本地起 Spring Boot 服务 + 重新登录复现 Account 页面 network tab）；建议下次打开 Account List 页面用 DevTools 确认：`dashboard_bootstrap_api.php` / `processlist_api.php` / `get_company_currencies_api.php` / `user_currency_order_api.php` 均不再出现，`list?tenant_id=` / `current-user` / `switch-tenant` 仍 200。
+
+### 16.4.1 Account Link modal 报错：`fetchAccountListByTenantId is not defined`（2026-08-14）
+
+用户点击 Account List 某行的「+」（Link Account）按钮，`openLink()`（`AccountListPage.jsx:2536`）内部调用 `fetchAccountListByTenantId(tenantId)`（`AccountListPage.jsx:2551`）取待选账户池，但该函数**从未被 import** 进这个文件——`accountListApi.js` 的 import 列表（原 79-101 行）漏了它，纯粹的漏 import，不是 Spring 迁移问题（`fetchAccountListByTenantId` 本身早就是 `POST /api/account/list?tenant_id=`，纯 Spring，`accountRoutePrefetch.js` 等文件一直在正常用）。
+
+修复：在 `AccountListPage.jsx` 的 `accountListApi.js` import 列表里补上 `fetchAccountListByTenantId`。
+
+### 16.5 后续建议（下一次任务）
+
+1. 修 `processListHelpers.js` 缺失的 `normalizeProcessListRows` / `normalizeProcessStatusKey` / `PROCESS_WEEKDAY_OPTIONS` / `resolveProcessListActiveTenantId`，让 `processListApi.js` 真正可用；同时确认 `bankProcessListApi.fetchBankProcessListByTenantId()` 返回的行形状与 `ProcessTable` / Bank Process 表格实际渲染字段一致（目前未验证，`normalizeRows` 只是浅层补字段，不是真正的 Spring DTO → UI 行转换）。
+2. 补 `ProcessListPage.jsx` 的客户端 search / showActive / showInactive / showAll 过滤（Spring 不支持服务端过滤）。
+3. 把 `processRoutePrefetch.js` 换成 Spring 调用后，再把 `AuthenticatedLayout.jsx` 里的 `runProcessListWarm` 恢复成真正预热（现在是空函数）。
+4. Dashboard 模块目前在仓库和文档里都找不到任何 Spring 端点规划——需要先决定 `dashboard_bootstrap_api.php` 对应的 Spring 契约，再迁移页面本身和 `warmDashboardRouteCache`。
 
 ---
 

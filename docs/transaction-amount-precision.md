@@ -30,9 +30,9 @@ DB 字段多为 `DECIMAL(25, 8)`；业务上限（普通 6 / RATE 8）比列定�
 ### RATE 交易（≤ 8）
 
 - Leg1 / Leg2 `amount`
-- Middle-Man fee（第一币输入）及换算后的 fee / rate portion
-- `exchangeRate` / `middlemanRate`
-- 中间结果：`leg1 × rate`、`fee × exchangeRate`、`gross − middleman` 等
+- Middle-Man Fee / Platform Fee（**第二（leg2）币种面值，不换汇**，2026-08 起；旧版是第一币种要 `× exchangeRate`，已废弃）
+- `exchangeRate` / Rate-Mul 除数或乘数（见 [transaction-rate-middleman-logic.md](./transaction-rate-middleman-logic.md)）
+- 中间结果：Rate-Mul 佣金（`RateMulCalculator.computeCommission`，可为负）、`Fee − PlatformFee`、`gross − middleman` 等
 
 ## 后端
 
@@ -158,12 +158,14 @@ rate 表达式形式：`*N` 乘、`/N` 除、`N` 乘；空 / 非法 / 0 视为�
 
 - [datacapture-spring-api.md](./datacapture-spring-api.md) — Data Capture Spring API / Summary Submit
 - [transaction-description-rules.md](./transaction-description-rules.md) — `transactions.description` audit storage vs History UI
+- [transaction-rate-middleman-logic.md](./transaction-rate-middleman-logic.md) — RATE Middle-Man / Rate-Mul / Platform Fee 完整逻辑
 
 ## 相关文件（速查）
 
 **Backend**
 
 - `util/TransactionMoneyFormat.java`
+- `util/RateMulCalculator.java`
 - `util/SummaryAmountFormat.java`
 - `service/impl/TransactionSubmitServiceImpl.java`
 - `service/impl/TransactionHistoryServiceImpl.java`

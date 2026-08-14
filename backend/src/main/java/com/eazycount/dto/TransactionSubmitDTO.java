@@ -50,8 +50,15 @@ public class TransactionSubmitDTO {
     private BigDecimal exchangeRate;
     private String rateExpression;
     private Integer middlemanAccountId;
+
+    /* Legacy plain multiplier; prefer middlemanRateExpression when present (see resolveMiddleman). */
     private BigDecimal middlemanRate;
+    /* Raw Rate-Mul input, e.g. "/1.55" (divide mode) or "2.93" (multiply mode / new-rate). */
+    private String middlemanRateExpression;
+    /* Service Fee face value, second (leg2) currency, no FX conversion. */
     private BigDecimal middlemanAmount;
+    /* Platform Fee face value, second (leg2) currency; always positive, always subtracted from profit. */
+    private BigDecimal platformFeeAmount;
 
     // ── Result-only ──────────────────────────────────────────────────────────
     private Integer id;

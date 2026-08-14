@@ -46,7 +46,14 @@ public class TransactionRate {
 
     private BigDecimal middlemanRate;
 
+    /** Raw Rate-Mul input, e.g. {@code /1.55} or {@code 2.93}; drives divide vs multiply mode. */
+    private String middlemanRateExpression;
+
+    /** Service Fee face value, currency_to; no FX conversion. */
     private BigDecimal middlemanAmount;
+
+    /** Platform Fee face value, currency_to; reduces middleman profit (Fee - PT), no separate ledger row. */
+    private BigDecimal platformFeeAmount;
 
     private LocalDateTime createdAt;
 

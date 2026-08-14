@@ -14,6 +14,7 @@ import com.eazycount.entity.User;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.TransactionSubmitService;
+import com.eazycount.util.RateMulCalculator;
 import com.eazycount.util.TransactionDateParse;
 import com.eazycount.util.TransactionMoneyFormat;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -152,10 +153,14 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
 
     /*
      * RATE: two Cr/Dr legs + optional Middle-Man Win/Loss legs (second currency) + transactions_rate.
-     * Middle-Man: account required with fee and/or rate multiplier (either or both).
-     * Rate portion = leg1Amount × middlemanRate (From=middleman +, To=leg2 payer −).
-     * Fee portion = feeInput(first ccy) × exchangeRate — middleman-only +Win/Loss (no counterparty).
-     * leg2 net = gross − (ratePortion + feePortion).
+     * Middle-Man: account required with rate multiplier and/or fee and/or platform fee (any subset).
+     * Rate-Mul commission: RateMulCalculator.computeCommission — divide mode (/newDivisor, only
+     * when FX itself is /divisor), or multiply mode (points x1000 when FX is /divisor, else
+     * "new rate" diff (fxRate - mul) x leg1Amount). Can be negative (middleman underwater);
+     * negative/zero commission is allowed but posts no ledger row (see resolveMiddleman).
+     * Fee/Platform Fee are face values in the SECOND (leg2) currency, no FX conversion.
+     * Fee portion = Fee − Platform Fee (net); posts only when > 0 — middleman-only +Win/Loss
+     * (no counterparty). leg2 net = gross − (ratePortion(if>0) + feePortion(if>0)).
      */
     private TransactionSubmitDTO submitRate(TransactionSubmitDTO request, SessionUser session, Integer tenantId) {
         FromToAccounts leg1 = requireFromToAccounts(
@@ -175,8 +180,9 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         BigDecimal amountTo = parsePositiveRateAmount(request.getLeg2Amount(), "Leg2 amount");
         BigDecimal exchangeRate = parsePositiveExchangeRate(request.getExchangeRate());
         BigDecimal grossTo = TransactionMoneyFormat.normalizeComputedRate(amountFrom.multiply(exchangeRate));
+        String rateExpression = trimToNull(request.getRateExpression());
 
-        MiddlemanSpec middleman = resolveMiddleman(request, tenantId, leg2, amountFrom, exchangeRate, grossTo);
+        MiddlemanSpec middleman = resolveMiddleman(request, tenantId, leg2, amountFrom, exchangeRate, rateExpression, grossTo);
         if (middleman == null) {
             validateRateAmounts(amountFrom, amountTo, exchangeRate);
         } else {
@@ -190,7 +196,6 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
             }
         }
 
-        String rateExpression = trimToNull(request.getRateExpression());
         String remark = trimToNull(request.getRemark());
         LocalDate transactionDate = resolveTransactionDate(request);
         String rateGroupId = newRateGroupId();
@@ -211,10 +216,10 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         String leg2Description = exchPrefix + " | FROM " + accountDisplayName(leg2.fromAccount())
                 + " TO " + accountDisplayName(leg2.toAccount());
 
-        // When Fee is used: leg1 (toAccount1) History remark = CHARGE {ccy1} {feeInput} SERVICE FEES
+        // When Fee is used: leg1 (toAccount1) History remark = CHARGE {ccy2} {feeInput} SERVICE FEES
         String serviceFeeRemark = null;
         if (middleman != null && middleman.feeInput() != null) {
-            serviceFeeRemark = formatServiceFeeRemark(leg1Ccy, middleman.feeInput());
+            serviceFeeRemark = formatServiceFeeRemark(leg2Ccy, middleman.feeInput());
         }
         String leg1Remark = serviceFeeRemark != null ? serviceFeeRemark : remark;
 
@@ -235,7 +240,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
             // From=middleman (+WL), To=leg2 payer (−WL) — same signs as PROFIT; second currency.
             if (middleman.ratePortion() != null) {
                 String rateMarkup = formatMiddlemanMarkupDescription(
-                        false, middleman.rate(), leg1Ccy, amountText, leg2Ccy, leg1ToName);
+                        false, middleman.parsedRate(), leg1Ccy, amountText, leg2Ccy, leg1ToName);
                 Transaction rateTxn = insertApproved(
                         session, tenantId, Transaction.TransactionType.RATE,
                         leg2.toAccountId(), middleman.accountId(), leg2.currency().getId(),
@@ -269,13 +274,21 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         header.setAmountTo(amountTo);
         if (middleman != null) {
             header.setMiddlemanAccountId(middleman.accountId());
-            header.setMiddlemanRate(middleman.rate());
-            // Store fee input in first currency (not converted).
+            header.setMiddlemanRate(middleman.parsedRate() != null
+                    ? (middleman.parsedRate().mode() == RateMulCalculator.Mode.DIVIDE
+                            ? middleman.parsedRate().divisor()
+                            : middleman.parsedRate().value())
+                    : null);
+            header.setMiddlemanRateExpression(middleman.rateRawInput());
+            // Fee / Platform Fee stored as submitted face values (currency_to; not converted).
             header.setMiddlemanAmount(middleman.feeInput());
+            header.setPlatformFeeAmount(middleman.platformFeeInput());
         } else {
             header.setMiddlemanAccountId(null);
             header.setMiddlemanRate(null);
+            header.setMiddlemanRateExpression(null);
             header.setMiddlemanAmount(null);
+            header.setPlatformFeeAmount(null);
         }
         transactionRateDao.insert(header);
 
@@ -304,8 +317,10 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
 
     private record MiddlemanSpec(
             Integer accountId,
-            BigDecimal rate,
+            RateMulCalculator.ParsedRate parsedRate,
+            String rateRawInput,
             BigDecimal feeInput,
+            BigDecimal platformFeeInput,
             BigDecimal ratePortion,
             BigDecimal feePortion) {
         BigDecimal totalLeg2() {
@@ -320,99 +335,127 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         }
     }
 
-    /* Middle Man account function set. Middle-Man account is required when rate and/or fee are set; either or both are allowed.*/
+    /*
+     * Middle Man account function set. Account required when rate multiplier and/or fee and/or
+     * platform fee are set — any subset is allowed, not all three.
+     * Rate-Mul commission and (fee − platform fee) are computed independently; each only posts
+     * a ledger row when its own value is > 0 (negative/zero is allowed — silently not posted).
+     */
     private MiddlemanSpec resolveMiddleman(
             TransactionSubmitDTO request,
             Integer tenantId,
             FromToAccounts leg2,
             BigDecimal amountFrom,
             BigDecimal exchangeRate,
+            String rateExpression,
             BigDecimal grossTo) {
         Integer accountId = request.getMiddlemanAccountId();
         boolean hasAccount = accountId != null && accountId > 0;
-        boolean hasRate = request.getMiddlemanRate() != null
-                && request.getMiddlemanRate().compareTo(BigDecimal.ZERO) > 0;
-        // middlemanAmount = fee input in first (leg1) currency
+
+        String rateRawInput = trimToNull(request.getMiddlemanRateExpression());
+        if (rateRawInput == null && request.getMiddlemanRate() != null) {
+            rateRawInput = request.getMiddlemanRate().stripTrailingZeros().toPlainString();
+        }
+        boolean hasRateInput = rateRawInput != null;
+
+        // middlemanAmount = Service Fee face value in second (leg2) currency; no FX conversion.
         boolean hasFee = request.getMiddlemanAmount() != null
                 && request.getMiddlemanAmount().compareTo(BigDecimal.ZERO) > 0;
+        boolean hasPlatformFee = request.getPlatformFeeAmount() != null
+                && request.getPlatformFeeAmount().compareTo(BigDecimal.ZERO) > 0;
 
-        if (!hasAccount && !hasRate && !hasFee) {
+        if (!hasAccount && !hasRateInput && !hasFee && !hasPlatformFee) {
             return null;
         }
         if (!hasAccount) {
-            throw new BusinessException("Middle-Man account is required when rate multiplier or fee is set");
+            throw new BusinessException("Middle-Man account is required when rate multiplier, fee, or platform fee is set");
         }
-        if (!hasRate && !hasFee) {
-            throw new BusinessException("Middle-Man requires rate multiplier and/or fee");
+        if (!hasRateInput && !hasFee && !hasPlatformFee) {
+            throw new BusinessException("Middle-Man requires rate multiplier, fee, and/or platform fee");
         }
 
         UserListDTO middlemanAccount = requireActiveAccount(accountId, tenantId, "Middle-Man account");
         requireAccountCurrency(tenantId, accountId, leg2.currency().getId(), middlemanAccount.getAccountId());
 
-        BigDecimal rate = null;
-        BigDecimal ratePortion = null;
-        if (hasRate) {
-            rate = TransactionMoneyFormat.requireMaxScale(
-                    request.getMiddlemanRate(), TransactionMoneyFormat.RATE_AMOUNT_SCALE, "Middle-Man rate");
-            ratePortion = TransactionMoneyFormat.normalizeComputedRate(amountFrom.multiply(rate));
-            if (ratePortion.compareTo(BigDecimal.ZERO) <= 0) {
-                throw new BusinessException("Middle-Man rate amount must be greater than zero");
+        RateMulCalculator.ParsedRate parsedRate = null;
+        BigDecimal rateMulCommission = BigDecimal.ZERO;
+        if (hasRateInput) {
+            parsedRate = RateMulCalculator.parseMiddlemanRateInput(rateRawInput);
+            if (!parsedRate.valid()) {
+                throw new BusinessException("Please enter a valid Middle-Man rate multiplier");
             }
+            // Same ≤8dp rule as every other RATE-scale input (schema column is DECIMAL(18,8)).
+            BigDecimal rateMagnitude = parsedRate.mode() == RateMulCalculator.Mode.DIVIDE
+                    ? parsedRate.divisor()
+                    : parsedRate.value();
+            TransactionMoneyFormat.requireMaxScale(
+                    rateMagnitude, TransactionMoneyFormat.RATE_AMOUNT_SCALE, "Middle-Man rate");
+            rateMulCommission = TransactionMoneyFormat.normalizeComputedRate(
+                    RateMulCalculator.computeCommission(amountFrom, rateRawInput, rateExpression, exchangeRate));
         }
 
-        BigDecimal feeInput = null;
-        BigDecimal feePortion = null;
-        if (hasFee) {
-            feeInput = parsePositiveRateAmount(request.getMiddlemanAmount(), "Middle-Man fee");
-            feePortion = TransactionMoneyFormat.normalizeComputedRate(feeInput.multiply(exchangeRate));
-            if (feePortion.compareTo(BigDecimal.ZERO) <= 0) {
-                throw new BusinessException("Middle-Man fee must be greater than zero");
-            }
-        }
+        BigDecimal feeInput = hasFee
+                ? parsePositiveRateAmount(request.getMiddlemanAmount(), "Middle-Man fee")
+                : null;
+        BigDecimal platformFeeInput = hasPlatformFee
+                ? parsePositiveRateAmount(request.getPlatformFeeAmount(), "Platform fee")
+                : null;
+        BigDecimal feeNet = TransactionMoneyFormat.normalizeComputedRate(
+                TransactionMoneyFormat.nz(feeInput).subtract(TransactionMoneyFormat.nz(platformFeeInput)));
 
-        BigDecimal total = BigDecimal.ZERO;
-        if (ratePortion != null) {
-            total = total.add(ratePortion);
-        }
-        if (feePortion != null) {
-            total = total.add(feePortion);
-        }
+        // Negative/zero commission (middleman underwater) or net fee (platform fee ate it all)
+        // is allowed but posts no ledger row — see class comment on submitRate().
+        BigDecimal ratePortion = rateMulCommission.compareTo(BigDecimal.ZERO) > 0 ? rateMulCommission : null;
+        BigDecimal feePortion = feeNet.compareTo(BigDecimal.ZERO) > 0 ? feeNet : null;
+
+        BigDecimal total = TransactionMoneyFormat.add(ratePortion, feePortion);
         if (total.compareTo(grossTo) >= 0) {
             throw new BusinessException("Middle-Man total must be less than leg2 gross amount");
         }
-        return new MiddlemanSpec(accountId, rate, feeInput, ratePortion, feePortion);
+        return new MiddlemanSpec(accountId, parsedRate, rateRawInput, feeInput, platformFeeInput, ratePortion, feePortion);
     }
 
-    /** History remark on Fee / leg1 (toAccount1): {@code CHARGE MYR 10 SERVICE FEES}. */
-    static String formatServiceFeeRemark(String currencyFromCode, BigDecimal feeInputFirstCcy) {
-        if (feeInputFirstCcy == null || feeInputFirstCcy.compareTo(BigDecimal.ZERO) <= 0) {
+    /** History remark on Fee / leg1 (toAccount1): {@code CHARGE MYR 10 SERVICE FEES} (currency_to face value). */
+    static String formatServiceFeeRemark(String currencyToCode, BigDecimal feeInputSecondCcy) {
+        if (feeInputSecondCcy == null || feeInputSecondCcy.compareTo(BigDecimal.ZERO) <= 0) {
             return null;
         }
-        String ccy = currencyFromCode != null ? currencyFromCode.trim().toUpperCase(Locale.ROOT) : "";
+        String ccy = currencyToCode != null ? currencyToCode.trim().toUpperCase(Locale.ROOT) : "";
         if (ccy.isEmpty()) {
             return null;
         }
-        String feeDisplay = feeInputFirstCcy.stripTrailingZeros().toPlainString();
+        String feeDisplay = feeInputSecondCcy.stripTrailingZeros().toPlainString();
         return "CHARGE " + ccy + " " + feeDisplay + " SERVICE FEES";
     }
 
-    /* Type Format Description Only except "ADJUSTMENT", "RATE". E.g. {CONTRA FROM {fromName} TO {toName}} */
+    /* Type Format Description Only except "ADJUSTMENT", "RATE". E.g. CONTRA FROM "fromName" TO "toName" */
     static String formatTransferDescription(String type, UserListDTO fromAccount, UserListDTO toAccount) {
         String typeToken = type != null ? type.trim().toUpperCase(Locale.ROOT) : "";
         return typeToken + " FROM " + accountDisplayName(fromAccount) + " TO " + accountDisplayName(toAccount);
     }
 
-    /* Middle man description only. Fee: {MARKUP X MYR 1010 > SGD | FROM {leg1ToName}}, Rate:{MARKUP {rate} MYR 1010 > SGD | FROM {leg1ToName}}*/
+    /*
+     * Middle man description only. Fee: {MARKUP X MYR 1010 > SGD | FROM {leg1ToName}},
+     * Rate divide mode: {MARKUP /1.55 MYR 1010 > SGD | FROM {leg1ToName}},
+     * Rate multiply mode: {MARKUP x2.93 MYR 1010 > SGD | FROM {leg1ToName}}.
+     */
     static String formatMiddlemanMarkupDescription(
             boolean feeKind,
-            BigDecimal middlemanRate,
+            RateMulCalculator.ParsedRate parsedRate,
             String ccy1,
             String amountText,
             String ccy2,
             String leg1ToName) {
-        String rateToken = feeKind
-                ? "X"
-                : (middlemanRate != null ? middlemanRate.stripTrailingZeros().toPlainString() : "");
+        String rateToken;
+        if (feeKind) {
+            rateToken = "X";
+        } else if (parsedRate != null && parsedRate.valid()) {
+            rateToken = parsedRate.mode() == RateMulCalculator.Mode.DIVIDE
+                    ? "/" + parsedRate.divisor().stripTrailingZeros().toPlainString()
+                    : "x" + parsedRate.value().stripTrailingZeros().toPlainString();
+        } else {
+            rateToken = "";
+        }
         StringBuilder sb = new StringBuilder("MARKUP");
         if (!rateToken.isEmpty()) {
             sb.append(' ').append(rateToken);

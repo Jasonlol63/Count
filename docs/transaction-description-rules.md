@@ -26,16 +26,17 @@ EXCH RATE {rate} {ccy1} {amount} > {ccy2} | FROM {fromAccountName} TO {toAccount
 
 ### RATE Middle-Man
 
-与 History 收款方 MARKUP 展示同形，账户用 **name**：
+与 History 收款方 MARKUP 展示同形，账户用 **name**。Rate token 按 Rate-Mul 模式（`RateMulCalculator.ParsedRate.mode()`）区分，不再是裸乘数：
 
 ```text
-MARKUP X {ccy1} {amount} > {ccy2} | FROM {leg1ToAccountName}     # fee
-MARKUP {middlemanRate} {ccy1} {amount} > {ccy2} | FROM {leg1ToAccountName}  # rate multiplier
+Fee:                MARKUP X {ccy1} {amount} > {ccy2} | FROM {leg1ToAccountName}
+Rate 除法模式：      MARKUP /{divisor} {ccy1} {amount} > {ccy2} | FROM {leg1ToAccountName}
+Rate 乘法模式：      MARKUP x{value} {ccy1} {amount} > {ccy2} | FROM {leg1ToAccountName}
 ```
 
-例：`MARKUP X MYR 1010 > SGD | FROM Alice`
+例：`MARKUP X MYR 1010 > SGD | FROM Alice`、`MARKUP x2.93 MYR 1010 > SGD | FROM Alice`
 
-旧数据可能仍为 `RATE_MIDDLEMAN_FEE` / `RATE_MIDDLEMAN_RATE`；查询需兼容两种。
+详见 [transaction-rate-middleman-logic.md](./transaction-rate-middleman-logic.md) 第 5 节。旧数据可能仍为 `RATE_MIDDLEMAN_FEE` / `RATE_MIDDLEMAN_RATE`；查询需兼容两种。
 
 ### CONTRA / PAYMENT / CLAIM / CLEAR / PROFIT
 
@@ -79,7 +80,7 @@ ADJUSTMENT - WIN/LOSS
 
 | 层 | 文件 |
 |----|------|
-| 提交写入 | `TransactionSubmitServiceImpl`（`formatTransferDescription` / EXCH / MARKUP helpers） |
+| 提交写入 | `TransactionSubmitServiceImpl`（`formatTransferDescription` / EXCH / MARKUP helpers）+ `RateMulCalculator`（Rate-Mul 模式解析） |
 | Data Capture Summary Submit 写入 | `DataCaptureSummaryServiceImpl`（`toTransaction`） |
 | History 重写 | `TransactionHistoryServiceImpl`（`applyRateHistoryPresentation` / `applyManualTransferHistoryPresentation`） |
 | Middle-Man 识别 | `TransactionMapper.xml`（`rateMiddlemanFeeDescription` 兼容 `MARKUP X %`） |
@@ -87,3 +88,7 @@ ADJUSTMENT - WIN/LOSS
 ## 与金额精度
 
 金额在 description 中的写法遵循 [transaction-amount-precision.md](./transaction-amount-precision.md) 的 plain 真值序列化（不强制 round-to-2）。
+
+## Related docs
+
+- [transaction-rate-middleman-logic.md](./transaction-rate-middleman-logic.md) — RATE Middle-Man / Rate-Mul / Platform Fee 完整逻辑（决策树、分录规则、schema）

@@ -1063,7 +1063,9 @@ CREATE TABLE `transactions` (
 
 -- RATE group header (1 row per submit). Ledger = transactions legs; this row = FX metadata + links.
 -- Example: MYR 1000 @ 1.7 → CNY 1700 → two transactions + one transactions_rate.
--- Middle-Man columns reserved (unused until implemented).
+-- Middle-Man: Rate-Mul commission (divide/multiply modes) and/or Service Fee, minus optional
+-- Platform Fee, net into one Win/Loss transactions row each (rate portion / fee portion);
+-- Platform Fee itself only reduces the fee portion, no separate ledger row.
 -- Not in schema: legacy transactions_rate_details / transaction_entry.
 CREATE TABLE `transactions_rate` (
     `id`                   INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1081,8 +1083,10 @@ CREATE TABLE `transactions_rate` (
     `amount_to`            DECIMAL(25, 8) NOT NULL COMMENT 'Leg2 amount > 0',
 
     `middleman_account_id` INT UNSIGNED DEFAULT NULL COMMENT 'FK account.id; Middle-Man fee account',
-    `middleman_rate`       DECIMAL(18, 8) DEFAULT NULL COMMENT 'Middle-Man multiplier (paired with account)',
-    `middleman_amount`     DECIMAL(25, 8) DEFAULT NULL COMMENT 'Fee input in currency_from (leg1); converted × exchange_rate for fee leg',
+    `middleman_rate`       DECIMAL(18, 8) DEFAULT NULL COMMENT 'Middle-Man multiplier (paired with account); divide mode stores the divisor',
+    `middleman_rate_expression` VARCHAR(32) DEFAULT NULL COMMENT 'Raw Rate-Mul input, e.g. /1.55 (divide) or 2.93 (multiply/new-rate)',
+    `middleman_amount`     DECIMAL(25, 8) DEFAULT NULL COMMENT 'Service Fee face value in currency_to (leg2); no FX conversion',
+    `platform_fee_amount`  DECIMAL(25, 8) DEFAULT NULL COMMENT 'Platform Fee face value in currency_to (leg2); reduces middleman Win/Loss (Fee - PT), no separate ledger row',
 
     `created_at`           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at`           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
