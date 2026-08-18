@@ -2,6 +2,11 @@
 -- Tenant-model login DB schema (testcount).
 -- Apply AFTER backend/src/main/resources/schema.sql on dev DB, or standalone
 -- when bootstrapping the login module only.
+-- FK checks off for the DROP/CREATE block below: the DROP order here does not fully respect FK
+-- dependency order (e.g. `process` is dropped before `user_tenant_process_access`, which still
+-- references it), and re-enabling too early would fail on a populated dev DB.
+SET FOREIGN_KEY_CHECKS = 0;
+
 DROP TABLE IF EXISTS `submitted_processes`;
 DROP TABLE IF EXISTS `data_capture_line`;
 DROP TABLE IF EXISTS `data_capture_description`;
@@ -337,20 +342,8 @@ CREATE TABLE `user_tenant_account_access` (
       FOREIGN KEY (`account_id`) REFERENCES `account` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Per-user per-tenant account ACL (normalized replacement for JSON account_permissions)';
 
-CREATE TABLE `user_tenant_process_access` (
-  `id`                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `user_tenant_access_id` BIGINT UNSIGNED NOT NULL COMMENT 'FK user_tenant_access.id',
-  `process_id`            INT UNSIGNED NOT NULL COMMENT 'FK process.id (visible process scope)',
-  `created_at`            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_utpa_access_process` (`user_tenant_access_id`, `process_id`),
-  KEY `idx_utpa_access_id` (`user_tenant_access_id`),
-  KEY `idx_utpa_process_id` (`process_id`),
-  CONSTRAINT `fk_utpa_access`
-      FOREIGN KEY (`user_tenant_access_id`) REFERENCES `user_tenant_access` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_utpa_process`
-      FOREIGN KEY (`process_id`) REFERENCES `process` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Per-user per-tenant process ACL (normalized replacement for JSON process_permissions)';
+-- user_tenant_process_access (FK → process) is created further below, right after the `process`
+-- table — process is not defined yet at this point in the script.
 
 CREATE TABLE `account_tenant_access` (
  `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -393,12 +386,12 @@ CREATE TABLE `password_reset_tac` (
 
 CREATE TABLE `password_reset_tac_owner` (
     `email`      VARCHAR(255) NOT NULL COMMENT 'Owner email (FK owner.email logically)',
-    `tenand_id`   INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
+    `tenant_id`  INT UNSIGNED NOT NULL COMMENT 'FK tenant.id — reset scope for domain owner',
     `code`       VARCHAR(10)  NOT NULL COMMENT '6-digit verification code',
     `expires_at` DATETIME     NOT NULL COMMENT 'Code expiry (typically 15 minutes)',
     `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`email`, `owner_id`),
-    KEY `idx_prto_owner_id` (`owner_id`),
+    PRIMARY KEY (`email`, `tenant_id`),
+    KEY `idx_prto_tenant_id` (`tenant_id`),
     KEY `idx_prto_expires_at` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Password reset TAC for domain owners';
 
@@ -461,7 +454,7 @@ CREATE TABLE `announcements` (
 
 CREATE TABLE `maintenance_marquee` (
    `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
-   `prefix`       VARCHAR(100) NOT NULL COMMENT 'Marquee label shown before content',
+   `prefix`       VARCHAR(100) NOT NULL DEFAULT '' COMMENT 'Marquee label shown before content',
    `content`      TEXT         NOT NULL COMMENT 'Maintenance marquee body',
    `company_code` VARCHAR(50)  NOT NULL DEFAULT 'C168' COMMENT 'Scope: C168 maintenance only',
    `status`       ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE' COMMENT 'Publication status',
@@ -594,6 +587,23 @@ CREATE TABLE `process` (
    KEY `idx_process_tenant_id` (`tenant_id`),
    KEY `idx_process_tenant_category` (`tenant_id`, `category`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='流程配置表（无 JSON；GAME/BANK 同表用 category 区分规则）';
+
+-- Moved here (was declared right after user_tenant_account_access) because it FKs into `process`,
+-- which is not defined until this point in the script.
+CREATE TABLE `user_tenant_process_access` (
+  `id`                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_tenant_access_id` BIGINT UNSIGNED NOT NULL COMMENT 'FK user_tenant_access.id',
+  `process_id`            INT UNSIGNED NOT NULL COMMENT 'FK process.id (visible process scope)',
+  `created_at`            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_utpa_access_process` (`user_tenant_access_id`, `process_id`),
+  KEY `idx_utpa_access_id` (`user_tenant_access_id`),
+  KEY `idx_utpa_process_id` (`process_id`),
+  CONSTRAINT `fk_utpa_access`
+      FOREIGN KEY (`user_tenant_access_id`) REFERENCES `user_tenant_access` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_utpa_process`
+      FOREIGN KEY (`process_id`) REFERENCES `process` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Per-user per-tenant process ACL (normalized replacement for JSON process_permissions)';
 
 CREATE TABLE `process_description_link` (
     `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1137,3 +1147,5 @@ CREATE TABLE `transactions_deleted` (
     INDEX `idx_bp_posted` (`tenant_id`, `bank_process_posted_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Archived soft-deleted transactions (Payment + Bank Process Maintenance)';
+
+SET FOREIGN_KEY_CHECKS = 1;

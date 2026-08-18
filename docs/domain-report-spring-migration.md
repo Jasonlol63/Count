@@ -185,3 +185,29 @@ bug，`DomainReportPage.jsx:186` 一路留到現在才修。改用 `sessionHasTe
   判定條件，另一處要同步檢查。
 - 如果之後要幫 Group-only（SALARY/COMMISSION/BONUS）補上 Spring 端點，需要另外評估 BANK category 的
   win/lose 資料來源，不能直接套用現有 `category = 'GAME'` 的 query。
+
+---
+
+## 10. 2026-08-18 補充：找回被覆蓋的遷移
+
+跟 [`customer-report-spring-migration.md` §11](./customer-report-spring-migration.md#11-2026-08-18-补充找回被覆盖的迁移--清掉-bank-only-检测的最后一个-php-调用)
+是同一次事故：`domainReportApi.js` 在遷移完成（`6d7801b`）當天稍晚被整倉快照式提交 `4f00f14` 整段覆蓋回純
+PHP 版本，Company/Aggregate 模式的 `fetchDomainReport` / `fetchProcesses` 一路在打會 500 的
+`domain_report_api.php`。`captureMaintenanceLogic.js` 的 Group-only payroll process 下拉也依賴這個檔案的
+`fetchProcesses` 導出，所以連帶受影響。
+
+本次按 `6d7801b` 的實現重新對齊 `domainReportApi.js`（Company/Aggregate 走 Spring
+`api/report/domain-report/list` + `api/process/process-list`，Group-only 維持舊版 PHP，見 §6.1，行為未變）；
+同時把 `DomainReportPage.jsx` 的 `checkBankOnly` 從打 `api/domain/domain_api.php` 的
+`fetchCompanyPermissions` 改成前端純判定的 `companyMatchesBankOnlyPillScope`
+(`utils/company/companyCategoryFlags.js`)，理由同 Customer Report §11。
+
+### 10.1 前端改動文件清單（2026-08-18）
+
+| 文件 | 改動 |
+|------|------|
+| `pages/report/domain/domainReportApi.js` | `fetchDomainReport` / `fetchProcesses` 從純 PHP 實現重新改回 Spring：Company/Aggregate 走 `POST /api/report/domain-report/list`（tenant 循環聚合、拆分 `totalRow` 行）+ `fetchProcessListByTenantId`（`POST /api/process/process-list`）；Group-only（SALARY/COMMISSION/BONUS）維持 `fetchDomainReportLegacy` / `fetchProcessesLegacy` 打舊版 `domain_report_api.php`，行為與 §6.1 一致、未變動。此檔案同時被 `captureMaintenanceLogic.js` 的 Group-only payroll process 下拉引用，一併修復。 |
+| `pages/report/domain/DomainReportPage.jsx` | `checkBankOnly` 不再調用 `api/domain/domain_api.php`（PHP，一直在靜默 500，判定從未生效），改成純前端 `companyMatchesBankOnlyPillScope`（`utils/company/companyCategoryFlags.js`）。 |
+
+Customer Report 那邊的 `reportCompanyApi.js` / `CustomerReportPage.jsx` 改動清單見
+[`customer-report-spring-migration.md` §11.1](./customer-report-spring-migration.md#111-前端改动文件清单2026-08-18)。
