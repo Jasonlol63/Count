@@ -39,6 +39,8 @@ public class BankProcess {
 
     private Boolean dayEndMonthlyCapEnabled;
 
+    private Boolean expiredAtCreation;
+
     private Frequency frequency;
 
     private Integer supplierAccountId;

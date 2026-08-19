@@ -364,11 +364,9 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
         YearMonth creationMonth = YearMonth.from(creationMonthFloor(bp, dayStart));
         YearMonth loopStart = startMonth.isBefore(creationMonth) ? creationMonth : startMonth;
 
-        // ACTIVE + Day-end cap OFF: contract expiry does not stop billing — keep generating
-        // FULL_MONTH dues indefinitely (buildFirstOfMonthDueForMonth already falls through to
-        // FULL_MONTH for any month past endMonth once useDayEndTail is false) until status
-        // moves away from ACTIVE. Day-end cap ON keeps the existing stop-at-dayEnd behavior.
-        boolean useDayEndTail = Boolean.TRUE.equals(bp.getDayEndMonthlyCapEnabled());
+        // ACTIVE + cap OFF: keeps generating FULL_MONTH past dayEnd until status changes.
+        // expiredAtCreation forces the cap on regardless of the toggle.
+        boolean useDayEndTail = resolveUseDayEndTail(bp);
         boolean extendPastDayEnd = bp.getStatus() == BankProcess.Status.ACTIVE && !useDayEndTail;
         YearMonth todayMonth = YearMonth.from(today);
         YearMonth loopEnd = (extendPastDayEnd && todayMonth.isAfter(endMonth)) ? todayMonth : endMonth;
@@ -387,13 +385,19 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
         return dues;
     }
 
+    /* ON = cap toggle, or already expired at creation. */
+    private static boolean resolveUseDayEndTail(BankProcess bp) {
+        return Boolean.TRUE.equals(bp.getDayEndMonthlyCapEnabled())
+                || Boolean.TRUE.equals(bp.getExpiredAtCreation());
+    }
+
     private static AccountingDueDTO buildFirstOfMonthDueForMonth(BankProcessDTO dto,BankProcess bp,YearMonth month,LocalDate dayStart, LocalDate dayEnd) {
         YearMonth startMonth = YearMonth.from(dayStart);
         YearMonth endMonth = YearMonth.from(dayEnd);
         LocalDate monthFirst = month.atDay(1);
         LocalDate monthEnd = month.atEndOfMonth();
-        // ON = DAY_END_TAIL through dayEnd; OFF = FULL_MONTH through month end.
-        boolean useDayEndTail = Boolean.TRUE.equals(bp.getDayEndMonthlyCapEnabled());
+        // ON (or expired at creation) = DAY_END_TAIL; OFF = FULL_MONTH.
+        boolean useDayEndTail = resolveUseDayEndTail(bp);
 
         LocalDate postedDate;
         LocalDate billingStart;
@@ -446,10 +450,10 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
         YearMonth month = startMonth.isBefore(creationMonth) ? creationMonth : startMonth;
         LocalDate posted = month.equals(startMonth) ? dayStart : monthlyAnchor(month, dayStart);
 
-        // ACTIVE: contract expiry does not stop billing — keep rolling the monthly anchor
-        // indefinitely (no dayEnd clamp, no stop-at-endMonth break) until status moves away
-        // from ACTIVE; the periodPosted > today check is the only thing that halts the loop.
-        boolean extendPastDayEnd = bp.getStatus() == BankProcess.Status.ACTIVE;
+        // ACTIVE: keeps rolling the anchor past dayEnd until status changes.
+        // expiredAtCreation overrides this: never gets the past-dayEnd extension.
+        boolean extendPastDayEnd = bp.getStatus() == BankProcess.Status.ACTIVE
+                && !Boolean.TRUE.equals(bp.getExpiredAtCreation());
 
         List<AccountingDueDTO> dues = new ArrayList<>();
         while (true) {
@@ -576,7 +580,8 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
     private static LocalDate monthlyAnchor(YearMonth month, LocalDate dayStart) {
         int anchorDay = dayStart.getDayOfMonth() - 1;
         if (anchorDay <= 0) {
-            return month.atEndOfMonth();
+            // dayStart is the 1st: borrow back to the prior month's last day.
+            return month.minusMonths(1).atEndOfMonth();
         }
         return month.atDay(Math.min(anchorDay, month.lengthOfMonth()));
     }
@@ -1184,7 +1189,7 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
         return value != null ? value : BigDecimal.ZERO;
     }
 
-    /** Store computed due amounts without round-to-2; cap at normal amount max scale. */
+    /* Store computed due amounts without round-to-2; cap at normal amount max scale. */
     private static BigDecimal scaleMoney(BigDecimal value) {
         return TransactionMoneyFormat.normalizeComputedNormal(value);
     }

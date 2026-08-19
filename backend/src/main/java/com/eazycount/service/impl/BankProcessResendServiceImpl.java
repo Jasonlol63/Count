@@ -15,9 +15,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 
 @Service
-public class BankProcessResendServiceImpl implements BankProcessResendService {
+public class    BankProcessResendServiceImpl implements BankProcessResendService {
 
     @Autowired
     private BankProcessDao bankProcessDao;
@@ -111,9 +112,11 @@ public class BankProcessResendServiceImpl implements BankProcessResendService {
         }
         return switch (frequency) {
             case FIRST_OF_EVERY_MONTH -> {
+                // day_end omitted → single-month mode: bill only dayStart's own calendar month.
+                // resolveResendFirstOfMonthAmountRatio then prorates dayStart→month-end, which
+                // collapses to a full-month ratio (1) whenever dayStart is the 1st.
                 if (dayEnd == null) {
-                    throw new BusinessException(
-                            "day_start and day_end are required for 1st of every month Resend!");
+                    yield new Window(dayStart, dayStart, YearMonth.from(dayStart).atEndOfMonth());
                 }
                 if (dayEnd.isBefore(dayStart)) {
                     throw new BusinessException("day_end cannot be before day_start!");

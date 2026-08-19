@@ -16,6 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -258,6 +260,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         bankProcess.setDayStart(bankProcessDTO.getDayStart());
         bankProcess.setDayEnd(bankProcessDTO.getDayEnd());
         bankProcess.setDayEndMonthlyCapEnabled(resolveDayEndMonthlyCapEnabled(frequency, bankProcessDTO.getDayEndMonthlyCapEnabled()));
+        bankProcess.setExpiredAtCreation(resolveExpiredAtCreation(frequency, bankProcessDTO.getDayEnd()));
         bankProcess.setFrequency(frequency);
         bankProcess.setSupplierAccountId(bankProcessDTO.getSupplierAccountId());
         bankProcess.setSupplierPrice(bankProcessDTO.getSupplierPrice());
@@ -342,9 +345,26 @@ public class BankProcessServiceImpl implements BankProcessService {
         }
     }
 
-    /** Only 1st-of-every-month may enable last-month DAY_END_TAIL; otherwise always false. */
+    /* Only 1st-of-every-month may enable last-month DAY_END_TAIL; otherwise always false. */
     private static boolean resolveDayEndMonthlyCapEnabled(BankProcess.Frequency frequency, Boolean raw) {
         return frequency == BankProcess.Frequency.FIRST_OF_EVERY_MONTH && Boolean.TRUE.equals(raw);
+    }
+
+    /*
+     * Marked once at creation time only (never recomputed on edit): dayEnd's month is already
+     * before the creation month, i.e. the contract is fully expired the moment it's created.
+     * Only meaningful for FIRST_OF_EVERY_MONTH / MONTHLY, the two frequencies that otherwise
+     * extend billing past dayEnd while ACTIVE.
+     */
+    private static boolean resolveExpiredAtCreation(BankProcess.Frequency frequency, LocalDate dayEnd) {
+        if (frequency != BankProcess.Frequency.FIRST_OF_EVERY_MONTH
+                && frequency != BankProcess.Frequency.MONTHLY) {
+            return false;
+        }
+        if (dayEnd == null) {
+            return false;
+        }
+        return YearMonth.from(dayEnd).isBefore(YearMonth.from(LocalDate.now()));
     }
 
     private List<BankProcessShare> insertProfitSharing(Integer bankProcessId, List<BankProcessShare> shares) {
