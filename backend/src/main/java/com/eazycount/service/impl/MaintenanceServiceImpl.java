@@ -518,8 +518,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 normalizeQ(request.getQ()));
     }
 
-    // Games/Gambling/Loan/Rate/Money share the GAME process.category; Bank maps to BANK.
-    // Required (never defaulted): a missing/unrecognized category would let GAME and BANK rows mix in one response.
     private static String normalizeMaintenanceCategory(String raw) {
         String category = trimToNull(raw);
         if (category == null) {
@@ -527,8 +525,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
         String lower = category.toLowerCase(Locale.ROOT);
         return switch (lower) {
-            case "games", "gambling", "loan", "rate", "money" -> "GAME";
-            case "bank" -> "BANK";
+            case "games" -> "GAME";
+            case "bank"  -> "BANK";
             default -> throw new BusinessException("Unsupported category: " + category);
         };
     }

@@ -134,7 +134,7 @@
             AND ur.code = 'PARTNERSHIP'
             AND u.status = 'ACTIVE'
           UNION ALL
-          -- ③ 系统中所有的活跃集团 (作为 GROUP 股东选项) --
+          -- ③ 同一个 Owner 名下的活跃集团 (作为 GROUP 股东选项) --
           SELECT DISTINCT
               NULL AS ownershipId,
               #{tenantId} AS tenantId,
@@ -147,7 +147,8 @@
               'GROUP' AS role,
               0 AS isExternalPartner
           FROM tenant g
-          WHERE g.tenant_type = 'GROUP' AND g.status = 'ACTIVE'
+                   JOIN tenant t ON t.id = #{tenantId}
+          WHERE g.tenant_type = 'GROUP' AND g.status = 'ACTIVE' AND g.owner_id = t.owner_id
         ) AS candidates
         ORDER BY accountName ASC
     </select>
