@@ -230,3 +230,41 @@ Domain Report 大概率会踩到一样的重定向。
   `maintenance-navigation.md` 保持一致；DATA CAPTURE 判定口径与
   [`transaction-datacapture-winloss.md`](./transaction-datacapture-winloss.md) 保持一致——两边任一处改动
   判定条件，另一处要同步检查。
+
+---
+
+## 11. 2026-08-18 补充：找回被覆盖的迁移 + 清掉 Bank-only 检测的最后一个 PHP 调用
+
+`customerReportApi.js` / `reportCompanyApi.js` 在本次迁移（2026-08-13，`6d7801b`）之后，被同一天晚些时候
+的大批量提交 `4f00f14`（"new version frontend...already change account/admin/transaction page to
+springboot api"，316 个文件的整仓快照式覆盖）意外整体回退回了纯 PHP 版本——`git log` 上看得到 `6d7801b`
+之后紧跟 `4f00f14` 把这两个文件的内容整段替换回旧的 `customer_report_api.php` / `get_accounts_api.php`
+写法。`CustomerReportPage.jsx` 本身没有回退（`4f00f14` 之后又被继续加了 Group/Company pill、
+currency 跨页同步、snapshot cache 等新功能），所以页面代码一直是按 Spring 版本的 `fetchCustomerReport` /
+`fetchAccounts` 参数和返回值形状在调用——只是背后的实现被换回了会 500 的 PHP 端点。
+
+本次把 `customerReportApi.js` / `reportCompanyApi.js` 按 `6d7801b` 的实现重新对齐（`fetchReportScopeCurrencies`
+改用 `utils/api/currencyApi.js` 的 `fetchCurrencyListByTenantId`，与 Account/Currency 设置页共用同一个
+helper，而不是各自手写一份 fetch）；`reportCompanyApi.js` 里死代码 `fetchCurrencies`（`get_company_currencies_api.php`，
+零调用点）一并删除。
+
+顺带修掉一个页面自己的 PHP 依赖：`CustomerReportPage.jsx` 的 `checkBankOnly`（切换 Company 后判断是不是
+Bank-only、要不要跳去 Bank Process List）原本调用 `reportCompanyApi.js` 的 `fetchCompanyPermissions`，打的
+是 `api/domain/domain_api.php`——同样会被反向代理 500，导致 catch 静默吞掉，Bank-only 检测实际上从没生效过。
+改成跟 `utils/auth/sidebarPermissions.js` 的 `canShowReportInSidebar` 同一套判定：`companyMatchesBankOnlyPillScope`
+(`utils/company/companyCategoryFlags.js`)，纯前端根据已加载的 `companies` 行 / session flags 缓存判断，
+不用再发请求。`fetchCompanyPermissions` / `isBankOnlyCategoryCompany` 在 `reportCompanyApi.js` 里也一并删除。
+
+**教训**：以后做大范围「整仓快照替换」式的提交前，先确认要不要 `git diff` 一下当天更早的迁移提交，避免
+覆盖掉刚做完的工作。
+
+### 11.1 前端改动文件清单（2026-08-18）
+
+| 文件 | 改动 |
+|------|------|
+| `pages/report/customer/customerReportApi.js` | `fetchCustomerReport` / `fetchAccounts` 从纯 PHP 实现重新改回 Spring：`POST /api/report/customer-report/list`（tenant 循环聚合、拆分 `totalRow` 行）+ `fetchAccountListByTenantId`（`POST /api/account/list`）。不再触碰 `customer_report_api.php` / `get_accounts_api.php`。 |
+| `pages/report/shared/reportCompanyApi.js` | `fetchReportScopeCurrencies` 改用 `utils/api/currencyApi.js` 的 `fetchCurrencyListByTenantId`（`POST /api/currency/list`），tenant 循环 + 按 code 去重合并。删除死代码 `fetchCurrencies`（`get_company_currencies_api.php`，零调用点）、删除 `fetchCompanyPermissions` / `isBankOnlyCategoryCompany`（原打 `api/domain/domain_api.php`，见下）。 |
+| `pages/report/customer/CustomerReportPage.jsx` | `checkBankOnly` 不再调用 `reportCompanyApi.js` 的 `fetchCompanyPermissions`（PHP，一直在静默 500，判定从未生效），改成纯前端 `companyMatchesBankOnlyPillScope`（`utils/company/companyCategoryFlags.js`），基于已加载的 `companies` 行 / session flags 缓存判断，无需额外请求。 |
+
+同一次事故也影响了 Domain Report，改动清单见
+[`domain-report-spring-migration.md` §10.1](./domain-report-spring-migration.md#101-前端改动文件清单2026-08-18)。
