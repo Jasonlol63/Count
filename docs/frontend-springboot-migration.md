@@ -1852,6 +1852,23 @@ org.springframework.web.HttpRequestMethodNotSupportedException: Request method '
 - [ ] 决定要不要把 §10.3.3 里其余 6 处 `switch-tenant` 缺 `method: "POST"` 的地方一并修掉
 - [x] ~~Capture Maintenance 软删归档表（`data_capture_line_deleted`）落地后，回来把 `deleted`/`deletedBy`/`deletedAt` 接上 live+archived 合并查询~~ —— 用户已确认不需要，Transaction Maintenance 只看活跃行即可（见 §13.4）
 
+#### 10.5 2026-08-19 补充：前端实际落地记录（Claude Code 实机执行，与 §10.1-§10.4 计划文本的出入）
+
+**背景**：复查发现本文档 §10-§12 虽然标注"已切换"，但 `Count-frontend`（`C:\Users\User\OneDrive\Desktop\Count-Frontend`）仓库里 `transactionMaintenanceLogic.js` 当时实际仍 100% 打旧 PHP（`api/transactions/maintenance_search_api.php` 分页版 + `api/session/update_company_session_api.php` 裸 GET），跟本节描述的目标状态没有对上——本文档这部分内容是计划/设计记录，不是已验证的实现快照。2026-08-19 按用户要求实际执行了这次迁移，过程中发现并修正了以下几处跟原计划文本不完全一致的地方：
+
+| 项 | 计划文本（§10.1-§10.4） | 实际实现 | 原因 |
+|----|----|----|----|
+| `TransactionMaintenanceTable.jsx` `getItemKey` | 改用 `row.id` | **未改**，继续读 `row.transaction_id`；新行改成把 Spring `id` 塞进 `row.transaction_id` 字段 | 跟 Payment/BankProcess/Capture Maintenance 的行 key 命名惯例（`transaction_id`/`capture_id`）保持一致，零改表格组件，风险更小 |
+| `updateSessionCompany` 修复方式 | 裸 `fetch()` 加 `method: "POST"` | 整个函数改成 `syncCompanySessionApi()`（`/auth/switch-tenant`，Spring） | 用户要求"彻底抛弃旧版本 PHP API"，不是最小修复；`syncCompanySessionApi` 是 Payment/BankProcess/Capture Maintenance 已经在用的现成 Spring 封装，直接复用 |
+| `resolveTransactionMaintenanceCategory` | 保留 `permission` 入参，去掉 payroll→Games 覆盖分支 | **改成单参数 `(scope)`**：`scope.c168Channel \|\| scope.companyPayrollChannel ? "Bank" : "Games"` | 实机核对 `TransactionMaintenancePage.jsx` 发现该页从来没有 category/permission 选择 UI——`performMaintenanceSearch`/`runBootMaintenanceSearch` 全部硬编码字面量 `"Games"` 调 `searchTransactionData`，等于 Bank 分支永远走不到，payroll/C168 公司的 Transaction Maintenance 一直查不到数据（真·线上 bug，不是文档描述的"传值语义反了"那种）。改成纯 scope 派生后此 bug 修复，且不需要改页面调用点（多传的 `category` 参数被新签名忽略，兼容） |
+| 分页/重试机制 | 全部去掉 | 去掉了日期分片/游标分页/`fetchAllPagesForRange`，但**保留**了 `isMaintenanceTransferError`/`isMaintenanceRecoverableError`/`getMaintenanceSearchUserMessage` 这套瞬时网络错误分类 | `TransactionMaintenancePage.jsx` 自己有一套"网络错误自动重试最多 10 次"的效果（`recoverableRetryRef`），单次 Spring 请求一样可能遇到 502/503/超时，这套机制仍有价值，文档没提要求删它 |
+| Group 聚合（Groups All / Group All） | 前端循环单租户请求 + 合并排序（沿用旧设计） | 按此实现，另加了**纯 Group 账本**（选中 Group 但未选具体 Company，`scope.mode === "group"`，`scopeCompanyId` 恒为 0）场景的兜底：用 `resolveGroupEntityRowFromSnap(companies, scope.groupId)` 查出 Group 实体公司的 `id` 当 tenantId | 抄的是 Payment Maintenance（`paymentMaintenanceLogic.js`）已经验证过的 `resolvePaymentMaintenanceTenantIds` 写法；不加这个兜底纯 Group 账本模式会因为 tenantId 无效直接返回空列表 |
+| 边界 bug：boot 阶段 `runBootMaintenanceSearch` 读到过期 `companies` | 文档未提及 | 修了：`pendingBootSearchRef.current` 现在额外带 `companies: filtered`（boot 里刚 fetch 到的最新公司列表），`runBootMaintenanceSearch` 改用 `pending.companies` 而不是闭包里的 state `companies` | `useCallback` 闭包捕获的是上一次渲染的 `companies`（此时可能还是空数组），而 `setCompanies(filtered)` 这次 render 还没提交；纯 Group 账本 boot 场景会因此查不到 tenantId 兜底所需的公司行 |
+
+**未动**（保持现状，不在本次范围）：`fetchCompanyPermissions`（`maintenanceCompanyApi.js` 的 `fetchDomainCompanyPermissions`）仍打旧 PHP `api/domain/domain_api.php`，跟 §13.2 记录的已知缺口一致——只用于页面级"这家公司有没有 Games/Bank 权限"的粗粒度访问守卫，有 500 兜底默认值，不属于 Transaction Maintenance 自己的 list 数据契约。
+
+**实机验证状态**：未验证（无可用登录账号）。`vite build` 通过，浏览器打开首页无 JS 报错（未登录，401 属预期）。请求用户实际登录后验证：payroll/C168 公司现在能查到 Bank 分类数据、纯 Group 账本模式能正常搜索、切公司不再 500/405。
+
 ### 11. Formula Maintenance 数据契约（Spring，List + Edit + Delete 已切换）
 
 把 `Count-frontend/pages/maintenance/formula/*` 原本打的旧 PHP（`list_api.php`/`update_api.php`/`delete_api.php`/`get_accounts_api.php`）全部换成 Spring 接口。**当前进度：List/Update/Delete 三个接口的后端（DTO/Dao/Mapper/Service/Controller）+ 前端均已实现并切换；账户下拉也已切到 Spring `/api/account/list`。**
@@ -2128,6 +2145,24 @@ WHERE tenant_id = #{tenantId}
 - [x] `updateSessionCompany` 切公司 500 修复（同 §10.3.3 根因）：`formulaMaintenanceLogic.js` 的 `updateSessionCompany` 裸 `fetch()` 默认 GET，`AuthController.switchTenant` 只收 POST；补上 `method: "POST"`
 - [ ] 实机验证：Games/Bank 切换、Select All 不选 process 时不出现 GAME/BANK 混列、Process 下拉能列出当前公司全部 process、Bank category（SALARY/BONUS/PROFIT/COMMISSION）能查到数据、MAIN/SUB 行的 Product 列展示符合预期、Edit 保存后本地行正确刷新、Delete 批量勾选后确实从 DB 消失（硬删，刷新页面也不会再出现）
 
+#### 11.9 2026-08-19 补充：前端实际落地记录（Claude Code 实机执行，与 §11.1-§11.7 计划文本的出入）
+
+**背景**：跟 §10.5 同一次复查——`formulaMaintenanceLogic.js` 当时实际仍 100% 打旧 PHP（`list_api.php`/`update_api.php`/`delete_api.php`/`get_accounts_api.php`），§11.3.1-§11.3.3 描述的 `activePermission`/`pickFormulaMaintenancePermission` 相关 bug 排查记录**在这个仓库里对不上号**——实机核对 `FormulaMaintenancePage.jsx` 全文，从未出现过 `activePermission`/`pickFormulaMaintenancePermission` 这两个标识符，页面从来没有这套机制，§11.3.1-§11.3.3 描述的是别的分支/别的仓库状态。同样，`formulaMaintenanceScope.js` 的 `resolveFormulaMaintenanceScope` 在这个仓库里**从一开始就是**带 `c168Channel`/`companyPayrollChannel` enrich 的包装函数（跟 §11.3.3 说的"裸重导出"不符），不需要修。2026-08-19 实际执行的改动：
+
+| 项 | 计划文本（§11.1-§11.7） | 实际实现 | 原因 |
+|----|----|----|----|
+| Category 传值 | 走 `category` 参数 | **改成 `resolveFormulaMaintenanceCategory(scope)`**，页面不再传 `category` | 跟 §10.5 同一个 bug：`FormulaMaintenancePage.jsx` 的 `performSearch` 一直硬编码字面量 `const category = "Games"`，Bank 分支永远走不到，payroll/C168 公司查不到数据。修法对齐 Transaction Maintenance |
+| `resolveFormulaProductDisplay` | 新增，MAIN 显示自己 `idProduct`，SUB 显示 `parentIdProduct` | 按此实现（`normalizeSpringFormulaMaintenanceRow` 内部） | 与文档一致 |
+| Formula 显示/编辑逻辑 | 去掉 base+`*(source)`拼接展示，Source% 编辑不再重写 Formula | 按此实现；额外删除了 `buildEditFormFormulaDisplay`/`resolveFormulaBaseFromRow`/`parseFormulaEditTail`/`buildFormulaEditString`/`source_ref` 相关代码 | 与文档一致——这是这次迁移里唯一被文档明确点出、且实机确认会写脏 DB 数据的真 bug，照单修复 |
+| Update/Delete 请求体 | `{tenantId, id, accountId, sourcePercent, inputMethod, formula, description}` / `{tenantId, formulaIds}` | 按此实现，`FormulaMaintenancePage.jsx` 的 `handleSaveRow`/`handleConfirmDelete` 同步改成直接传这两个新 shape，不再手搓 `template_id`/`company_id`/`source_columns` 旧 payload | 与文档一致 |
+| List/Delete 的 tenantId 解析 | 复用 `formulaMaintenanceEffectiveCompanyId(scope, companyId)` | **List 额外加了**跟 §10.5 同款的 `resolveFormulaMaintenanceTenantIds({scope, companies})`：支持 `scope.mode === "aggregate"`（Groups All / Group All）循环多租户请求 + 合并排序、纯 Group 账本用 `resolveGroupEntityRowFromSnap` 兜底；`formulaMaintenanceEffectiveCompanyId` 本身没有这两个兜底，继续只给 Update/Delete/Accounts 用（这几个操作永远针对已选中的具体一行/一个公司，不存在"聚合多租户"场景，维持原样更简单） | `useMaintenanceGroupCompanyFilter` 在这个页面同样开放了 Groups All/Group All pill，如果不加聚合循环，切到该模式后列表会直接空掉——这是新发现的功能缺口，不是文档里已经点名的项 |
+| 排序 | SQL `ORDER BY` 已排好，Service 不额外排序 | 前端 `compareFormulaMaintenanceRows` 复刻同一个排序键（`idProduct`/`productType`/`subOrder`/`formulaVariant`/`id`），仅在**多租户合并**时用于二次排序 | 单租户时后端已排好序，直接透传；只有聚合场景需要前端合并多个已排序列表，此时才用得到这个比较函数 |
+| `fetchAccounts` 下拉文案 | `normalize...AccountOption`，`display_text` 格式 `"CODE (Name)"`，抄 `transactionAccountHelpers.js` | 按此实现（`normalizeFormulaAccountOption`），复用 `fetchAccountListByTenantId` + `filterAccountListRows`（默认只留 active） | 与文档一致 |
+
+**未动**：`fetchCompanyPermissionsRaw` 仍打旧 PHP `domain_api.php`（页面级粗粒度访问守卫，跟 §13.2 是同一个已知缺口）。
+
+**实机验证状态**：未验证（无可用登录账号）。`vite build` 通过。请求用户实际登录后验证：Edit 保存 Source% 不再污染 Formula 文本框内容、payroll/C168 公司能查到 Bank 分类数据、Groups All/Group All 模式下列表不再空白、Delete 批量硬删后刷新页面确认不再出现。
+
 ### 12. Capture Maintenance 数据契约（Spring，List + Delete 全链路已切换，行粒度为 capture）
 
 只读列表。**行粒度改过一次**：最初做的是"一行 = 一条 `data_capture_line`"（一个 capture 里每个 Product 各占一行），用户看实机效果后纠正为"一行 = 一条 `data_captures`"（一个 capture/一次提交只占一行，不展开到 Product 明细），已经按新粒度重做完。跟 §10 Transaction Maintenance 同一套表、同一个 `MaintenanceDao`/`MaintenanceMapper.xml`（未新建 Dao/Mapper 文件）。**当前进度：DTO + Dao + Mapper SQL + Service + Controller + 前端全部按新粒度对齐完成；Delete 走 Spring（新粒度）。**
@@ -2266,6 +2301,25 @@ SQL 结构：`FROM data_capture_line dl`（或归档行是 `data_capture_line_de
   3. 删一条改动前就存在的老数据，确认能正常软删（capture 侧），但 `transactions`/`process_submitted` 不会有变化（预期内，不是 bug）
   4. 前端删除确认弹窗文案在 Capture Maintenance 页面显示正确（跟 Payment/BankProcess Maintenance 默认文案不一样）
   5. 前提：本地库要先跑过 `migrate_capture_maintenance_delete.sql`
+
+#### 12.8 2026-08-19 补充：前端实际落地记录（Claude Code 实机执行，与 §12.1-§12.7 计划文本的出入）
+
+**背景**：跟 §10.5/§11.9 同一次复查——`captureMaintenanceLogic.js` 当时实际仍 100% 打旧 PHP（`api/capture_maintenance/search_api.php`/`delete_api.php` + `api/session/update_company_session_api.php`），跟本节顶部"DTO + Dao + Mapper SQL + Service + Controller + 前端全部按新粒度对齐完成"的表述不符——后端那部分是真的（已核对 `MaintenanceController`/`MaintenanceServiceImpl`/`MaintenanceMapper.xml` 均已实现），前端这半句没有。2026-08-19 实际执行的前端改动：
+
+| 项 | 计划文本（§12.1-§12.7） | 实际实现 | 原因 |
+|----|----|----|----|
+| `searchCaptureData` | 请求体 `{tenantId, dateFrom, dateTo, process, category, q}` | 按此实现，`POST /api/maintenance/capture-maintenance/list` | 与文档一致 |
+| `deleteCaptureItems` | 请求体 `{tenantId, captureIds}` | 按此实现；调用签名从旧的 `{items, dateFrom, dateTo, scope}`（`items` 是 `[{capture_id, process_id, currency_id}]` 数组）改成 `{captureIds, scope, rows, companies}`，`CaptureMaintenancePage.jsx` 的 `confirmDeleteAction` 同步简化，不再手搓 `process_id`/`currency_id` 这两个新接口用不上的旧字段 | 与文档一致，顺手清掉旧 payload 里的死字段 |
+| `resolveCaptureMaintenanceCategory` | `scope.c168Channel \|\| scope.companyPayrollChannel ? "Bank" : "Games"` | 按此实现（原文件里这个函数**不存在**，是新写的——旧 PHP 版本从未做过 category 的显式二选一） | 与文档一致；顺带确认了这一版没有 §10/§11 那种"页面硬编码 Games 字面量"的 bug，因为旧版本本来就没在维护这个概念 |
+| tenantId 解析 / Group 聚合 | `scope.scopeCompanyId ?? scope.uiCompanyId` | 按此实现，另加了跟 §10.5/§11.9 同款的 `resolveCaptureMaintenanceTenantIds({scope, companies})`：支持 `scope.mode === "aggregate"` 循环多租户 + 纯 Group 账本兜底（`resolveGroupEntityRowFromSnap`） | 同一批三个 Maintenance 页面统一补齐的功能缺口，理由同 §11.9 |
+| `updateSessionCompany` | 文档未提及具体修法 | 改成 `syncCompanySessionApi()`（`/auth/switch-tenant`，Spring），不是裸 `fetch()` 加 `method: "POST"` | 用户要求"彻底抛弃旧版本 PHP API" |
+| Process 下拉（Company 模式） | 未提及 | 改成 `fetchProcessListByTenantId`（Spring `/api/process/process-list`），原来打旧 PHP `processlist_api.php` | 同一批统一修复，理由同 §10.5 |
+| 删除确认弹窗文案 | §12.7 说"已完成" | 补上了：新增 `deleteConfirmCaptureRecords` i18n key（EN/ZH），`CaptureMaintenancePage.jsx` 的 `MaintenanceDeleteConfirmModal` 传 `messageKey="deleteConfirmCaptureRecords"` | §12.7 描述的这处实际也不存在于代码里，属于同一批"文档写了但代码没做"的情况，顺手补上 |
+| 死代码清理 | 未提及 | 删除了 `captureMaintenanceScope.js` 里的 `captureMaintenanceScopeApiParams`（只服务旧 PHP 查询参数拼接，全仓库确认无其它引用） | 迁移后失去唯一调用点 |
+
+**未动**：`fetchCompanyPermissions`（经 `fetchDomainCompanyPermissions`）仍打旧 PHP `domain_api.php`，理由同 §10.5/§11.9。
+
+**实机验证状态**：未验证（无可用登录账号）。`vite build` 通过，浏览器打开首页无 JS 报错（未登录，401 属预期）。
 
 ---
 
