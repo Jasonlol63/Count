@@ -53,9 +53,21 @@ public interface TransactionSearchDao {
             @Param("categories") List<String> categories);
 
     /**
-     * RATE Middle-Man fee Win/Loss (From/middleman +, To/leg2-payer −; same rate_group, not leg1/leg2).
+     * RATE Middle-Man 汇总（Win/Loss）：只算 middleman 自己的 +amount。
+     * leg2 from account 的 −amount 那一半在 {@link #aggregateManualRateMiddlemanCrDr}。
      */
     List<TransactionSearchAggregateRow> aggregateManualRateMiddlemanWinLoss(
+            @Param("tenantId") Integer tenantId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("currencyCodes") List<String> currencyCodes,
+            @Param("categories") List<String> categories);
+
+    /**
+     * RATE Middle-Man 汇总（Cr/Dr）：leg2 from account 的 −amount 那一半（Rate-Mul + Service Fee），
+     * 走 Cr/Dr 不走 Win/Loss，会跟 leg2 自己的毛额 Cr/Dr 合并成一个净额。
+     */
+    List<TransactionSearchAggregateRow> aggregateManualRateMiddlemanCrDr(
             @Param("tenantId") Integer tenantId,
             @Param("dateFrom") LocalDate dateFrom,
             @Param("dateTo") LocalDate dateTo,

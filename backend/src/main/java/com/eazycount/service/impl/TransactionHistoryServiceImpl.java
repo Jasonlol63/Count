@@ -11,6 +11,7 @@ import com.eazycount.dto.UserListDTO;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.TransactionHistoryService;
+import com.eazycount.util.RateMulCalculator;
 import com.eazycount.util.TransactionDateParse;
 import com.eazycount.util.TransactionMoneyFormat;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -150,21 +151,72 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
                     // Retained profit as Cr/Dr (not self-leg net 0).
                     line.setSignedAmount(TransactionMoneyFormat.nz(line.getAmount()));
                 }
-                // Middle-Man double-entry To side (rate multiplier): hide leg2 payer.
-                // Fee is middleman-only (from NULL) — always show for that account.
-                if (Boolean.TRUE.equals(line.getRateMiddlemanFee())
-                        && line.getFromAccountId() != null
-                        && line.getToAccountId() != null
-                        && accountId.equals(line.getToAccountId())) {
-                    continue;
-                }
                 if (!applyRateHistoryPresentation(line, accountId)) {
                     applyManualTransferHistoryPresentation(line, accountId);
                 }
                 lines.add(line);
             }
         }
+        mergeRateMiddlemanDeductionsIntoMainLeg(lines, accountId);
         return new HistorySlice(bfByCurrency, lines);
+    }
+
+    /*
+     * leg2 from account 自己的 Payment History：Rate-Mul 和 Service Fee 这两笔（对本账号是 −WL）
+     * 直接并进 leg2 主记录的 Cr/Dr，不单独显示；middleman 自己看到的 +WL 是另一个账号，不受影响。
+     * Platform Fee 单边、无对手方，永远自己一行（见 toHistoryRow，走 Cr/Dr，product "Fee"）。
+     *
+     * Service Fee 存库金额是 Fee − Platform Fee 的净额（middleman 收入已扣过一次 Platform Fee），
+     * 直接并进来会让本账号被 Platform Fee 多扣一次，所以这里把净额还原成扣满额，Platform Fee 的
+     * 影响只体现在它自己那一行。
+     */
+    private static void mergeRateMiddlemanDeductionsIntoMainLeg(List<TransactionHistoryLineRow> lines, Integer accountId) {
+        Map<String, TransactionHistoryLineRow> mainLineByGroup = new LinkedHashMap<>();
+        Map<String, BigDecimal> platformFeeByGroup = new LinkedHashMap<>();
+        for (TransactionHistoryLineRow line : lines) {
+            if (line.getRateGroupId() == null) {
+                continue;
+            }
+            if (!Boolean.TRUE.equals(line.getRateMiddlemanFee())
+                    && line.getFromAccountId() != null
+                    && accountId.equals(line.getFromAccountId())) {
+                mainLineByGroup.put(line.getRateGroupId(), line);
+            }
+            if (Boolean.TRUE.equals(line.getRateMiddlemanFee())
+                    && line.getFromAccountId() == null
+                    && line.getToAccountId() != null
+                    && accountId.equals(line.getToAccountId())) {
+                platformFeeByGroup.put(line.getRateGroupId(), TransactionMoneyFormat.nz(line.getAmount()));
+            }
+        }
+        if (mainLineByGroup.isEmpty()) {
+            return;
+        }
+        List<TransactionHistoryLineRow> toRemove = new ArrayList<>();
+        for (TransactionHistoryLineRow line : lines) {
+            // Double-sided middleman leg only (Rate-Mul / Service Fee) — Platform Fee has no
+            // fromAccountId and is left alone.
+            if (!Boolean.TRUE.equals(line.getRateMiddlemanFee()) || line.getFromAccountId() == null) {
+                continue;
+            }
+            if (line.getToAccountId() == null || !accountId.equals(line.getToAccountId())) {
+                continue;
+            }
+            TransactionHistoryLineRow mainLine = mainLineByGroup.get(line.getRateGroupId());
+            if (mainLine == null) {
+                continue;
+            }
+            BigDecimal delta = TransactionMoneyFormat.nz(line.getSignedAmount());
+            if (isRateMiddlemanFeeKind(line)) {
+                BigDecimal platformFee = platformFeeByGroup.get(line.getRateGroupId());
+                if (platformFee != null) {
+                    delta = delta.subtract(platformFee);
+                }
+            }
+            mainLine.setSignedAmount(TransactionMoneyFormat.nz(mainLine.getSignedAmount()).add(delta));
+            toRemove.add(line);
+        }
+        lines.removeAll(toRemove);
     }
 
     // ── Merge / present ───────────────────────────────────────────────────────
@@ -256,6 +308,9 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         boolean isAdjustment = isManualAdjustmentLine(line);
         boolean isProfit = isManualProfitLine(line);
         boolean isRateMiddlemanFee = Boolean.TRUE.equals(line.getRateMiddlemanFee());
+        // Platform Fee: the only single-sided (no fromAccountId) Rate-Mul/Fee-kind row — Cr/Dr,
+        // product "Fee", never Win/Loss (unlike Rate-Mul/Service Fee shown on middleman's own view).
+        boolean isPlatformFee = isRateMiddlemanFee && line.getFromAccountId() == null;
 
         TransactionHistoryResult.Row row = new TransactionHistoryResult.Row();
         row.setId(line.getId());
@@ -266,6 +321,8 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             row.setProduct("ADJUSTMENT");
         } else if (isProfit) {
             row.setProduct("PROFIT");
+        } else if (isPlatformFee) {
+            row.setProduct("Fee");
         } else if (isRateMiddlemanFee) {
             row.setProduct("RATE");
         } else if (isDataCapture) {
@@ -275,7 +332,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         }
         row.setCurrency(currency);
         row.setRate("-");
-        if (isBank || isAdjustment || isProfit || isRateMiddlemanFee) {
+        if (isBank || isAdjustment || isProfit || (isRateMiddlemanFee && !isPlatformFee)) {
             row.setWinLoss(TransactionMoneyFormat.formatMoney(signed));
             row.setCrDr(TransactionMoneyFormat.formatMoney(BigDecimal.ZERO));
         } else {
@@ -429,27 +486,23 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
     static void applyRateMiddlemanHistoryPresentation(
             TransactionHistoryLineRow line,
             Integer viewedAccountId) {
-        boolean middlemanView;
-        if (line.getFromAccountId() != null) {
-            middlemanView = viewedAccountId.equals(line.getFromAccountId());
-        } else {
-            // Fee single-sided: account_id = middleman
-            middlemanView = line.getToAccountId() != null
-                    && viewedAccountId.equals(line.getToAccountId());
+        if (line.getFromAccountId() == null) {
+            // Single-sided (Platform Fee): no middleman counterparty — always show the stored
+            // "CHARGE {ccy} {amt} PLATFORM FEE" description as-is, never rewritten.
+            return;
         }
+        boolean middlemanView = viewedAccountId.equals(line.getFromAccountId());
         if (!middlemanView) {
             return;
         }
         line.setDescription(formatRateMiddlemanMarkupDescription(line));
-        // Service-fee CHARGE remark belongs on toAccount1 (leg1) only — not middleman History.
+        // Middleman's own Rate/Fee row view never shows the transaction's general remark.
         line.setRemark(null);
     }
 
     static String formatRateMiddlemanMarkupDescription(TransactionHistoryLineRow line) {
         boolean feeKind = isRateMiddlemanFeeKind(line);
-        String rateToken = feeKind
-                ? "X"
-                : formatRateHistoryDecimal(line.getRateMiddlemanRate(), 6);
+        String rateToken = feeKind ? "X" : formatRateMiddlemanRateToken(line);
         String ccy1 = trimToEmpty(line.getRateCurrencyFromCode()).toUpperCase(Locale.ROOT);
         String ccy2 = trimToEmpty(line.getRateCurrencyToCode()).toUpperCase(Locale.ROOT);
         String amountText = formatRateHistoryDecimal(line.getRateAmountFrom(), 6);
@@ -470,6 +523,27 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             sb.append(" | FROM ").append(leg1ToCode);
         }
         return sb.toString();
+    }
+
+    /*
+     * Rate-Mul token for History display: only when middleman's own input is MULTIPLY mode AND FX
+     * itself is not a "/divisor" expression (RateMulCalculator's "new rate diff" branch) does the
+     * displayed number become exchangeRate − middlemanRate — that's the actual multiplier behind
+     * the commission (diff × fromAmount). DIVIDE mode and the "FX is /divisor" points mode use a
+     * different formula entirely, so they keep showing the raw stored middleman_rate.
+     */
+    static String formatRateMiddlemanRateToken(TransactionHistoryLineRow line) {
+        RateMulCalculator.ParsedRate parsed =
+                RateMulCalculator.parseMiddlemanRateInput(line.getRateMiddlemanRateExpression());
+        boolean fxIsDivide = RateMulCalculator.parseSimpleDivisionDivisor(line.getRateExpression()) != null;
+        if (parsed.valid() && parsed.mode() == RateMulCalculator.Mode.MULTIPLY
+                && !fxIsDivide
+                && line.getRateExchangeRate() != null
+                && line.getRateMiddlemanRate() != null) {
+            return formatRateHistoryDecimal(
+                    line.getRateExchangeRate().subtract(line.getRateMiddlemanRate()), 6);
+        }
+        return formatRateHistoryDecimal(line.getRateMiddlemanRate(), 6);
     }
 
     static boolean isRateMiddlemanFeeKind(TransactionHistoryLineRow line) {

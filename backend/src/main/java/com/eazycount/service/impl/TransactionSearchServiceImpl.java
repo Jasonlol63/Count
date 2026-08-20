@@ -27,11 +27,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * Transaction search: Win/Loss (Bank Process + Data Capture + manual Adjustment/Profit/Rate-middleman)
- * and Domain Payment (Cr/Dr) are built separately,
- * then merged by {@link #searchList} so Domain rules do not leak into BP logic.
- */
+/* Win/Loss 和 Cr/Dr 分开算，最后在searchList合并，避免两边逻辑互相污染。*/
 @Service
 public class TransactionSearchServiceImpl implements TransactionSearchService {
 
@@ -107,7 +103,8 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         return new SearchSlice(combined, true);
     }
 
-    private static List<TransactionSearchAggregateRow> mergeWinLossAggregateRows(List<TransactionSearchAggregateRow> first, List<TransactionSearchAggregateRow> second) {
+    private static List<TransactionSearchAggregateRow> mergeWinLossAggregateRows(List<TransactionSearchAggregateRow> first,
+                                                                                 List<TransactionSearchAggregateRow> second) {
         Map<String, TransactionSearchAggregateRow> merged = new HashMap<>();
         for (TransactionSearchAggregateRow row : first) {
             absorbWinLossAggregate(merged, row);
@@ -124,7 +121,8 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
                 .toList();
     }
 
-    private static void absorbWinLossAggregate(Map<String, TransactionSearchAggregateRow> merged, TransactionSearchAggregateRow row) {
+    private static void absorbWinLossAggregate(Map<String, TransactionSearchAggregateRow> merged,
+                                               TransactionSearchAggregateRow row) {
         if (row == null || row.getAccountDbId() == null) {
             return;
         }
@@ -158,10 +156,16 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
     private SearchSlice buildDomainPaymentSearchSlice(Integer tenantId, LocalDate dateFrom, LocalDate dateTo,
                                                       List<String> currencyCodes, List<String> categories) {
         List<TransactionSearchAggregateRow> domainRows = transactionSearchDao.aggregateDomainPaymentCrDr(tenantId, dateFrom, dateTo, currencyCodes, categories);
+        List<TransactionSearchAggregateRow> rateMiddlemanCrDrRows = transactionSearchDao.aggregateManualRateMiddlemanCrDr(tenantId, dateFrom, dateTo, currencyCodes, categories);
         if (domainRows == null) {
             domainRows = List.of();
         }
-        return new SearchSlice(domainRows, false);
+        if (rateMiddlemanCrDrRows == null) {
+            rateMiddlemanCrDrRows = List.of();
+        }
+        List<TransactionSearchAggregateRow> combined = new ArrayList<>(domainRows);
+        combined.addAll(rateMiddlemanCrDrRows);
+        return new SearchSlice(combined, false);
     }
 
     // ── Merge / present ───────────────────────────────────────────────────────
@@ -342,7 +346,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         return value != null ? value.trim() : "";
     }
 
-    /* One source's aggregates before merge ({@code isWinLossSource=true} → Win/Loss path). */
+    /* One source's aggregates before merge (isWinLossSource=true → Win/Loss path). */
     private record SearchSlice(List<TransactionSearchAggregateRow> aggregates, boolean isWinLossSource) {
     }
 
