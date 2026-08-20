@@ -1,5 +1,6 @@
 package com.eazycount.controller;
 
+import com.eazycount.common.BusinessException;
 import com.eazycount.dto.TenantOwnershipDTO;
 import com.eazycount.service.TenantOwnershipService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,33 +55,26 @@ public class TenantOwnershipController {
             body.put("meta", meta);
 
             return ResponseEntity.ok(body);
-        } catch (Exception e) {
-            body.put("status", "error");
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", List.of());
-            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
         }
     }
 
     @GetMapping("/available-accounts")
     public ResponseEntity<Map<String, Object>> getShareholderCandidates(
-            @RequestParam(value = "tenant_id", required = true) String tenantIdStr) {
+            @RequestParam(value = "tenant_id", required = true) String tenantIdStr,
+            @RequestParam(value = "month", required = false) String month) {
         Map<String, Object> body = new LinkedHashMap<>();
         try {
             Integer tenantId = resolveTenantId(tenantIdStr);
-            List<TenantOwnershipDTO> list = tenantOwnershipService.getShareholderCandidates(tenantId);
+            List<TenantOwnershipDTO> list = tenantOwnershipService.getShareholderCandidates(tenantId, month);
             body.put("status", "success");
             body.put("success", true);
             body.put("message", "Account Option retrieved successfully");
             body.put("data", list);
             return ResponseEntity.ok(body);
-        } catch (Exception e) {
-            body.put("status", "error");
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", List.of());
-            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
         }
     }
 
@@ -98,12 +92,8 @@ public class TenantOwnershipController {
             Map<String, Object> result = tenantOwnershipService.linkPartner(tenantId, loginId, forceType);
             body.putAll(result);
             return ResponseEntity.ok(body);
-        } catch (Exception e) {
-            body.put("status", "error");
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", List.of());
-            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
         }
     }
 
@@ -133,12 +123,8 @@ public class TenantOwnershipController {
             body.put("message", "Ownership inserted successfully");
             body.put("data", null);
             return ResponseEntity.ok(body);
-        } catch (Exception e) {
-            body.put("status", "error");
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", List.of());
-            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
         }
     }
 
@@ -158,12 +144,16 @@ public class TenantOwnershipController {
             body.put("data", null);
             return ResponseEntity.ok(body);
         }
-        catch (Exception e) {
-            body.put("status", "error");
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", List.of());
-            return ResponseEntity.ok(body);
+        catch (BusinessException e) {
+            return error(e);
         }
+    }
+
+    private static ResponseEntity<Map<String, Object>> error(BusinessException e) {
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", false);
+        body.put("message", e.getMessage());
+        body.put("data", null);
+        return ResponseEntity.ok(body);
     }
 }

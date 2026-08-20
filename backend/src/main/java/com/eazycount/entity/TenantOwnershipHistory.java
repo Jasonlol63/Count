@@ -20,6 +20,6 @@ public class TenantOwnershipHistory {
     private Integer partnerTenantId;
     private BigDecimal percentage;
     private Integer readOnly;
-    private Integer savedBy;
+    private String savedBy;
     private LocalDateTime savedAt;
 }

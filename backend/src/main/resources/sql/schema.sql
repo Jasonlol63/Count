@@ -541,12 +541,11 @@ CREATE TABLE `tenant_ownership_history` (
     `partner_tenant_id` INT UNSIGNED DEFAULT NULL COMMENT '关联对方的 tenant.id',
     `percentage`       DECIMAL(7, 4) NOT NULL DEFAULT 0.0000,
     `read_only`        TINYINT(1) NOT NULL DEFAULT 1,
-    `saved_by`         INT UNSIGNED DEFAULT NULL COMMENT '保存快照的操作人(关联 user.id)',
+    `saved_by`         VARCHAR(50) DEFAULT NULL COMMENT '操作人 login_id（admin=user.login_id；owner=owner_code）',
     `saved_at`         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(),
     UNIQUE KEY `uq_tenant_oh_month_account` (`tenant_id`, `effective_month`, `account_id`, `owner_type`, `partner_tenant_id`),
     CONSTRAINT `fk_toh_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_toh_partner_tenant` FOREIGN KEY (`partner_tenant_id`) REFERENCES `tenant` (`id`) ON DELETE SET NULL,
-    CONSTRAINT `fk_toh_saved_by` FOREIGN KEY (`saved_by`) REFERENCES `user` (`id`) ON DELETE SET NULL,
     KEY `idx_toh_tenant_month` (`tenant_id`, `effective_month`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='租户股权历史月度快照表';
 
