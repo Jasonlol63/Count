@@ -417,7 +417,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
     /*
      * Middle-Man 的 description。Fee：MARKUP X MYR 1010 > SGD | FROM {leg1ToName}；
      * Rate 除法模式：MARKUP /1.55 MYR 1010 > SGD | FROM {leg1ToName}；
-     * Rate 乘法模式：MARKUP x2.93 MYR 1010 > SGD | FROM {leg1ToName}。
+     * Rate 乘法模式：MARKUP 2.93 MYR 1010 > SGD | FROM {leg1ToName}。
      */
     static String formatMiddlemanMarkupDescription(
             boolean feeKind,

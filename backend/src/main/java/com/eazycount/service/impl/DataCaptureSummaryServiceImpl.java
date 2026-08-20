@@ -66,9 +66,6 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         Integer currencyId = request.getCurrencyId();
         String idProduct = trimToNull(request.getIdProduct());
         String formula = trimToNull(request.getFormula());
-        if (formula == null) {
-            formula = trimToNull(request.getFormulaOperators());
-        }
 
         requireTenantId(tenantId);
         if (idProduct == null) {
@@ -106,10 +103,6 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
                 || Boolean.TRUE.equals(request.getEnableSourcePercent());
         boolean enableInputMethod = Boolean.TRUE.equals(request.getEnableInputMethod())
                 || trimToNull(request.getInputMethod()) != null;
-        String formulaOperators = trimToNull(request.getFormulaOperators());
-        if (formulaOperators == null) {
-            formulaOperators = formula;
-        }
 
         // Prefer MAIN when product has no main-row data; otherwise add SUB under that product.
         DataCaptureFormula mainWithAccount =
@@ -117,10 +110,10 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
 
         DataCaptureSummaryDTO saved;
         if (mainWithAccount == null) {
-            saved = saveAsMain(request, tenantId, processId, idProduct, accountId, currencyId, formula, formulaOperators,
+            saved = saveAsMain(request, tenantId, processId, idProduct, accountId, currencyId, formula,
                     sourcePercent, enableSourcePercent, enableInputMethod, loginId);
         } else {
-            saved = saveAsSub(request, tenantId, processId, idProduct, accountId, currencyId, formula, formulaOperators,
+            saved = saveAsSub(request, tenantId, processId, idProduct, accountId, currencyId, formula,
                     sourcePercent, enableSourcePercent, enableInputMethod, loginId);
         }
         saved.setProcessCode(process.getCode());
@@ -173,7 +166,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
 
     private DataCaptureSummaryDTO saveAsMain(DataCaptureSummaryDTO request, Integer tenantId, Integer processId,
                                              String idProduct, Integer accountId, Integer currencyId,
-                                             String formula, String formulaOperators, String sourcePercent,
+                                             String formula, String sourcePercent,
                                              boolean enableSourcePercent, boolean enableInputMethod, String loginId) {
 
         DataCaptureFormula existingMain = dataCaptureSummaryDao.findMainByProduct(tenantId, processId, idProduct);
@@ -195,7 +188,6 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         row.setSourceColumns(trimToNull(request.getSourceColumns()));
         row.setColumnsDisplay(trimToNull(request.getColumnsDisplay()));
         row.setFormula(formula);
-        row.setFormulaOperators(formulaOperators);
         row.setInputMethod(trimToNull(request.getInputMethod()));
         row.setSourcePercent(sourcePercent);
         row.setEnableSourcePercent(enableSourcePercent);
@@ -214,7 +206,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
 
     private DataCaptureSummaryDTO saveAsSub(DataCaptureSummaryDTO request, Integer tenantId, Integer processId,
                                             String idProduct, Integer accountId, Integer currencyId, String formula,
-                                            String formulaOperators, String sourcePercent, boolean enableSourcePercent,
+                                            String sourcePercent, boolean enableSourcePercent,
                                             boolean enableInputMethod, String loginId) {
 
         BigDecimal maxSubOrder = dataCaptureSummaryDao.findMaxSubOrder(tenantId, processId, idProduct);
@@ -237,7 +229,6 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         row.setSourceColumns(trimToNull(request.getSourceColumns()));
         row.setColumnsDisplay(trimToNull(request.getColumnsDisplay()));
         row.setFormula(formula);
-        row.setFormulaOperators(formulaOperators);
         row.setInputMethod(trimToNull(request.getInputMethod()));
         row.setSourcePercent(sourcePercent);
         row.setEnableSourcePercent(enableSourcePercent);
@@ -289,21 +280,10 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
 
         String formula = trimToNull(request.getFormula());
         if (formula == null) {
-            formula = trimToNull(request.getFormulaOperators());
-        }
-        if (formula == null) {
             formula = trimToNull(existing.getFormula());
         }
         if (formula == null) {
-            formula = trimToNull(existing.getFormulaOperators());
-        }
-        if (formula == null) {
             throw new BusinessException("formula is required");
-        }
-
-        String formulaOperators = trimToNull(request.getFormulaOperators());
-        if (formulaOperators == null) {
-            formulaOperators = formula;
         }
 
         String sourcePercent = trimToNull(request.getSourcePercent());
@@ -342,7 +322,6 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         existing.setSourceColumns(sourceColumns);
         existing.setColumnsDisplay(columnsDisplay);
         existing.setFormula(formula);
-        existing.setFormulaOperators(formulaOperators);
         existing.setInputMethod(inputMethod);
         existing.setSourcePercent(sourcePercent);
         existing.setEnableSourcePercent(enableSourcePercent);
@@ -695,7 +674,6 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         response.setSourceColumns(row.getSourceColumns());
         response.setColumnsDisplay(row.getColumnsDisplay());
         response.setFormula(row.getFormula());
-        response.setFormulaOperators(row.getFormulaOperators());
         response.setInputMethod(row.getInputMethod());
         response.setSourcePercent(row.getSourcePercent());
         response.setEnableSourcePercent(row.getEnableSourcePercent());

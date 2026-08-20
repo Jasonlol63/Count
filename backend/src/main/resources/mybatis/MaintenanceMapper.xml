@@ -561,7 +561,6 @@
             f.source_columns AS sourceColumns,
             f.columns_display AS columnsDisplay,
             f.formula AS formula,
-            f.formula_operators AS formulaOperators,
             f.input_method AS inputMethod,
             f.source_percent AS sourcePercent,
             f.enable_source_percent AS enableSourcePercent,

@@ -38,7 +38,6 @@ public class DataCaptureSummaryDTO {
     private String sourceColumns;
     private String columnsDisplay;
     private String formula;
-    private String formulaOperators;
     private String inputMethod;
     private String sourcePercent;
     private Boolean enableSourcePercent;
