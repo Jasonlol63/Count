@@ -48,11 +48,17 @@ public class UserServiceImpl implements UserService {
         return new ArrayList<>(out);
     }
 
-    private void assertCompanyTenants(List<Integer> tenantIds) {
+    private void assertHomogeneousAccountTenants(List<Integer> tenantIds) {
+        Tenant.TenantType sharedType = null;
         for (Integer tenantId : tenantIds) {
             Tenant tenant = tenantDao.findTenantById(tenantId);
-            if (tenant == null || tenant.getTenantType() != Tenant.TenantType.COMPANY) {
-                throw new BusinessException("Selected tenant is not a company: " + tenantId);
+            if (tenant == null) {
+                throw new BusinessException("Selected tenant not found: " + tenantId);
+            }
+            if (sharedType == null) {
+                sharedType = tenant.getTenantType();
+            } else if (sharedType != tenant.getTenantType()) {
+                throw new BusinessException("Account tenants must be all companies or all groups, not mixed");
             }
         }
     }
@@ -60,7 +66,7 @@ public class UserServiceImpl implements UserService {
     private void assertAccountCodeAvailable(int tenantId, String accountCode, Integer excludeAccountId) {
         Integer existing = userDao.findAccountIdByTenantIdAndCode(tenantId, accountCode);
         if (existing != null && existing > 0 && !existing.equals(excludeAccountId)) {
-            throw new BusinessException("Account ID already exists in this company");
+            throw new BusinessException("Account ID already exists in this tenant");
         }
     }
 
@@ -108,7 +114,7 @@ public class UserServiceImpl implements UserService {
 
         String accountCode = userListDTO.getAccountId() == null
                 ? ""
-                : userListDTO.getAccountId().trim();
+                : userListDTO.getAccountId().trim().toUpperCase();
         if (accountCode.isEmpty()) {
             throw new BusinessException("Account ID is required");
         }
@@ -117,14 +123,14 @@ public class UserServiceImpl implements UserService {
         if (targetTenantIds.isEmpty()) {
             targetTenantIds = List.of(tenantId);
         }
-        assertCompanyTenants(targetTenantIds);
+        assertHomogeneousAccountTenants(targetTenantIds);
         for (Integer targetTenantId : targetTenantIds) {
             assertAccountCodeAvailable(targetTenantId, accountCode, null);
         }
 
         User user = new User();
         user.setAccountId(accountCode);
-        user.setName(userListDTO.getName());
+        user.setName(userListDTO.getName().trim().toUpperCase());
         user.setRole(normalizeAccountLedgerRole(userListDTO.getRole()));
         user.setPassword(passwordEncoder.encode(userListDTO.getPassword()));
         user.setPaymentAlert(userListDTO.getPaymentAlert());
@@ -226,7 +232,7 @@ public class UserServiceImpl implements UserService {
         if (desiredTenantIds.isEmpty()) {
             desiredTenantIds = List.of(tenantId);
         }
-        assertCompanyTenants(desiredTenantIds);
+        assertHomogeneousAccountTenants(desiredTenantIds);
 
         List<Integer> currentTenantIds = userDao.findTenantIdsByUserId(userListDTO.getId());
         Set<Integer> currentSet = new HashSet<>(currentTenantIds);

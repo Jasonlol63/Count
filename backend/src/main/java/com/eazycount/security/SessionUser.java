@@ -12,8 +12,11 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.io.Serializable;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Authenticated user payload — aligned with legacy {@code current_user_api.php}.
@@ -41,6 +44,8 @@ public class SessionUser implements Serializable {
     public boolean tenant_has_game;
     public boolean tenant_has_bank;
     public int read_only;
+
+    public Map<String, Boolean> menu;
 
     public SessionUser() {
     }
@@ -83,6 +88,16 @@ public class SessionUser implements Serializable {
         this.tenant_has_game = tenantHasGame;
         this.tenant_has_bank = tenantHasBank;
         this.read_only = readOnly;
+        this.menu = buildMenu(this.permissions, tenantHasGame, tenantHasBank, "group".equals(loginScope));
+    }
+
+    private static Map<String, Boolean> buildMenu(
+            List<String> moduleKeys, boolean hasGame, boolean hasBank, boolean isGroupLogin) {
+        Set<String> keys = moduleKeys == null ? Set.of() : Set.copyOf(moduleKeys);
+        Map<String, Boolean> menu = new LinkedHashMap<>();
+        menu.put("report", keys.contains("report"));
+        menu.put("dataCapture", keys.contains("datacapture") && (hasGame || hasBank || isGroupLogin));
+        return menu;
     }
 
     public static SessionUser from(
