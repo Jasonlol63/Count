@@ -526,20 +526,28 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
     }
 
     /*
-     * Rate-Mul token for History display: only when middleman's own input is MULTIPLY mode AND FX
-     * itself is not a "/divisor" expression (RateMulCalculator's "new rate diff" branch) does the
-     * displayed number become exchangeRate − middlemanRate — that's the actual multiplier behind
-     * the commission (diff × fromAmount). DIVIDE mode and the "FX is /divisor" points mode use a
-     * different formula entirely, so they keep showing the raw stored middleman_rate.
+     * Rate-Mul token 的展示规则（跟 RateMulCalculator 的两种"有效"模式一一对应，points 模式没有
+     * 对应的减法，维持原样显示 middleman 输入）：
+     * - 乘法模式（FX 非除法写法，"新汇率"场景）：原汇率 − middleman 输入，例 3 − 2.9 = 0.1。
+     * - 除法模式（FX 也必然是除法写法，否则佣金算出来是 0、根本不会写这笔分录）：
+     *   middleman 除数 − FX 除数，例 1.305 − 1.32 = -0.015。
+     * 统一四舍五入到 6 位小数，位数不够就按实际位数显示（formatRateHistoryDecimal）。
      */
     static String formatRateMiddlemanRateToken(TransactionHistoryLineRow line) {
         RateMulCalculator.ParsedRate parsed =
                 RateMulCalculator.parseMiddlemanRateInput(line.getRateMiddlemanRateExpression());
+        if (!parsed.valid()) {
+            return formatRateHistoryDecimal(line.getRateMiddlemanRate(), 6);
+        }
+        if (parsed.mode() == RateMulCalculator.Mode.DIVIDE) {
+            BigDecimal fxDivisor = RateMulCalculator.parseSimpleDivisionDivisor(line.getRateExpression());
+            if (fxDivisor != null && parsed.divisor() != null) {
+                return formatRateHistoryDecimal(parsed.divisor().subtract(fxDivisor), 6);
+            }
+            return formatRateHistoryDecimal(line.getRateMiddlemanRate(), 6);
+        }
         boolean fxIsDivide = RateMulCalculator.parseSimpleDivisionDivisor(line.getRateExpression()) != null;
-        if (parsed.valid() && parsed.mode() == RateMulCalculator.Mode.MULTIPLY
-                && !fxIsDivide
-                && line.getRateExchangeRate() != null
-                && line.getRateMiddlemanRate() != null) {
+        if (!fxIsDivide && line.getRateExchangeRate() != null && line.getRateMiddlemanRate() != null) {
             return formatRateHistoryDecimal(
                     line.getRateExchangeRate().subtract(line.getRateMiddlemanRate()), 6);
         }

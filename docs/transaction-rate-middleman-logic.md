@@ -184,6 +184,13 @@ Platform Fee 走的是完全独立的 `formatPlatformFeeDescription()`，**不�
 
 **mapper 配合**：`TransactionHistoryMapper.xml` 的 `rateMiddlemanKind` 分类 CASE 加了一条 `description LIKE 'CHARGE % PLATFORM FEE' → 'FEE'`，纯粹给 ID PRODUCT 列用，不影响任何金额/正负号计算。
 
+**Rate-Mul token 展示（middleman 自己视角，2026-08 下旬新增）**：`formatRateMiddlemanMarkupDescription()` 拼 description 时，Rate 分录（非 Fee）的 rate token 不再直接印 middleman 输入的原始值，改用 `formatRateMiddlemanRateToken()` 按模式算出一个差值：
+- **乘法模式**（FX 本身不是除法写法）：`原汇率 − middleman 输入`，例如 3 − 2.9 = `0.1`。
+- **除法模式**（此时 FX 本身也必然是除法写法，否则佣金算出来是 0、根本不会写这笔分录）：`middleman 除数 − FX 除数`，例如 1.305 − 1.32 = `-0.015`。
+- 两种都四舍五入到 6 位小数，位数不够按实际位数显示，不补零（复用 `formatRateHistoryDecimal`）。
+
+这个改动**只影响 middleman 自己查 Payment History 时看到的文字**——落库的审计 description（`TransactionSubmitServiceImpl.formatMiddlemanMarkupDescription()`）还是印原始输入值，不受影响；leg2 from account 自己看到的合并视图也不受影响，因为 Rate/Fee 两行早就被合并进主记录了（见上文），根本不会显示这个 token。
+
 数字示例见第 14 节。
 
 ---
@@ -211,7 +218,7 @@ Transaction Payment 页面顶部那个「Account / B-F / Win-Loss / Cr-Dr / Bala
 **Backend**
 
 - `service/impl/TransactionSubmitServiceImpl.java`（`submitRate` / `resolveMiddleman` / `formatMiddlemanMarkupDescription` / `formatPlatformFeeDescription`）
-- `service/impl/TransactionHistoryServiceImpl.java`（`mergeRateMiddlemanDeductionsIntoMainLeg` / `toHistoryRow` / `applyRateMiddlemanHistoryPresentation`）
+- `service/impl/TransactionHistoryServiceImpl.java`（`mergeRateMiddlemanDeductionsIntoMainLeg` / `toHistoryRow` / `applyRateMiddlemanHistoryPresentation` / `formatRateMiddlemanRateToken`）
 - `service/impl/TransactionSearchServiceImpl.java`（`buildDomainPaymentSearchSlice`）
 - `util/RateMulCalculator.java`
 - `util/TransactionMoneyFormat.java`
