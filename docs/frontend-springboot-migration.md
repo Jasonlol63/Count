@@ -87,7 +87,7 @@ res.success === true || res.status === "success"
 | **Account (Member)** | ✅ 全量已迁移 | `/api/account/*` + `/api/currency/*` | `accountListApi.js` + `currencyApi.js`；`AccountListPage` 直调 Spring |
 | **Currency** | ✅ 已迁移 | `/api/currency/*` | `currencyApi.js` |
 | **Announcement / Maintenance** | ✅ 已迁移 | `/api/announcement/*` | `apiUrl.js` 重写（页面仍写 PHP 路径） |
-| **Auto Renew** | ⚠️ 部分 | `/api/auto-renew/*` + Domain Comm | 列表 / reject / **approve** 直调 Spring；Comm 用 `domain/list` + `update-setting` |
+| **Auto Renew** | ✅ 已迁移（Delete/Save Draft 除外，见 §4.7） | `/api/auto-renew/*` + Domain Comm | 列表 / reject / **approve** 直调 Spring；Comm 用 `domain/list` + `update-setting`；前端改动记录见 `docs/autorenew-springboot-rewire.md` |
 | **Ownership** | ✅ API 已迁移 + **数据层已对齐 Spring** | `/api/ownership/*` | `apiUrl.js` 重写 + `ownershipRowHelpers` normalize |
 | **Process** | ⚠️ 写操作已 Spring，**列表加载实测仍是 PHP**（2026-08-19 发现，见第 17 节） | `/api/process/*` + `/api/currency/list` | Add/Update/Status/Delete/description CRUD 已直调 Spring；但页面真正的列表数据源 `processRoutePrefetch.js` / `ProcessListPage.jsx` 的 `fetchRows` 仍在打 `processlist_api.php` 等 PHP 端点，且 `processListApi.js` 依赖的 4 个 `processListHelpers.js` 导出函数根本不存在（死代码），PHP 端点下线后整页很可能 500。旧版本节曾标「✅ Games List 已迁移」是**不准确的** |
 | **Bank Process** | ⚠️ 部分，**列表加载与 Process 同源同 bug**（见第 17 节） | `/api/bank-process/*`、`/api/bank-country-option/*`、`/api/account/*` | Add/Update/Status/Delete/Remark/Resend/Accounting Due Post-to-Transaction 已 Spring（见第 10 节）；但 `useBankProcessListPage.js` 的列表加载同样经由 `processRoutePrefetch.js`，与 Process List 共享第 17 节的 PHP 依赖问题 |
@@ -250,14 +250,19 @@ PHP——`domainApi.js`/`domainHelpers.js` 虽然内容和本节一致，但实�
 
 ### 4.7 Auto Renew
 
+**状态（2026-08-24 已在前端完成，详见 `docs/autorenew-springboot-rewire.md`，前端仓库同名文件是同一份备份）：**
+
 | 文件 | 改动 |
 |------|------|
-| `pages/autorenew/autoRenewLogic.js` | 列表：`api/subscription/auto_renew_api.php` → `api/auto-renew/list`；`reject` → `api/auto-renew/reject`；**`approve` → `api/auto-renew/approve`**（`request_id` + `period`） |
-| `pages/autorenew/autoRenewTenantSettings.js` | Comm 打开：`POST /api/domain/list?ownerId=`；费用预览 → `list-fee`；Save → `update-setting`（`commissionOnly`） |
-| `pages/autorenew/AutoRenewPage.jsx` | Comm 传 `ownerId`；Approve 只传 `requestId` + `period` |
-| `pages/domain/domainApi.js` | `fetchDomainList(ownerId?)` 支持可选 `?ownerId=` |
+| `pages/autorenew/autoRenewLogic.js` | 列表：`api/subscription/auto_renew_api.php` → `api/auto-renew/list`；`reject` → `api/auto-renew/reject`；**`approve` → `api/auto-renew/approve`**（`request_id` + `period`）。`delete`/`save_draft` 无 Spring 端点，仍留在旧 PHP 路径（本来就不通，见下方缺口） |
+| `pages/autorenew/autoRenewTenantSettings.js` | Comm 打开：`fetchDomainList(ownerId)` → `POST /api/domain/list?ownerId=`；费用预览 → `fetchDomainFeeSettings()` → `list-fee`；Save 沿用 Domain 迁移时已接好的 `update-setting`（`commissionOnly`） |
+| `pages/autorenew/AutoRenewPage.jsx` | Approve 只传 `requestId` + `period`（不再带 from/to account id） |
+| `utils/autoRenew/autoRenewPendingSync.js` | pending 徽章轮询改为直调 `POST /api/auto-renew/list`（`action:pending_count`），不再经旧 PHP rewrite |
+| `pages/domain/domainApi.js` | `fetchDomainList(ownerId?)` 支持可选 `?ownerId=`（Domain 迁移时已加） |
 
 **Approve 后端（本仓）：** `POST /api/auto-renew/approve` → 复用 `DomainFeeChargeService.chargeDomainFee`（与 Domain Charge on Save 同账）+ 从当前 `expiration_date` 加 period；无 Charge on Save 开关。
+
+**未迁移（后端缺口，非前端遗漏）：** Delete（撤销已处理记录）/ Save Draft 目前没有对应的 `/api/auto-renew/*` 端点（`AutoRenewController`/`AutoRenewService` 只有 `list`/`reject`/`approve` 三个方法）。要接通需先补后端接口，并对齐 §7.4/§11.5 记录的"Delete/回滚未对接多笔 Domain Fee 行"缺口。
 
 ### 4.8 Ownership（详见第 5 节）
 
