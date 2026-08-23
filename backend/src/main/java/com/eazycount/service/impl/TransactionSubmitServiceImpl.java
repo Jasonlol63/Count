@@ -33,10 +33,6 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
 
     static final String ADJUSTMENT_DESCRIPTION = "ADJUSTMENT - WIN/LOSS";
 
-    /** Max |leg2 − leg1×rate| (and middleman net) allowed at RATE amount precision. */
-    private static final BigDecimal RATE_AMOUNT_TOLERANCE =
-            BigDecimal.ONE.movePointLeft(TransactionMoneyFormat.RATE_AMOUNT_SCALE);
-
     private static final Set<String> TRANSFER_TYPES = Set.of(
             Transaction.TransactionType.PAYMENT.name(),
             Transaction.TransactionType.CLAIM.name(),
@@ -152,15 +148,17 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
     }
 
     /*
-     * RATE: two Cr/Dr legs + optional Middle-Man Win/Loss legs (second currency) + transactions_rate.
-     * Middle-Man: account required with rate multiplier and/or fee and/or platform fee (any subset).
-     * Rate-Mul commission: RateMulCalculator.computeCommission — divide mode (/newDivisor, only
-     * when FX itself is /divisor), or multiply mode (points x1000 when FX is /divisor, else
-     * "new rate" diff (fxRate - mul) x leg1Amount). Can be negative (middleman underwater);
-     * negative/zero commission is allowed but posts no ledger row (see resolveMiddleman).
-     * Fee/Platform Fee are face values in the SECOND (leg2) currency, no FX conversion.
-     * Fee portion = Fee − Platform Fee (net); posts only when > 0 — middleman-only +Win/Loss
-     * (no counterparty). leg2 net = gross − (ratePortion(if>0) + feePortion(if>0)).
+     * RATE：两条 Cr/Dr 腿 + 可选的 Middle-Man Win/Loss 分录 + transactions_rate 头表。
+     * Middle-Man：rate 乘数、fee、platform fee 三项可任意组合，任一项有值就要求填账户。
+     * Rate-Mul 佣金算法见 RateMulCalculator.computeCommission（除法/乘法两种模式），可能为负（倒贴）；
+     * 佣金 ≤0 时不写分录（见 resolveMiddleman）。
+     * Fee / Platform Fee 都是第二（leg2）币种面值，不换汇；feePortion = Fee − Platform Fee（净额），
+     * >0 才写分录。
+     * leg2（to account）永远记 flat 毛额（服务端算 leg1Amount × exchangeRate，不信前端传的
+     * leg2Amount），不受 Rate-Mul、Fee、Platform Fee 任何扣减影响。所有扣减都记在
+     * leg2.fromAccountId()（from account）上：Rate-Mul 和 Fee 都是双边记录（from account −WL，
+     * middleman +WL）；Platform Fee 是单边记录（只有 from account +WL，"CHARGE {ccy} {amt}
+     * PLATFORM FEE"，没有对手方），是在上面两项之外额外再扣一笔，跟 Fee/Rate-Mul 的计算互相独立。
      */
     private TransactionSubmitDTO submitRate(TransactionSubmitDTO request, SessionUser session, Integer tenantId) {
         FromToAccounts leg1 = requireFromToAccounts(
@@ -177,24 +175,12 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         }
 
         BigDecimal amountFrom = parsePositiveRateAmount(request.getLeg1Amount(), "Leg1 amount");
-        BigDecimal amountTo = parsePositiveRateAmount(request.getLeg2Amount(), "Leg2 amount");
         BigDecimal exchangeRate = parsePositiveExchangeRate(request.getExchangeRate());
+        // leg2（to account）永远记 flat 毛额，不用前端传的 leg2Amount——这样 Fee/Platform Fee/Rate-Mul才不会碰到 to account。
         BigDecimal grossTo = TransactionMoneyFormat.normalizeComputedRate(amountFrom.multiply(exchangeRate));
         String rateExpression = trimToNull(request.getRateExpression());
 
         MiddlemanSpec middleman = resolveMiddleman(request, tenantId, leg2, amountFrom, exchangeRate, rateExpression, grossTo);
-        if (middleman == null) {
-            validateRateAmounts(amountFrom, amountTo, exchangeRate);
-        } else {
-            BigDecimal expectedNet = TransactionMoneyFormat.normalizeComputedRate(
-                    grossTo.subtract(middleman.totalLeg2()));
-            BigDecimal delta = expectedNet.subtract(amountTo).abs();
-            if (delta.compareTo(RATE_AMOUNT_TOLERANCE) > 0) {
-                throw new BusinessException(
-                        "Leg2 amount must equal (leg1 × exchange rate) − middleman total (expected "
-                                + TransactionMoneyFormat.formatMoney(expectedNet) + ")");
-            }
-        }
 
         String remark = trimToNull(request.getRemark());
         LocalDate transactionDate = resolveTransactionDate(request);
@@ -216,48 +202,53 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         String leg2Description = exchPrefix + " | FROM " + accountDisplayName(leg2.fromAccount())
                 + " TO " + accountDisplayName(leg2.toAccount());
 
-        // When Fee is used: leg1 (toAccount1) History remark = CHARGE {ccy2} {feeInput} SERVICE FEES
-        String serviceFeeRemark = null;
-        if (middleman != null && middleman.feeInput() != null) {
-            serviceFeeRemark = formatServiceFeeRemark(leg2Ccy, middleman.feeInput());
-        }
-        String leg1Remark = serviceFeeRemark != null ? serviceFeeRemark : remark;
-
         Transaction leg1Txn = insertApproved(
                 session, tenantId, Transaction.TransactionType.RATE,
                 leg1.toAccountId(), leg1.fromAccountId(), leg1.currency().getId(),
-                amountFrom, transactionDate, leg1Remark, leg1Description, rateGroupId);
+                amountFrom, transactionDate, remark, leg1Description, rateGroupId);
+        // leg2 flat 毛额，不受 Rate-Mul/Fee/Platform Fee 影响；下面的扣减都记在leg2.fromAccountId()（from account）上。
         Transaction leg2Txn = insertApproved(
                 session, tenantId, Transaction.TransactionType.RATE,
                 leg2.toAccountId(), leg2.fromAccountId(), leg2.currency().getId(),
-                amountTo, transactionDate, remark, leg2Description, rateGroupId);
+                grossTo, transactionDate, remark, leg2Description, rateGroupId);
 
         Integer middlemanRateTxnId = null;
         Integer middlemanFeeTxnId = null;
+        Integer middlemanPlatformFeeTxnId = null;
         if (middleman != null) {
             String leg1ToName = accountDisplayName(leg1.toAccount());
             String amountText = TransactionMoneyFormat.formatMoney(amountFrom);
-            // From=middleman (+WL), To=leg2 payer (−WL) — same signs as PROFIT; second currency.
+            // From=middleman（+WL），To=leg2 from account（−WL）——跟 PROFIT 同一套正负号，用第二币种。
             if (middleman.ratePortion() != null) {
                 String rateMarkup = formatMiddlemanMarkupDescription(
                         false, middleman.parsedRate(), leg1Ccy, amountText, leg2Ccy, leg1ToName);
                 Transaction rateTxn = insertApproved(
                         session, tenantId, Transaction.TransactionType.RATE,
-                        leg2.toAccountId(), middleman.accountId(), leg2.currency().getId(),
+                        leg2.fromAccountId(), middleman.accountId(), leg2.currency().getId(),
                         middleman.ratePortion(), transactionDate, remark,
                         rateMarkup, rateGroupId);
                 middlemanRateTxnId = rateTxn.getId();
             }
             if (middleman.feePortion() != null) {
-                // Fee: middleman-only +Win/Loss (no −WL on leg2 payer — fee already in leg1 amount).
+                // Fee 跟 Rate-Mul 一样是 +WL/−WL 一对：middleman +WL，leg2 from account −WL。
                 String feeMarkup = formatMiddlemanMarkupDescription(
                         true, null, leg1Ccy, amountText, leg2Ccy, leg1ToName);
                 Transaction feeTxn = insertApproved(
                         session, tenantId, Transaction.TransactionType.RATE,
-                        middleman.accountId(), null, leg2.currency().getId(),
+                        leg2.fromAccountId(), middleman.accountId(), leg2.currency().getId(),
                         middleman.feePortion(), transactionDate, remark,
                         feeMarkup, rateGroupId);
                 middlemanFeeTxnId = feeTxn.getId();
+            }
+            if (middleman.platformFeeInput() != null) {
+                // Platform Fee 单边记录，只记在 leg2.fromAccountId() 上，没有对手方——在上面两项之外额外再扣一笔，不影响 to account。
+                String platformFeeDescription = formatPlatformFeeDescription(leg2Ccy, middleman.platformFeeInput());
+                Transaction platformFeeTxn = insertApproved(
+                        session, tenantId, Transaction.TransactionType.RATE,
+                        leg2.fromAccountId(), null, leg2.currency().getId(),
+                        middleman.platformFeeInput(), transactionDate, remark,
+                        platformFeeDescription, rateGroupId);
+                middlemanPlatformFeeTxnId = platformFeeTxn.getId();
             }
         }
 
@@ -271,7 +262,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         header.setCurrencyFromId(leg1.currency().getId());
         header.setAmountFrom(amountFrom);
         header.setCurrencyToId(leg2.currency().getId());
-        header.setAmountTo(amountTo);
+        header.setAmountTo(grossTo);
         if (middleman != null) {
             header.setMiddlemanAccountId(middleman.accountId());
             header.setMiddlemanRate(middleman.parsedRate() != null
@@ -280,7 +271,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
                             : middleman.parsedRate().value())
                     : null);
             header.setMiddlemanRateExpression(middleman.rateRawInput());
-            // Fee / Platform Fee stored as submitted face values (currency_to; not converted).
+            // Fee / Platform Fee 按提交时的原始面值存（currency_to，不换算）。
             header.setMiddlemanAmount(middleman.feeInput());
             header.setPlatformFeeAmount(middleman.platformFeeInput());
         } else {
@@ -310,6 +301,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         result.setMiddlemanId(middlemanRateTxnId != null ? middlemanRateTxnId : middlemanFeeTxnId);
         result.setMiddlemanRateId(middlemanRateTxnId);
         result.setMiddlemanFeeId(middlemanFeeTxnId);
+        result.setMiddlemanPlatformFeeId(middlemanPlatformFeeTxnId);
         result.setExchangeRateDisplay(exchangeRate.stripTrailingZeros().toPlainString());
         result.setRateExpression(rateExpression != null ? rateExpression : "");
         return result;
@@ -323,23 +315,11 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
             BigDecimal platformFeeInput,
             BigDecimal ratePortion,
             BigDecimal feePortion) {
-        BigDecimal totalLeg2() {
-            BigDecimal total = BigDecimal.ZERO;
-            if (ratePortion != null) {
-                total = total.add(ratePortion);
-            }
-            if (feePortion != null) {
-                total = total.add(feePortion);
-            }
-            return total;
-        }
     }
 
     /*
-     * Middle Man account function set. Account required when rate multiplier and/or fee and/or
-     * platform fee are set — any subset is allowed, not all three.
-     * Rate-Mul commission and (fee − platform fee) are computed independently; each only posts
-     * a ledger row when its own value is > 0 (negative/zero is allowed — silently not posted).
+     * Middle-Man 账户相关处理。rate 乘数、fee、platform fee 任一项有值都要求填账户，不要求三项都填。
+     * Rate-Mul 佣金和 (fee − platform fee) 各自独立计算，只有 >0 才写分录（≤0 允许，只是不写）。
      */
     private MiddlemanSpec resolveMiddleman(
             TransactionSubmitDTO request,
@@ -358,7 +338,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         }
         boolean hasRateInput = rateRawInput != null;
 
-        // middlemanAmount = Service Fee face value in second (leg2) currency; no FX conversion.
+        // middlemanAmount = 第二（leg2）币种的 Service Fee 面值，不换汇。
         boolean hasFee = request.getMiddlemanAmount() != null
                 && request.getMiddlemanAmount().compareTo(BigDecimal.ZERO) > 0;
         boolean hasPlatformFee = request.getPlatformFeeAmount() != null
@@ -384,7 +364,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
             if (!parsedRate.valid()) {
                 throw new BusinessException("Please enter a valid Middle-Man rate multiplier");
             }
-            // Same ≤8dp rule as every other RATE-scale input (schema column is DECIMAL(18,8)).
+            // 跟其他 RATE 精度字段一样，最多 8 位小数（schema 列是 DECIMAL(18,8)）。
             BigDecimal rateMagnitude = parsedRate.mode() == RateMulCalculator.Mode.DIVIDE
                     ? parsedRate.divisor()
                     : parsedRate.value();
@@ -403,8 +383,8 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         BigDecimal feeNet = TransactionMoneyFormat.normalizeComputedRate(
                 TransactionMoneyFormat.nz(feeInput).subtract(TransactionMoneyFormat.nz(platformFeeInput)));
 
-        // Negative/zero commission (middleman underwater) or net fee (platform fee ate it all)
-        // is allowed but posts no ledger row — see class comment on submitRate().
+        // 佣金为负/0（middleman 倒贴）或净 fee 为负/0（platform fee 把 fee 吃光）都允许，
+        // 只是不写分录——见 submitRate() 上面的注释。
         BigDecimal ratePortion = rateMulCommission.compareTo(BigDecimal.ZERO) > 0 ? rateMulCommission : null;
         BigDecimal feePortion = feeNet.compareTo(BigDecimal.ZERO) > 0 ? feeNet : null;
 
@@ -415,29 +395,29 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         return new MiddlemanSpec(accountId, parsedRate, rateRawInput, feeInput, platformFeeInput, ratePortion, feePortion);
     }
 
-    /** History remark on Fee / leg1 (toAccount1): {@code CHARGE MYR 10 SERVICE FEES} (currency_to face value). */
-    static String formatServiceFeeRemark(String currencyToCode, BigDecimal feeInputSecondCcy) {
-        if (feeInputSecondCcy == null || feeInputSecondCcy.compareTo(BigDecimal.ZERO) <= 0) {
+    /* Platform Fee 记录的 description（挂在 leg2 from account 上），例：CHARGE MYR 1.5 PLATFORM FEE。 */
+    static String formatPlatformFeeDescription(String currencyToCode, BigDecimal platformFeeSecondCcy) {
+        if (platformFeeSecondCcy == null || platformFeeSecondCcy.compareTo(BigDecimal.ZERO) <= 0) {
             return null;
         }
         String ccy = currencyToCode != null ? currencyToCode.trim().toUpperCase(Locale.ROOT) : "";
         if (ccy.isEmpty()) {
             return null;
         }
-        String feeDisplay = feeInputSecondCcy.stripTrailingZeros().toPlainString();
-        return "CHARGE " + ccy + " " + feeDisplay + " SERVICE FEES";
+        String feeDisplay = platformFeeSecondCcy.stripTrailingZeros().toPlainString();
+        return "CHARGE " + ccy + " " + feeDisplay + " PLATFORM FEE";
     }
 
-    /* Type Format Description Only except "ADJUSTMENT", "RATE". E.g. CONTRA FROM "fromName" TO "toName" */
+    /* 除 ADJUSTMENT、RATE 以外的类型专用格式，例：CONTRA FROM "fromName" TO "toName"。 */
     static String formatTransferDescription(String type, UserListDTO fromAccount, UserListDTO toAccount) {
         String typeToken = type != null ? type.trim().toUpperCase(Locale.ROOT) : "";
         return typeToken + " FROM " + accountDisplayName(fromAccount) + " TO " + accountDisplayName(toAccount);
     }
 
     /*
-     * Middle man description only. Fee: {MARKUP X MYR 1010 > SGD | FROM {leg1ToName}},
-     * Rate divide mode: {MARKUP /1.55 MYR 1010 > SGD | FROM {leg1ToName}},
-     * Rate multiply mode: {MARKUP x2.93 MYR 1010 > SGD | FROM {leg1ToName}}.
+     * Middle-Man 的 description。Fee：MARKUP X MYR 1010 > SGD | FROM {leg1ToName}；
+     * Rate 除法模式：MARKUP /1.55 MYR 1010 > SGD | FROM {leg1ToName}；
+     * Rate 乘法模式：MARKUP 2.93 MYR 1010 > SGD | FROM {leg1ToName}。
      */
     static String formatMiddlemanMarkupDescription(
             boolean feeKind,
@@ -452,7 +432,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         } else if (parsedRate != null && parsedRate.valid()) {
             rateToken = parsedRate.mode() == RateMulCalculator.Mode.DIVIDE
                     ? "/" + parsedRate.divisor().stripTrailingZeros().toPlainString()
-                    : "x" + parsedRate.value().stripTrailingZeros().toPlainString();
+                    : parsedRate.value().stripTrailingZeros().toPlainString();
         } else {
             rateToken = "";
         }
@@ -652,16 +632,6 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
             throw new BusinessException("Exchange rate must be greater than zero");
         }
         return rate;
-    }
-
-    private static void validateRateAmounts(BigDecimal amountFrom, BigDecimal amountTo, BigDecimal exchangeRate) {
-        BigDecimal expected = TransactionMoneyFormat.normalizeComputedRate(amountFrom.multiply(exchangeRate));
-        BigDecimal delta = expected.subtract(amountTo).abs();
-        if (delta.compareTo(RATE_AMOUNT_TOLERANCE) > 0) {
-            throw new BusinessException(
-                    "Leg2 amount must equal leg1 amount × exchange rate (expected "
-                            + TransactionMoneyFormat.formatMoney(expected) + ")");
-        }
     }
 
     private static BigDecimal parseSignedNonZeroAmount(BigDecimal raw) {

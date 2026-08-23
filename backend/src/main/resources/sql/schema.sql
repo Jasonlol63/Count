@@ -541,12 +541,11 @@ CREATE TABLE `tenant_ownership_history` (
     `partner_tenant_id` INT UNSIGNED DEFAULT NULL COMMENT '关联对方的 tenant.id',
     `percentage`       DECIMAL(7, 4) NOT NULL DEFAULT 0.0000,
     `read_only`        TINYINT(1) NOT NULL DEFAULT 1,
-    `saved_by`         INT UNSIGNED DEFAULT NULL COMMENT '保存快照的操作人(关联 user.id)',
+    `saved_by`         VARCHAR(50) DEFAULT NULL COMMENT '操作人 login_id（admin=user.login_id；owner=owner_code）',
     `saved_at`         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(),
     UNIQUE KEY `uq_tenant_oh_month_account` (`tenant_id`, `effective_month`, `account_id`, `owner_type`, `partner_tenant_id`),
     CONSTRAINT `fk_toh_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_toh_partner_tenant` FOREIGN KEY (`partner_tenant_id`) REFERENCES `tenant` (`id`) ON DELETE SET NULL,
-    CONSTRAINT `fk_toh_saved_by` FOREIGN KEY (`saved_by`) REFERENCES `user` (`id`) ON DELETE SET NULL,
     KEY `idx_toh_tenant_month` (`tenant_id`, `effective_month`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='租户股权历史月度快照表';
 
@@ -791,8 +790,7 @@ CREATE TABLE `data_capture_formula` (
     `description`           VARCHAR(255) DEFAULT NULL COMMENT '行描述 / Edit Formula Description',
     `source_columns`        TEXT DEFAULT NULL COMMENT '公式引用的 Capture 列/格（如 $2,$3）',
     `columns_display`       TEXT DEFAULT NULL COMMENT 'Data 下拉展示文案',
-    `formula`               TEXT DEFAULT NULL COMMENT '公式表达式',
-    `formula_operators`     TEXT DEFAULT NULL COMMENT '公式运算符片段（可选）',
+    `formula`               TEXT DEFAULT NULL COMMENT '公式表达式（计算与展示唯一来源）',
     `input_method`          VARCHAR(100) DEFAULT NULL COMMENT 'Input Method（可选）',
     `source_percent`        VARCHAR(255) NOT NULL DEFAULT '0',
     `enable_source_percent` TINYINT(1) NOT NULL DEFAULT 1,

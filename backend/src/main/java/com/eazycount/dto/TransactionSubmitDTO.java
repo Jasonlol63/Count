@@ -73,4 +73,5 @@ public class TransactionSubmitDTO {
     private Integer middlemanId;
     private Integer middlemanRateId;
     private Integer middlemanFeeId;
+    private Integer middlemanPlatformFeeId;
 }

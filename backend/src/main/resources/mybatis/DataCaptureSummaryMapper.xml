@@ -97,7 +97,6 @@
         <result property="sourceColumns" column="sourceColumns"/>
         <result property="columnsDisplay" column="columnsDisplay"/>
         <result property="formula" column="formula"/>
-        <result property="formulaOperators" column="formulaOperators"/>
         <result property="inputMethod" column="inputMethod"/>
         <result property="sourcePercent" column="sourcePercent"/>
         <result property="enableSourcePercent" column="enableSourcePercent"/>
@@ -124,7 +123,6 @@
         source_columns        AS sourceColumns,
         columns_display       AS columnsDisplay,
         formula,
-        formula_operators     AS formulaOperators,
         input_method          AS inputMethod,
         source_percent        AS sourcePercent,
         enable_source_percent AS enableSourcePercent,
@@ -172,12 +170,12 @@
     <insert id="insertFormula" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
         INSERT INTO data_capture_formula (
             tenant_id,process_id,product_type,id_product,parent_id_product,formula_variant,sub_order,row_index,
-            account_id,currency_id,description,source_columns,columns_display,formula,formula_operators,input_method,
+            account_id,currency_id,description,source_columns,columns_display,formula,input_method,
             source_percent,enable_source_percent,enable_input_method, created_by, updated_by,created_at,updated_at
         ) VALUES (
             #{tenantId},#{processId},#{productType},#{idProduct},#{parentIdProduct},#{formulaVariant},#{subOrder},
             #{rowIndex},#{accountId},#{currencyId},#{description},#{sourceColumns},#{columnsDisplay},
-            #{formula},#{formulaOperators},#{inputMethod},#{sourcePercent},#{enableSourcePercent},#{enableInputMethod},
+            #{formula},#{inputMethod},#{sourcePercent},#{enableSourcePercent},#{enableInputMethod},
             #{createdBy},#{updatedBy},NOW(),NOW()
         )
     </insert>
@@ -190,7 +188,6 @@
             source_columns        = #{sourceColumns},
             columns_display       = #{columnsDisplay},
             formula               = #{formula},
-            formula_operators     = #{formulaOperators},
             input_method          = #{inputMethod},
             source_percent        = #{sourcePercent},
             enable_source_percent = #{enableSourcePercent},
@@ -243,7 +240,6 @@
             source_columns        = #{sourceColumns},
             columns_display       = #{columnsDisplay},
             formula               = #{formula},
-            formula_operators     = #{formulaOperators},
             input_method          = #{inputMethod},
             source_percent        = #{sourcePercent},
             enable_source_percent = #{enableSourcePercent},

@@ -61,6 +61,10 @@ public class PermissionServiceImpl implements PermissionService {
         return TenantDtoHelper.hasFeatureCode(featureModules, BANK_CODE);
     }
 
+    private boolean isGroupTenant(Tenant tenant) {
+        return tenant != null && tenant.getTenantType() == Tenant.TenantType.GROUP;
+    }
+
     @Override
     public boolean isC168Account(Tenant tenant) {
         if (tenant == null || tenant.getCode() == null) {
@@ -87,9 +91,13 @@ public class PermissionServiceImpl implements PermissionService {
         }
 
         Set<Integer> tenantFeatureIds = tenantFeatureModuleIds(featureModules);
+        // Pure Group tenants have no company-level GAME/BANK rows of their own; the group
+        // ledger is always treated as a Games identity for sidebar/menu purposes (mirrors
+        // the previous frontend "groupOnly => always show Report/Data Capture" contract).
+        boolean bypassFeatureGate = isGroupTenant(tenant);
 
         return effective.values().stream()
-                .filter(permission -> passesFeatureGate(permission, tenantFeatureIds))
+                .filter(permission -> bypassFeatureGate || passesFeatureGate(permission, tenantFeatureIds))
                 .sorted(Comparator
                         .comparing(Permission::getSortOrder, Comparator.nullsLast(Integer::compareTo))
                         .thenComparing(Permission::getId, Comparator.nullsLast(Integer::compareTo)))

@@ -10,9 +10,8 @@ public interface AutoRenewService {
 
     void rejectRequest(Integer requestId);
 
-    /**
-     * Approve a pending auto-renew request: post Domain Fee (same as Domain Charge on Save)
-     * using saved Share %, then extend tenant expiration from current expiration + period.
+    /*Approve a pending auto-renew request: post Domain Fee (same as Domain Charge on Save) using saved Share %,
+     *then extend tenant expiration from current expiration + period.
      */
     Map<String, Object> approveRequest(Integer requestId, String period);
 }

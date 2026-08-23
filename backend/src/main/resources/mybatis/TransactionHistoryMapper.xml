@@ -29,11 +29,13 @@
         )
     </sql>
 
-    <!-- RATE Middle-Man fee leg (legacy RATE_MIDDLEMAN_FEE or stored MARKUP X … text). -->
+    <!-- RATE Middle-Man fee-kind leg: legacy RATE_MIDDLEMAN_FEE / MARKUP X … (Service Fee), or
+         CHARGE … PLATFORM FEE (Platform Fee) — both single-sided, +amount to whoever holds account_id. -->
     <sql id="rateMiddlemanFeeDescription">
         (
             t.description = 'RATE_MIDDLEMAN_FEE'
             OR t.description LIKE 'MARKUP X %'
+            OR t.description LIKE 'CHARGE % PLATFORM FEE'
         )
     </sql>
 
@@ -265,8 +267,11 @@
             END AS rateMiddlemanFee,
             UPPER(leg1_to.account_id) AS rateLeg1ToAccountCode,
             tr.middleman_rate AS rateMiddlemanRate,
+            tr.middleman_rate_expression AS rateMiddlemanRateExpression,
+            tr.exchange_rate AS rateExchangeRate,
             CASE
-                WHEN t.description = 'RATE_MIDDLEMAN_FEE' OR t.description LIKE 'MARKUP X %' THEN 'FEE'
+                WHEN t.description = 'RATE_MIDDLEMAN_FEE' OR t.description LIKE 'MARKUP X %'
+                  OR t.description LIKE 'CHARGE % PLATFORM FEE' THEN 'FEE'
                 WHEN t.description = 'RATE_MIDDLEMAN_RATE'
                   OR (t.description LIKE 'MARKUP %' AND t.description NOT LIKE 'MARKUP X %') THEN 'RATE'
                 WHEN tr.middleman_rate IS NOT NULL AND tr.middleman_rate &gt; 0 THEN 'RATE'

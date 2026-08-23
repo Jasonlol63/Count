@@ -35,6 +35,12 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
     @Autowired
     private TenantDao tenantDao;
 
+    /* Owner role always qualifies; a non-owner (e.g. partner-role user) needs the Ownership module permission. */
+    private boolean canModifyOwnership(SessionUser sessionUser) {
+        return "owner".equalsIgnoreCase(sessionUser.role)
+                || (sessionUser.permissions != null && sessionUser.permissions.contains("ownership"));
+    }
+
     @Override
     public List<TenantOwnershipDTO> getOwnershipList(Integer tenantId, String month) {
         SessionUser sessionUser = SecurityUtils.currentUser();
@@ -62,7 +68,7 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
     }
 
     @Override
-    public List<TenantOwnershipDTO> getShareholderCandidates(Integer tenantId) {
+    public List<TenantOwnershipDTO> getShareholderCandidates(Integer tenantId, String month) {
         SessionUser sessionUser = SecurityUtils.currentUser();
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
@@ -73,7 +79,11 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
 
         List<TenantOwnershipDTO> candidates = tenantOwnershipDao.getShareholderCandidates(tenantId);
 
-        List<TenantOwnershipDTO> existing = tenantOwnershipDao.getActiveOwnershipList(tenantId);
+        // 候选账号要按"当前正在编辑的月份"排除，而不是永远排除实时表已占用的账号，
+        // 否则编辑历史月份时会被当月/实时表的分配误伤（同一账号在历史月里其实还没分配）
+        List<TenantOwnershipDTO> existing = (month == null || month.isBlank() || isCurrentMonth(month))
+                ? tenantOwnershipDao.getActiveOwnershipList(tenantId)
+                : tenantOwnershipDao.getHistoricalOwnershipList(tenantId, month.trim() + "-01");
         Set<String> existingIds = existing.stream()
                 .map(TenantOwnershipDTO::getAccountId)
                 .collect(Collectors.toSet());
@@ -153,8 +163,8 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
             throw new BusinessException("Not logged in");
         }
 
-        if (!"owner".equalsIgnoreCase(sessionUser.role)) {
-            throw new BusinessException("Read-only: only owner can modify ownership");
+        if (!canModifyOwnership(sessionUser)) {
+            throw new BusinessException("Read-only: only owner or accounts with Ownership permission can modify ownership");
         }
 
         Tenant targetTenant = domainDao.findTenantById(tenantId);
@@ -302,7 +312,7 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
     }
 
     @Override
-    public void saveHistoricalOwnership(Integer tenantId, List<Map<String, Object>> ownersPayload, String effectiveMonth, Integer savedBy) {
+    public void saveHistoricalOwnership(Integer tenantId, List<Map<String, Object>> ownersPayload, String effectiveMonth, String savedBy) {
 
         tenantOwnershipDao.deleteHistoricalOwnership(tenantId, effectiveMonth);
 
@@ -356,8 +366,8 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
             throw new BusinessException("Not logged in");
         }
 
-        if (!"owner".equalsIgnoreCase(sessionUser.role)) {
-            throw new BusinessException("Read-only: only owner can modify ownership");
+        if (!canModifyOwnership(sessionUser)) {
+            throw new BusinessException("Read-only: only owner or accounts with Ownership permission can modify ownership");
         }
 
         BigDecimal totalPct = BigDecimal.ZERO;
@@ -384,18 +394,18 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
         if (saveHistoryOnly) {
             // 分流处理：仅写入特定历史月份
             String effectiveMonth = month.trim() + "-01";
-            this.saveHistoricalOwnership(tenantId, ownersPayload, effectiveMonth, sessionUser.user_id);
+            this.saveHistoricalOwnership(tenantId, ownersPayload, effectiveMonth, sessionUser.login_id);
         } else { // 分流处理：同时写入实时表和当月快照表
             // 保存到实时表
             this.saveLiveOwnership(tenantId, ownersPayload);
             // 存入当前月份历史快照
             String currentEffectiveMonth = YearMonth.now().toString() + "-01";
-            this.saveHistoricalOwnership(tenantId, ownersPayload, currentEffectiveMonth, sessionUser.user_id);
+            this.saveHistoricalOwnership(tenantId, ownersPayload, currentEffectiveMonth, sessionUser.login_id);
             // 处理历史月份的追溯写入
             if (retrofillMonths != null && !retrofillMonths.isEmpty()) {
                 for (String retroMonth : retrofillMonths) {
                     String retroEffectiveMonth = retroMonth.trim() + "-01";
-                    this.saveHistoricalOwnership(tenantId, ownersPayload, retroEffectiveMonth, sessionUser.user_id);
+                    this.saveHistoricalOwnership(tenantId, ownersPayload, retroEffectiveMonth, sessionUser.login_id);
                 }
             }
         }
@@ -408,8 +418,8 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
-        if (!"owner".equalsIgnoreCase(sessionUser.role)) {
-            throw new BusinessException("Read-only: only owner can modify ownership");
+        if (!canModifyOwnership(sessionUser)) {
+            throw new BusinessException("Read-only: only owner or accounts with Ownership permission can modify ownership");
         }
 
         Tenant company =domainDao.findTenantById(tenantId);

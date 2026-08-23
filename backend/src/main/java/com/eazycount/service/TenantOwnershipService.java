@@ -9,7 +9,7 @@ public interface TenantOwnershipService {
 
     List<TenantOwnershipDTO> getOwnershipList(Integer tenantId, String month);
 
-    List<TenantOwnershipDTO> getShareholderCandidates(Integer tenantId);
+    List<TenantOwnershipDTO> getShareholderCandidates(Integer tenantId, String month);
 
     boolean isCurrentMonth(String month);
 
@@ -21,7 +21,7 @@ public interface TenantOwnershipService {
 
     void saveLiveOwnership(Integer tenantId, List<Map<String, Object>> ownersPayload);
 
-    void saveHistoricalOwnership(Integer tenantId, List<Map<String, Object>> ownersPayload, String effectiveMonth, Integer savedBy);
+    void saveHistoricalOwnership(Integer tenantId, List<Map<String, Object>> ownersPayload, String effectiveMonth, String savedBy);
 
     void saveOwnership(Integer tenantId, List<Map<String, Object>> ownersPayload, String month, List<String> retrofillMonths);
 
