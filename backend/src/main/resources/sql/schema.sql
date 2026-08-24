@@ -500,7 +500,7 @@ CREATE TABLE `account_currency` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Account enabled currencies per tenant';
 
-CREATE TABLE `tenant_auto_renew_request` (
+CREATE TABLE `tenant_auto_renew` (
  `id`                  INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
  `tenant_id`           INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
  `expiration_snapshot` DATE         NOT NULL COMMENT '发起申请时的到期时间快照',
@@ -516,6 +516,19 @@ CREATE TABLE `tenant_auto_renew_request` (
  CONSTRAINT `fk_tar_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
  KEY `idx_tar_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='租户自动续期审批申请表';
+
+CREATE TABLE `tenant_auto_renew_transaction` (
+ `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ `request_id`     INT UNSIGNED NOT NULL COMMENT 'FK tenant_auto_renew_request.id',
+ `transaction_id` INT UNSIGNED NOT NULL COMMENT 'FK transactions.id — approve 时 chargeDomainFee 生成的其中一条流水（付款/佣金/净利润，一个 request 可对应多条）',
+ `created_at`     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE KEY `uk_tart_request_transaction` (`request_id`, `transaction_id`),
+ KEY `idx_tart_request` (`request_id`),
+ KEY `idx_tart_transaction` (`transaction_id`),
+ CONSTRAINT `fk_tart_request` FOREIGN KEY (`request_id`) REFERENCES `tenant_auto_renew_request` (`id`) ON DELETE CASCADE,
+ CONSTRAINT `fk_tart_transaction` FOREIGN KEY (`transaction_id`) REFERENCES `transactions` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Auto Renew approve 时生成的 transactions 关联记录，供 delete/revert 时精确定位并删除';
 
 CREATE TABLE `tenant_ownership` (
     `id`                 INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

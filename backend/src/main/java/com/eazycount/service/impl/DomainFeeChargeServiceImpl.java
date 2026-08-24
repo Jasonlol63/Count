@@ -55,16 +55,16 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
 
     @Override
     @Transactional
-    public int chargeDomainFeeIfRequested(Tenant tenant) {
+    public List<Transaction> chargeDomainFeeIfRequested(Tenant tenant) {
         if (tenant == null || !Boolean.TRUE.equals(tenant.getChargeDomainFeeOnConfirm())) {
-            return 0;
+            return List.of();
         }
         return chargeDomainFee(tenant, tenant.getDomainFeePeriod());
     }
 
     @Override
     @Transactional
-    public int chargeDomainFee(Tenant tenant, String periodCode) {
+    public List<Transaction> chargeDomainFee(Tenant tenant, String periodCode) {
         if (tenant == null) {
             throw new BusinessException("Invalid tenant for domain fee charge");
         }
@@ -180,7 +180,7 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
         for (Transaction line : lines) {
             transactionDao.insert(line);
         }
-        return lines.size();
+        return lines;
     }
 
     /* C168's own account under its ledger — the fixed Profit recipient regardless of allocation account_id. */

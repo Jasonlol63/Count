@@ -6,11 +6,15 @@ import com.eazycount.dao.DomainDao;
 import com.eazycount.dao.DomainListFeePriceDao;
 import com.eazycount.dao.TenantDao;
 import com.eazycount.dao.UserDao;
+import com.eazycount.dto.AutoRenewAccountOptionDTO;
 import com.eazycount.dto.AutoRenewDTO;
+import com.eazycount.dto.AutoRenewListResponseDTO;
+import com.eazycount.dto.AutoRenewTransactionDTO;
 import com.eazycount.dto.DomainFeeSettingsDTO;
 import com.eazycount.dto.UserListDTO;
 import com.eazycount.entity.Tenant;
 import com.eazycount.entity.Owner;
+import com.eazycount.entity.Transaction;
 import com.eazycount.entity.User;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
@@ -26,9 +30,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.ArrayList;
 import java.util.Set;
 
@@ -63,7 +65,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     @Override
-    public Map<String, Object> getAutoRenewCounts(String tenantType, int windowDays) {
+    public AutoRenewDTO getAutoRenewCounts(String tenantType, int windowDays) {
         autoRenewDao.syncWindowRequests(windowDays);
 
         int pendingCnt = autoRenewDao.countRequestsByStatus("pending", tenantType, windowDays);
@@ -71,27 +73,27 @@ public class AutoRenewServiceImpl implements AutoRenewService {
         int rejectedCnt = autoRenewDao.countRequestsByStatus("rejected", tenantType, windowDays);
         int totalCnt = pendingCnt + approvedCnt + rejectedCnt;
 
-        Map<String, Object> countsMap = new HashMap<>();
-        countsMap.put("pending", pendingCnt);
-        countsMap.put("approved", approvedCnt);
-        countsMap.put("rejected", rejectedCnt);
-        countsMap.put("total", totalCnt);
+        AutoRenewDTO.Counts counts = new AutoRenewDTO.Counts();
+        counts.setPending(pendingCnt);
+        counts.setApproved(approvedCnt);
+        counts.setRejected(rejectedCnt);
+        counts.setTotal(totalCnt);
 
         int pendingCompany = autoRenewDao.countPendingByTenantType("COMPANY", windowDays);
         int pendingGroup = autoRenewDao.countPendingByTenantType("GROUP", windowDays);
 
-        Map<String, Object> tabPendingCounts = new HashMap<>();
-        tabPendingCounts.put("company", pendingCompany);
-        tabPendingCounts.put("group", pendingGroup);
+        AutoRenewDTO.TabPendingCounts tabPendingCounts = new AutoRenewDTO.TabPendingCounts();
+        tabPendingCounts.setCompany(pendingCompany);
+        tabPendingCounts.setGroup(pendingGroup);
 
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("counts", countsMap);
-        stats.put("tab_pending_counts", tabPendingCounts);
+        AutoRenewDTO stats = new AutoRenewDTO();
+        stats.setCounts(counts);
+        stats.setTabPendingCounts(tabPendingCounts);
         return stats;
     }
 
     @Override
-    public Map<String, Object> getAutoRenewList(String status, String tenantType, String dateFromStr,
+    public AutoRenewListResponseDTO getAutoRenewList(String status, String tenantType, String dateFromStr,
             String dateToStr) {
 
         LocalDate dateFrom = parseLocalDate(dateFromStr);
@@ -101,12 +103,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
 
         autoRenewDao.syncWindowRequests(WINDOW_DAYS);
 
-        List<AutoRenewDTO> rows = autoRenewDao.selectAutoRenewList(
-                statusFilter,
-                tenantTypeFilter,
-                dateFrom,
-                dateTo,
-                WINDOW_DAYS);
+        List<AutoRenewDTO> rows = autoRenewDao.selectAutoRenewList(statusFilter, tenantTypeFilter, dateFrom, dateTo, WINDOW_DAYS);
 
         Tenant c168Tenant = tenantDao.findTenantByCode("C168");
         Integer c168TenantId = c168Tenant != null ? c168Tenant.getId() : null;
@@ -115,18 +112,17 @@ public class AutoRenewServiceImpl implements AutoRenewService {
             c168Users = userDao.findUserByTenantId(c168TenantId);
         }
 
-        List<Map<String, Object>> accountsList = new ArrayList<>();
+        List<AutoRenewAccountOptionDTO> accountsList = new ArrayList<>();
         for (UserListDTO u : c168Users) {
             if (u.getStatus() == User.AccountStatus.ACTIVE) {
-                Map<String, Object> m = new HashMap<>();
-                m.put("id", u.getId());
-                m.put("account_code", u.getAccountId());
-                m.put("name", u.getName());
-                accountsList.add(m);
+                accountsList.add(new AutoRenewAccountOptionDTO(u.getId(), u.getAccountId(), u.getName()));
             }
         }
 
         for (AutoRenewDTO row : rows) {
+            row.setEntityType(row.getTenantType() != null ? row.getTenantType().name().toLowerCase() : null);
+            row.setExpirationStatus(resolveExpirationStatus(row.getDaysUntilExpiration()));
+
             Integer defaultToId = null;
             for (UserListDTO u : c168Users) {
                 if (u.getStatus() == User.AccountStatus.ACTIVE && "C168".equalsIgnoreCase(u.getAccountId())) {
@@ -188,47 +184,30 @@ public class AutoRenewServiceImpl implements AutoRenewService {
 
             boolean accountsResolved = row.getFromAccountId() != null && row.getToAccountId() != null
                     && !row.getFromAccountId().equals(row.getToAccountId());
-            row.setCanApprove(
-                    "pending".equalsIgnoreCase(row.getStatus()) && !row.getIsPaymentDeleted() && accountsResolved);
-            row.setCanDelete("approved".equalsIgnoreCase(row.getStatus()) && row.getRequestId() != null
-                    && row.getRequestId() > 0 && row.getTransactionId() != null && !row.getIsPaymentDeleted());
+            row.setCanApprove("pending".equalsIgnoreCase(row.getStatus()) && accountsResolved);
+            boolean deletableStatus = "approved".equalsIgnoreCase(row.getStatus())
+                    || "rejected".equalsIgnoreCase(row.getStatus());
+            row.setCanDelete(deletableStatus && row.getRequestId() != null && row.getRequestId() > 0);
         }
 
         DomainFeeSettingsDTO feeSettings = domainService.findDomainFeeSettings();
-        Map<String, Object> stats = this.getAutoRenewCounts(tenantTypeFilter, WINDOW_DAYS);
+        AutoRenewDTO stats = this.getAutoRenewCounts(tenantTypeFilter, WINDOW_DAYS);
 
-        Map<String, Object> responseData = new HashMap<>();
-        responseData.put("rows", rows);
-        responseData.put("accounts", accountsList);
-        responseData.put("counts", stats.get("counts"));
-        responseData.put("tab_pending_counts", stats.get("tab_pending_counts"));
-        responseData.put("fee_settings", feeSettings);
-        responseData.put("can_edit", true);
+        AutoRenewListResponseDTO responseData = new AutoRenewListResponseDTO();
+        responseData.setRows(rows);
+        responseData.setAccounts(accountsList);
+        responseData.setCounts(stats.getCounts());
+        responseData.setTabPendingCounts(stats.getTabPendingCounts());
+        responseData.setFeeSettings(feeSettings);
+        responseData.setCanEdit(true);
 
         return responseData;
     }
 
-    private LocalDate parseLocalDate(String dateStr) {
-        if (dateStr == null || dateStr.trim().isEmpty()) {
-            return null;
-        }
-        try {
-            return LocalDate.parse(dateStr.trim(), DATE_FORMATTER);
-        } catch (DateTimeParseException e) {
-            return null;
-        }
-    }
-
     @Override
     public void rejectRequest(Integer requestId) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
-
-        if (requestId == null || requestId <= 0) {
-            throw new BusinessException("Invalid request id");
-        }
+        SessionUser session = requireSession();
+        requireValidRequestId(requestId);
 
         AutoRenewDTO request = autoRenewDao.selectRequestById(requestId);
         if (request == null) {
@@ -245,15 +224,9 @@ public class AutoRenewServiceImpl implements AutoRenewService {
 
     @Override
     @Transactional
-    public Map<String, Object> approveRequest(Integer requestId, String periodRaw) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
-
-        if (requestId == null || requestId <= 0) {
-            throw new BusinessException("Invalid request id");
-        }
+    public AutoRenewDTO approveRequest(Integer requestId, String periodRaw) {
+        SessionUser session = requireSession();
+        requireValidRequestId(requestId);
 
         String period = periodRaw != null ? periodRaw.trim() : "";
         if (!ALLOWED_PERIODS.contains(period)) {
@@ -290,21 +263,104 @@ public class AutoRenewServiceImpl implements AutoRenewService {
         LocalDate newExpiration = addPeriod(baseExpiration, period);
 
         // Same Domain Fee + Commission ledger postings as Domain Confirm Charge on Save
-        int txnCount = domainFeeChargeService.chargeDomainFee(tenant, period);
+        List<Transaction> transactions = domainFeeChargeService.chargeDomainFee(tenant, period);
+        for (Transaction txn : transactions) {
+            autoRenewDao.insertRequestTransactionLink(requestId, txn.getId());
+        }
 
         autoRenewDao.updateTenantExpiration(tenant.getId(), newExpiration);
 
         String processedBy = session.login_id != null ? session.login_id : "system";
         autoRenewDao.approveRequest(requestId, period, price, newExpiration, processedBy);
 
-        Map<String, Object> data = new HashMap<>();
-        data.put("request_id", requestId);
-        data.put("tenant_id", tenant.getId());
-        data.put("period", period);
-        data.put("price", price);
-        data.put("new_expiration_date", newExpiration.toString());
-        data.put("transaction_count", txnCount);
+        AutoRenewDTO data = new AutoRenewDTO();
+        data.setRequestId(requestId);
+        data.setTenantId(tenant.getId());
+        data.setPeriod(period);
+        data.setPrice(price);
+        data.setNewExpirationDate(newExpiration);
+        data.setTransactionCount(transactions.size());
         return data;
+    }
+
+    @Override
+    @Transactional
+    public void deleteRequest(Integer requestId) {
+        requireSession();
+        requireValidRequestId(requestId);
+
+        AutoRenewDTO request = autoRenewDao.selectRequestById(requestId);
+        if (request == null) {
+            throw new BusinessException("Auto renew request not found");
+        }
+
+        String status = request.getStatus();
+        if ("approved".equalsIgnoreCase(status)) {
+            List<AutoRenewTransactionDTO> links = autoRenewDao.selectTransactionLinksByRequestId(requestId);
+            if (!links.isEmpty()) {
+                List<Integer> transactionIds = links.stream()
+                        .map(AutoRenewTransactionDTO::getTransactionId)
+                        .toList();
+                autoRenewDao.deleteTransactionsByIds(transactionIds);
+            }
+
+            // Guard against a later renewal having moved the expiry date past this approve's snapshot.
+            LocalDate currentExpiration = request.getExpirationDate();
+            LocalDate approvedNewExpiration = request.getNewExpirationDate();
+            if (approvedNewExpiration == null || !approvedNewExpiration.equals(currentExpiration)) {
+                throw new BusinessException(
+                        "Tenant expiration date has changed since this request was approved; cannot revert");
+            }
+            autoRenewDao.updateTenantExpiration(request.getTenantId(), request.getExpirationSnapshot());
+
+            autoRenewDao.revertApprovedToPending(requestId);
+        } else if ("rejected".equalsIgnoreCase(status)) {
+            autoRenewDao.revertRejectedToPending(requestId);
+        } else {
+            throw new BusinessException("Only approved or rejected requests can be deleted");
+        }
+    }
+
+    /* 到期状态 Badge 阈值：≤7 天 danger，≤30 天 warning，已过期 expired，其余 normal */
+    private String resolveExpirationStatus(Integer daysUntilExpiration) {
+        if (daysUntilExpiration == null) {
+            return "normal";
+        }
+        if (daysUntilExpiration < 0) {
+            return "expired";
+        }
+        if (daysUntilExpiration <= 7) {
+            return "danger";
+        }
+        if (daysUntilExpiration <= 30) {
+            return "warning";
+        }
+        return "normal";
+    }
+
+    private SessionUser requireSession() {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null || session.user_id == null) {
+            throw new BusinessException("Not logged in");
+        }
+        return session;
+    }
+
+    private void requireValidRequestId(Integer requestId) {
+        if (requestId == null || requestId <= 0) {
+            throw new BusinessException("Invalid request id");
+        }
+    }
+
+    private LocalDate parseLocalDate(String dateStr) {
+        if (dateStr == null || dateStr.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(dateStr.trim(), DATE_FORMATTER);
+        } catch (DateTimeParseException e) {
+            return null;
+        }
     }
 
     /** Align with frontend calculateExpirationDate period math. */

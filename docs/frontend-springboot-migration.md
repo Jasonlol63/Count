@@ -5,7 +5,7 @@
 >
 > **本文件是 `docs/` 目录下唯一需要查阅的文档。** 原本分散在 16 个独立 `.md` 文件里的内容（Maintenance 各页面、Process/Bank Process List、Account 多公司归属、Transaction Rate/金额精度/Description 规则、Customer/Domain Report、Accounting Due、Data Capture、登录与后端权限总览等）已**全部合并**为第 18–33 节，原文件仅保留一行跳转说明、不再单独维护。找资料直接在本文件搜索关键字，或查文首目录。
 
-**最后更新**：2026-08-19（第 1–17 节：Process List / Bank Process List 列表加载实为 PHP + 死代码 bug，纠正第 2 节旧「已迁移」标注，见第 17 节；Data Capture `4f00f14` 整批回退修复见 [第 32 节 §0](#32-data-capture--spring-api-对齐说明)；第 7 节「尚未迁移」清单同步更新。**本次额外把 `docs/` 目录下其余 16 个文件全部合并进来，成为第 18–33 节，不再分散维护。**
+**最后更新**：2026-08-24（第 7 节 Auto Renew：新增 `POST /api/auto-renew/delete`，approve 时写入 `tenant_auto_renew_request_transaction` 关联表供精确回滚，第 7.4 缺口已解决；`save_draft` 确认无 UI 调用，连同 legacy PHP 调用路径一起清掉，不迁移；第 2 节状态表、第 4.7 节、第 11.5 节缺口汇总同步更新）。2026-08-19（第 1–17 节：Process List / Bank Process List 列表加载实为 PHP + 死代码 bug，纠正第 2 节旧「已迁移」标注，见第 17 节；Data Capture `4f00f14` 整批回退修复见 [第 32 节 §0](#32-data-capture--spring-api-对齐说明)；第 7 节「尚未迁移」清单同步更新。**本次额外把 `docs/` 目录下其余 16 个文件全部合并进来，成为第 18–33 节，不再分散维护。**
 
 ---
 
@@ -87,7 +87,7 @@ res.success === true || res.status === "success"
 | **Account (Member)** | ✅ 全量已迁移 | `/api/account/*` + `/api/currency/*` | `accountListApi.js` + `currencyApi.js`；`AccountListPage` 直调 Spring |
 | **Currency** | ✅ 已迁移 | `/api/currency/*` | `currencyApi.js` |
 | **Announcement / Maintenance** | ✅ 已迁移 | `/api/announcement/*` | `apiUrl.js` 重写（页面仍写 PHP 路径） |
-| **Auto Renew** | ⚠️ 部分 | `/api/auto-renew/*` + Domain Comm | 列表 / reject / **approve** 直调 Spring；Comm 用 `domain/list` + `update-setting` |
+| **Auto Renew** | ✅ 已迁移 | `/api/auto-renew/*` + Domain Comm | 列表 / reject / approve / **delete**（2026-08-24 补齐）直调 Spring；Comm 用 `domain/list` + `update-setting`；`save_draft` 确认无 UI 调用，已连同 legacy PHP 调用路径一起清掉，不迁移 |
 | **Ownership** | ✅ API 已迁移 + **数据层已对齐 Spring** | `/api/ownership/*` | `apiUrl.js` 重写 + `ownershipRowHelpers` normalize |
 | **Process** | ⚠️ 写操作已 Spring，**列表加载实测仍是 PHP**（2026-08-19 发现，见第 17 节） | `/api/process/*` + `/api/currency/list` | Add/Update/Status/Delete/description CRUD 已直调 Spring；但页面真正的列表数据源 `processRoutePrefetch.js` / `ProcessListPage.jsx` 的 `fetchRows` 仍在打 `processlist_api.php` 等 PHP 端点，且 `processListApi.js` 依赖的 4 个 `processListHelpers.js` 导出函数根本不存在（死代码），PHP 端点下线后整页很可能 500。旧版本节曾标「✅ Games List 已迁移」是**不准确的** |
 | **Bank Process** | ⚠️ 部分，**列表加载与 Process 同源同 bug**（见第 17 节） | `/api/bank-process/*`、`/api/bank-country-option/*`、`/api/account/*` | Add/Update/Status/Delete/Remark/Resend/Accounting Due Post-to-Transaction 已 Spring（见第 10 节）；但 `useBankProcessListPage.js` 的列表加载同样经由 `processRoutePrefetch.js`，与 Process List 共享第 17 节的 PHP 依赖问题 |
@@ -113,7 +113,6 @@ res.success === true || res.status === "success"
 | `api/ownership/get_group_owners_api.php` | `api/ownership/list?tenant_id=` |
 | `api/ownership/get_available_accounts_api.php` | `api/ownership/available-accounts?tenant_id=` |
 | `api/ownership/get_group_available_accounts_api.php` | `api/ownership/available-accounts?tenant_id=` |
-| `api/subscription/auto_renew_api.php` | `api/auto-renew/list` |
 | `api/announcements/*` | `api/announcement/*` |
 | `api/maintenance/*` | `api/announcement/*`（维护公告） |
 
@@ -252,12 +251,16 @@ PHP——`domainApi.js`/`domainHelpers.js` 虽然内容和本节一致，但实�
 
 | 文件 | 改动 |
 |------|------|
-| `pages/autorenew/autoRenewLogic.js` | 列表：`api/subscription/auto_renew_api.php` → `api/auto-renew/list`；`reject` → `api/auto-renew/reject`；**`approve` → `api/auto-renew/approve`**（`request_id` + `period`） |
+| `pages/autorenew/autoRenewLogic.js` | 列表 → `api/auto-renew/list`；`reject` → `api/auto-renew/reject`；`approve` → `api/auto-renew/approve`（`request_id` + `period`）；**`delete` → `api/auto-renew/delete`（2026-08-24 补齐，`request_id`）** |
 | `pages/autorenew/autoRenewTenantSettings.js` | Comm 打开：`POST /api/domain/list?ownerId=`；费用预览 → `list-fee`；Save → `update-setting`（`commissionOnly`） |
-| `pages/autorenew/AutoRenewPage.jsx` | Comm 传 `ownerId`；Approve 只传 `requestId` + `period` |
+| `pages/autorenew/AutoRenewPage.jsx` | Comm 传 `ownerId`；Approve 只传 `requestId` + `period`；Delete 只传 `requestId` |
 | `pages/domain/domainApi.js` | `fetchDomainList(ownerId?)` 支持可选 `?ownerId=` |
 
-**Approve 后端（本仓）：** `POST /api/auto-renew/approve` → 复用 `DomainFeeChargeService.chargeDomainFee`（与 Domain Charge on Save 同账）+ 从当前 `expiration_date` 加 period；无 Charge on Save 开关。
+**Approve 后端（本仓）：** `POST /api/auto-renew/approve` → 复用 `DomainFeeChargeService.chargeDomainFee`（与 Domain Charge on Save 同账）+ 从当前 `expiration_date` 加 period；无 Charge on Save 开关。approve 时把 `chargeDomainFee` 生成的每条 transaction 写入 `tenant_auto_renew_request_transaction` 关联表，供 delete 精确回滚。
+
+**Delete 后端（本仓，2026-08-24 新增）：** `POST /api/auto-renew/delete` → `AutoRenewServiceImpl.deleteRequest`：`approved` 分支按关联表删掉对应 transaction、校验到期日未被后续操作覆盖、还原 `expiration_snapshot`、状态打回 `pending`；`rejected` 分支只需要把状态打回 `pending`（reject 本身不动 transaction/到期日）。
+
+**已确认不迁移：** `save_draft` 全仓库（网页版 + 移动端）没有任何 UI 调用过，纯粹是死代码，已随 legacy PHP 调用路径一起删除，不补 Spring 端点（详见 `Count-frontend/docs/autorenew-springboot-rewire.md` §3.2）。
 
 ### 4.8 Ownership（详见第 5 节）
 
@@ -5951,6 +5954,7 @@ flowchart LR
 | POST | `/list` | 列表 / 统计 / pending 数 |
 | POST | `/reject` | 拒绝续费申请 |
 | POST | `/approve` | 通过续费：写 Domain Fee 交易 + 从**当前**到期日延长 period |
+| POST | `/delete` | 撤销已处理申请（**2026-08-24 新增**）：approved 回滚交易 + 复原到期日；rejected 直接打回 pending |
 
 **`/list` 请求体字段：**
 
@@ -5996,10 +6000,26 @@ flowchart LR
 - 仅 `pending` 可拒绝
 - 更新 `processed_by`
 
-#### 7.4 缺口
+#### 7.4 撤销 `POST /delete`（2026-08-24 新增）
+
+- `request_id` 必填；仅 `approved` 或 `rejected` 可撤销，其它状态拒绝
+- **`tenant_auto_renew_request_transaction` 关联表**：approve 时把 `chargeDomainFee` 生成的每一条
+  transaction（付款 + 佣金分成 + 净利润，一次 approve 可能不止一条）都记一行进这张表，delete 时据此
+  精确删除，不用像旧版 PHP 那样靠日期/描述启发式反查同批交易
+- **approved 分支**（`@Transactional`）：
+  1. 按关联表查出全部 transaction id，批量删除
+  2. 校验 `tenant.expiration_date` 是否仍等于这条申请当初写入的 `new_expiration_date`——如果期间被
+     后续别的续约操作覆盖过，直接报错而不是静默覆盖
+  3. 校验通过则把 `tenant.expiration_date` 还原为申请当初的 `expiration_snapshot`
+  4. 申请行状态打回 `pending`，清空 `period`/`price`/`new_expiration_date`/`processed_by`/`processed_at`
+- **rejected 分支**：reject 本身没动过 transaction/到期日，直接把状态打回 `pending`，清空
+  `processed_by`/`processed_at` 即可
+- 前端 `canDeleteRow` 依赖的 `can_delete` 现在覆盖 `approved` 和 `rejected` 两种状态（此前的实现
+  只覆盖 `approved` 且依赖一个从未被后端赋值过的 `transaction_id` 字段，导致按钮实际永远不出现）
+
+#### 7.5 缺口
 
 - 列表不校验 `permissions`
-- Delete / revert 交易回滚尚未接 Spring approve 写入的多笔 Domain Fee 行
 
 ---
 
@@ -6195,7 +6215,6 @@ flowchart LR
 
 - API 层缺少 permission 模块校验（含 Admin `/api/userlist`）
 - Admin 请求体 `permissions` 未按人持久化（仅 role 模板）
-- Auto Renew Delete / 交易回滚未对接多笔 Domain Fee
 - Process / Account 缺 ACL 过滤
 - Member 用户无侧边栏 permissions，不走上述 Admin 页面体系
 

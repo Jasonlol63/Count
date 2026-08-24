@@ -10,10 +10,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-/**
- * Maps to {@code bank_process} — Bank Process deal row (list + add/update).
- * Waiting display can be derived from {@code dayStart} when status is ongoing.
- */
 @Getter
 @Setter
 @ToString

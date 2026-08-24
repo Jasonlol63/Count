@@ -2,17 +2,6 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.eazycount.dao.AutoRenewDao">
 
-    <resultMap id="AutoRenewMap" type="com.eazycount.entity.AutoRenew">
-        <id property="id" column="id"/>
-        <result property="tenantId" column="tenant_id"/>
-        <result property="period" column="period"/>
-        <result property="price" column="price"/>
-        <result property="expirationSnapshot" column="expiration_snapshot"/>
-        <result property="newExpirationDate" column="new_expiration_date"/>
-        <result property="processBy" column="processed_by"/>
-        <result property="processAt" column="processed_at"/>
-    </resultMap>
-
     <!-- 扫描临期租户，自动生成待审批申请 -->
     <insert id="syncWindowRequests">
         INSERT IGNORE INTO tenant_auto_renew_request 
@@ -79,13 +68,14 @@
         ORDER BY r.created_at DESC
     </select>
 
-    <!--根据 ID 获取审批详情（expirationDate = 当前 tenant 到期日，供续期起算）-->
+    <!--根据 ID 获取审批详情（expirationDate = 当前 tenant 到期日，供续期起算；expirationSnapshot = 发起申请时的到期日快照，供 delete/revert 回滚用）-->
     <select id="selectRequestById" resultType="com.eazycount.dto.AutoRenewDTO">
         SELECT
             r.id                  AS requestId,
             r.status              AS status,
             r.period              AS period,
             r.price               AS price,
+            r.expiration_snapshot AS expirationSnapshot,
             r.new_expiration_date AS newExpirationDate,
             r.processed_by        AS processedBy,
             r.processed_at        AS processedAt,
@@ -158,16 +148,55 @@
         WHERE id = #{requestId}
     </update>
 
-    <update id="saveDraft">
+    <!-- 记录 approve 时 chargeDomainFee 生成的某一条 transaction，供后续 delete 精确回滚 -->
+    <insert id="insertRequestTransactionLink">
+        INSERT INTO tenant_auto_renew_request_transaction (request_id, transaction_id, created_at)
+        VALUES (#{requestId}, #{transactionId}, NOW())
+    </insert>
+
+    <!-- 取出某个 request 关联的所有 transaction 记录（delete 时据此批量删 transactions） -->
+    <select id="selectTransactionLinksByRequestId" resultType="com.eazycount.dto.AutoRenewTransactionDTO">
+        SELECT
+            id,
+            request_id     AS requestId,
+            transaction_id AS transactionId,
+            created_at     AS createdAt
+        FROM tenant_auto_renew_request_transaction
+        WHERE request_id = #{requestId}
+    </select>
+
+    <!-- 按 id 批量删除 transactions（delete/revert approved 分支专用） -->
+    <delete id="deleteTransactionsByIds">
+        DELETE FROM transactions
+        WHERE id IN
+        <foreach collection="transactionIds" item="txnId" open="(" separator="," close=")">
+            #{txnId}
+        </foreach>
+    </delete>
+
+    <!-- delete：approved 打回 pending，清空 approve 时写入的痕迹（transaction 关联行随 FK CASCADE 一并清掉） -->
+    <update id="revertApprovedToPending">
         UPDATE tenant_auto_renew_request
-        SET period = #{period},
+        SET status = 'pending',
+            period = NULL,
+            price = NULL,
+            new_expiration_date = NULL,
+            processed_by = NULL,
+            processed_at = NULL,
             updated_at = NOW()
         WHERE id = #{requestId}
+          AND status = 'approved'
     </update>
 
-    <!-- 删除申请 -->
-    <delete id="deleteRequest">
-        DELETE FROM tenant_auto_renew_request WHERE id = #{requestId}
-    </delete>
+    <!-- delete：rejected 打回 pending（reject 从未动过 transaction/到期日，无需额外回滚） -->
+    <update id="revertRejectedToPending">
+        UPDATE tenant_auto_renew_request
+        SET status = 'pending',
+            processed_by = NULL,
+            processed_at = NULL,
+            updated_at = NOW()
+        WHERE id = #{requestId}
+          AND status = 'rejected'
+    </update>
 
 </mapper>

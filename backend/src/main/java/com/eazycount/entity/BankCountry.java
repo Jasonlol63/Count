@@ -22,7 +22,7 @@ public class BankCountry {
 
     private Integer tenantId;
 
-    /** Country code e.g. MYR, SGD, AUD */
+    //Country code e.g. MYR, SGD, AUD
     private String code;
 
     private LocalDateTime createdAt;

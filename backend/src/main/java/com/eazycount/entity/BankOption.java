@@ -22,10 +22,9 @@ public class BankOption {
 
     private Integer tenantId;
 
-    /** FK {@code bank_country.id} */
     private Integer countryId;
 
-    /** Bank name e.g. UBANK, RHB, CIMB */
+    // Bank name e.g. UBANK, RHB, CIMB
     private String name;
 
     private LocalDateTime createdAt;

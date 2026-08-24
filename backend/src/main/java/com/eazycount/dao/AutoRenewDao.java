@@ -1,6 +1,7 @@
 package com.eazycount.dao;
 
 import com.eazycount.dto.AutoRenewDTO;
+import com.eazycount.dto.AutoRenewTransactionDTO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -32,4 +33,14 @@ public interface AutoRenewDao {
     void updateTenantExpiration(@Param("tenantId") Integer tenantId, @Param("newExpirationDate") LocalDate newExpirationDate);
 
     void rejectRequest(@Param("requestId") Integer requestId, @Param("processedBy") String processedBy);
+
+    void insertRequestTransactionLink(@Param("requestId") Integer requestId, @Param("transactionId") Integer transactionId);
+
+    List<AutoRenewTransactionDTO> selectTransactionLinksByRequestId(@Param("requestId") Integer requestId);
+
+    void deleteTransactionsByIds(@Param("transactionIds") List<Integer> transactionIds);
+
+    void revertApprovedToPending(@Param("requestId") Integer requestId);
+
+    void revertRejectedToPending(@Param("requestId") Integer requestId);
 }
