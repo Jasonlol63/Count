@@ -8,9 +8,6 @@ import lombok.ToString;
 
 import java.time.LocalDateTime;
 
-/**
- * Maps to {@code bank_option} — banks under a {@link BankCountry}.
- */
 @Getter
 @Setter
 @ToString

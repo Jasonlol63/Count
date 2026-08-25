@@ -8,9 +8,6 @@ import lombok.ToString;
 
 import java.time.LocalDateTime;
 
-/**
- * Maps to {@code bank_country} — tenant country options for Bank Process dropdown.
- */
 @Getter
 @Setter
 @ToString
