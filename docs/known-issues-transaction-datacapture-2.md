@@ -54,4 +54,8 @@ Payment History 列表對 amount = 0.00、但實際有對應 Data Capture 數據
 Add Account 預設值、Input Method 刷新後遺失）已於 2026-08-24 修復完成，故從本文件移除。
 
 ## 额外补充
-明天需要将TransactionDao, TransactionHistoryDao, TransactionSearchDao的comment进行优化。
+**主要：** Dashboard, ResetPassword, Copy From-Process, Member页面功能都待优化。
+
+**其次：** 明天需要将TransactionDao, TransactionHistoryDao, TransactionSearchDao的comment进行优化。
+
+**后续：** 有时间得优化前端的代码文件，以及残留的死代码等等。
