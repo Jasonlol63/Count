@@ -7,6 +7,8 @@
 
 **最后更新**：2026-08-19（第 1–17 节：Process List / Bank Process List 列表加载实为 PHP + 死代码 bug，纠正第 2 节旧「已迁移」标注，见第 17 节；Data Capture `4f00f14` 整批回退修复见 [第 32 节 §0](#32-data-capture--spring-api-对齐说明)；第 7 节「尚未迁移」清单同步更新。**本次额外把 `docs/` 目录下其余 16 个文件全部合并进来，成为第 18–33 节，不再分散维护。**
 
+**2026-08-25 复核**：第 2 节状态表 + 第 7 节清单里不少条目已经是 2026-08-19 之后的旧记录——本次按当前代码逐条核实（`grep` 实际 fetch 调用 + 核对 `apiUrl.js` 改写表，而不是照抄旧文档），发现以下几项**已经迁移完成、旧文档还标着未迁移/部分迁移**：Process List / Bank Process List 列表加载（`processRoutePrefetch.js` 已改用 `fetchProcessListByTenantId`/`fetchBankProcessListByTenantId`，第 17 节的死代码 bug 已修）、**Report**（Domain Report + Customer Report 均已是 `POST /api/report/domain-report/list` / `POST /api/report/customer-report/list`，不再是"完全未迁移"）、**Auto Renew**（无残留 PHP 调用）、**AuthenticatedLayout.jsx**（`current-user`/`logout` 已用 `authApi.js`，不再是 `session/current_user_api.php` ×3）、**`companySessionSync.js`**（已改用 `auth/switch-tenant`，不再是 `update_company_session_api.php`）、**Maintenance 业务页**（Formula/Payment/Transaction/Capture Maintenance，含纯 Group 账本形式）均已是 Spring（`api/maintenance/*-maintenance/list|update|delete`），第 7 节旧写的"仍 PHP"不准确。已在第 2/7 节同步更正，详见各条目内的 2026-08-25 标注。仍在 `apiUrl.js` 改写表里查不到、大概率会 404 的**真实剩余项**：User Access 整页（`useraccess_api.php`/`accountlistapi.php`/`processlist_api.php`）、Deleted Log 整页（`deleted_log_list_api.php`/`restore_api.php`）、`maintenanceCompanyApi.js` 的公司权限校验（`domain_api.php`）与备用 process 下拉（`processlist_api.php`，被 Payment/Formula/Capture/Transaction Maintenance 共用）、Announcement 的维护模式开关（`maintenance/mode_api.php`，其余 Announcement 接口都已改写）、Currency 删除（`delete_currency_api.php`）、Process List / Bank Process List 页内两处硬编码的 `session/update_company_session_api.php`（应改用已经迁移好的 `fetchUpdateCompanySession`/`syncCompanySessionApi`）。真 AP/IG 纯 Group 账本 Data Capture 币种（`get_scope_account_currencies_api.php`）仍是已知的、文档记录过的遗留边界，非本次新发现。
+
 ---
 
 ## 目录
@@ -80,18 +82,18 @@ res.success === true || res.status === "success"
 
 | 模块 | 状态 | Spring 前缀 | 前端适配方式 |
 |------|------|-------------|--------------|
-| **Auth / Session** | ⚠️ 部分（2026-08-14 重新核实） | `/auth/*` | Login / Secondary Password 页 **直调** `authApi.js`（已于 2026-08-14 修复回归，见第 15 节）；`AuthenticatedLayout.jsx` / `companySessionSync.js` / `resetPassword.js` 目前**仍是 PHP**，待修（§15.4） |
+| **Auth / Session** | ⚠️ 部分（2026-08-25 复核） | `/auth/*` | Login / Secondary Password 页 **直调** `authApi.js`；`AuthenticatedLayout.jsx` 的 current-user/logout **已改用** `authApi.js`；`companySessionSync.js` **已改用** `auth/switch-tenant`（均非 2026-08-19 旧文档所写的 PHP）；仅 `resetPassword.js` 仍是 PHP（用户已知、本次不处理）；Process List / Bank Process List 页内另有两处**硬编码**残留调用 `session/update_company_session_api.php`（应改走已迁移好的 `fetchUpdateCompanySession`），见第 7 节 |
 | **Tenant 列表** | ✅ 已迁移 | `GET /auth/tenant-accessible` | `tenantAccessibleApi.js` |
 | **Domain** | ✅ 已迁移 | `/api/domain/*` | `domainApi.js` + `domainHelpers.js` |
 | **Admin (User List)** | ✅ 已迁移 | `/api/userlist/*` | `userListApi.js` |
 | **Account (Member)** | ✅ 全量已迁移 | `/api/account/*` + `/api/currency/*` | `accountListApi.js` + `currencyApi.js`；`AccountListPage` 直调 Spring |
 | **Currency** | ✅ 已迁移 | `/api/currency/*` | `currencyApi.js` |
 | **Announcement / Maintenance** | ✅ 已迁移 | `/api/announcement/*` | `apiUrl.js` 重写（页面仍写 PHP 路径） |
-| **Auto Renew** | ⚠️ 部分 | `/api/auto-renew/*` + Domain Comm | 列表 / reject / **approve** 直调 Spring；Comm 用 `domain/list` + `update-setting` |
+| **Auto Renew** | ✅ 已迁移（2026-08-25 复核，无残留 PHP 调用） | `/api/auto-renew/*` + Domain Comm | 列表 / reject / approve 直调 Spring；Comm 用 `domain/list` + `update-setting` |
 | **Ownership** | ✅ API 已迁移 + **数据层已对齐 Spring** | `/api/ownership/*` | `apiUrl.js` 重写 + `ownershipRowHelpers` normalize |
-| **Process** | ⚠️ 写操作已 Spring，**列表加载实测仍是 PHP**（2026-08-19 发现，见第 17 节） | `/api/process/*` + `/api/currency/list` | Add/Update/Status/Delete/description CRUD 已直调 Spring；但页面真正的列表数据源 `processRoutePrefetch.js` / `ProcessListPage.jsx` 的 `fetchRows` 仍在打 `processlist_api.php` 等 PHP 端点，且 `processListApi.js` 依赖的 4 个 `processListHelpers.js` 导出函数根本不存在（死代码），PHP 端点下线后整页很可能 500。旧版本节曾标「✅ Games List 已迁移」是**不准确的** |
-| **Bank Process** | ⚠️ 部分，**列表加载与 Process 同源同 bug**（见第 17 节） | `/api/bank-process/*`、`/api/bank-country-option/*`、`/api/account/*` | Add/Update/Status/Delete/Remark/Resend/Accounting Due Post-to-Transaction 已 Spring（见第 10 节）；但 `useBankProcessListPage.js` 的列表加载同样经由 `processRoutePrefetch.js`，与 Process List 共享第 17 节的 PHP 依赖问题 |
-| **Transaction / Report / Data Capture / Member** | ⚠️ 部分 | `/api/transaction/search` + `/history` + `/submit` + Meta（account/list + currency/list）；**Data Capture Games form / 币别 / description / tenant picker / Formula CRUD / Bank draft / Summary submit（Games·Bank 公司范围）** 已 Spring | **Transaction Payment 页** Meta / Search / History / Submit（含 RATE）已 Spring；Contra Inbox 无 pending（Submit 即时 APPROVED）；SSE ticket 未接 Spring。**Report** 完全未迁移（`api/reports/*`）。**Data Capture**：2026-08-14 commit `4f00f14` 曾把 Games/Formula/Bank draft/Summary submit 整批回退成 PHP，2026-08-19 已修复回 Spring（见 [`datacapture-spring-api.md` §0](./datacapture-spring-api.md#0-2026-08-19修复-commit-4f00f14-造成的整批回退)）；**仅真 AP/IG group ledger**（非 C168/Bank 公司范围）的 process id 解析、群组币别聚合、Summary submit、草稿表格仍走 PHP（见该文档第 4 节）。**Member Win/Loss**（`api/member/*`）完全未迁移 |
+| **Process** | ✅ 已迁移（2026-08-25 复核：第 17 节的列表加载 PHP + 死代码 bug 已修） | `/api/process/*` + `/api/currency/list` | Add/Update/Status/Delete/description CRUD 及列表加载均直调 Spring；`processRoutePrefetch.js` 已改用 `fetchProcessListByTenantId`/`fetchProcessFormMeta`，不再打 `processlist_api.php`。页内仍有一处硬编码 `session/update_company_session_api.php`（公司切换），未跟着迁移，见第 7 节 |
+| **Bank Process** | ✅ 已迁移（2026-08-25 复核，与 Process 同批修复） | `/api/bank-process/*`、`/api/bank-country-option/*`、`/api/account/*` | Add/Update/Status/Delete/Remark/Resend/Accounting Due Post-to-Transaction（见第 10 节）+ 列表加载（`bankProcessListApi.js` 全量 `/api/bank-process/*`）均已 Spring。页内同样有一处硬编码 `session/update_company_session_api.php`，见第 7 节 |
+| **Transaction / Report / Data Capture / Member / Maintenance** | ⚠️ 部分（2026-08-25 复核，多数子模块已完成） | `/api/transaction/search` + `/history` + `/submit`；`/api/report/domain-report/list` + `/api/report/customer-report/list`；`/api/maintenance/{formula,payment,transaction,capture}-maintenance/*`；Data Capture 全量 Spring 端点 | **Transaction Payment 页** Meta / Search / History / Submit（含 RATE）已 Spring；Contra Inbox 无 pending；SSE ticket 未接 Spring。**Report 已全部迁移**（Domain Report + Customer Report，2026-08-19 文档写"完全未迁移"是旧记录，已过时）。**Maintenance 业务页**（Formula/Payment/Transaction/Capture，含纯 Group 账本形式）**已全部迁移**（2026-08-19 文档写"仍 PHP"是旧记录，已过时）；仅共用的 `maintenanceCompanyApi.js` 权限校验/备用 process 下拉仍是 PHP，见第 7 节。**Data Capture**：Games form / Formula CRUD / Bank draft / Summary submit（Games·Bank 公司范围）已 Spring；**仅真 AP/IG group ledger**（非 C168/Bank 公司范围）仍走 PHP，是已知的记录在案的遗留边界，非新发现。**Member Win/Loss**（`api/member/*`）完全未迁移（用户已知，本次不处理） |
 
 ---
 
@@ -438,17 +440,208 @@ Group 候选完全依赖 Spring `GET /api/ownership/available-accounts`。
 
 ## 7. 尚未迁移 / 仍走 PHP
 
-以下模块**未**在 `apiUrl.js` 中做 Spring 重写，或仅部分 endpoint 迁移（2026-08-19 核实更新）：
+> **2026-08-25 复核**：本节大部分条目是 2026-08-19 的旧记录，其中 Process List / Bank Process List 列表加载、Report、Maintenance 业务页（formula/transaction/payment/capture）**均已在此之后迁移完成**，旧条目已删除/更正。以下是按当前代码逐条核实（`grep` 实际 fetch 调用 + 核对 `apiUrl.js` 改写表）确认**仍然真实存在**的 PHP 依赖：
 
-- **Process List / Bank Process List 列表加载**（**优先级最高，见第 17 节**）：写操作（add/update/status/delete/description CRUD）已 Spring，但页面真正展示用的列表数据源 `processRoutePrefetch.js` 仍打 PHP 且 `processListApi.js` 有死代码 bug（引用的 4 个 helper 函数不存在），两个页面实测很可能整页 500；旧版本节曾错误标注「已迁移」
-- **Transaction Payment 页**：Meta / Search / History / Submit 已直调 Spring（见第 11 节）；**Maintenance transaction** 仍 PHP
-- **Report**：`api/reports/*`，完全未迁移，无 Spring 端点规划
-- **Data Capture / Summary**：Games 表单 + Formula CRUD（save/update/delete + Account + Currency + Source 行内）+ Bank draft + Summary submit（Games/Bank 公司范围）已 Spring，2026-08-14 曾被 `4f00f14` 整批回退、2026-08-19 已修复（见 [`datacapture-spring-api.md` §0](./datacapture-spring-api.md#0-2026-08-19修复-commit-4f00f14-造成的整批回退)）；**仅真 AP/IG group ledger**（process id 解析 `get_group_process_id`、群组币别聚合、Submit、草稿表格）仍走 PHP
-- **Bank Process List**：写操作（Add/Update/Status/Delete/Remark/Resend/Accounting Due Post-to-Transaction）已 Spring（见第 10 节）；**列表加载**与 Process List 共享第 17 节的 PHP 依赖问题
-- **Member Win/Loss**：`api/member/*`（账户 meta 可复用 `/api/account/list`）
-- **Maintenance 业务页**（formula/transaction/payment 等）：仍 PHP
-- **User Access 部分接口**
-- **Auth 残留 PHP / 字段不匹配**（见 [§15.4](#154-已知仍未修复本次明确不处理超出仅-login-范围)）：`resetPassword.js`、`companySessionSync.js` 仍调 PHP；`sidebarPermissions.js` / `loginScope.js` 仍读旧字段名（`company_has_gambling`/`company_has_bank`/`is_current_company_c168`），与 Spring 实际返回的 `tenant_has_game`/`tenant_has_bank`/`is_current_tenant_c168` 不匹配，可能影响登入后默认落地页路由判断
+- **User Access 页面**（`UserAccessPage.jsx`）：**已于 2026-08-25 全部改为 Spring**（本条历史记录见下方补充说明），不再是待迁移项
+- **Deleted Log 页面**：**已于 2026-08-25 整体下线**（用户确认"不需要了"）。删除了 `pages/deletedlog/DeletedLogPage.jsx`、`public/css/deleted-log.css`，并清掉 `App.jsx` / `pageRoutes.js`（`PAGE_PATHS`、`PAGE_ROUTE_UUIDS`、`SPA_READABLE_ROUTE_PATTERN`）/ `routePrefetch.js` / `AuthenticatedLayout.jsx`（`onAccountLike` 分支）/ `LoginPage.jsx`（body class 清理列表）里的路由注册和引用；核实过应用内没有任何侧边栏入口指向这个页面（只能靠直接输 URL 到达），故不需要额外处理跳转/引导。`public/css/modal-close-unified.css` 里还残留几行 `.deleted-log-json-modal` 选择器，纯死 CSS（没有任何组件再用这个 class 名），未清——不影响功能，之后顺手清一次即可
+- **Maintenance 公司权限校验**：**已于 2026-08-25 移除**（本条历史记录见下方 §7.2）
+- **Announcement 维护模式开关**（`AnnouncementPage.jsx` 的 `maintenance/mode_api.php`）：Announcement 模块其余接口（list/create/update/delete、含维护公告）都已在 `apiUrl.js` 改写到 Spring，唯独这一个 mode 开关端点漏了
+- **Currency 删除**：**已于 2026-08-25 清理**（本条历史记录见下方 §7.3）——不再是待迁移/待清理项
+- **Process List / Bank Process List 页内的公司切换**：**已于 2026-08-25 修复**（本条历史记录见下方 §7.4）——不再是待迁移项。**Dashboard**（`useDashboardPage.js`）和 **Member Win/Loss**（`useMemberWinLoss.js`）里还各有一处同样硬编码调 `update_company_session_api.php` 的代码，这两个页面用户已知未迁移、本次不处理，未跟着一起改
+- ~~真 AP/IG 纯 Group 账本 Data Capture 币种/草稿/提交/process 解析~~：**已于 2026-08-25 清理**。查 `testcount`（Spring 库）`tenant` 表确认 `id` 是 `NOT NULL AUTO_INCREMENT` 主键——"Group 没有自己 tenant.id"这种情况在当前数据模型下结构性不可能存在（不是概率低，是主键约束直接排除），旧文档记的"遗留边界"是延续 PHP 时代的过度兼容，不是真实存在的场景。实际清理时发现草稿（`dataCaptureGroupOnlyTableDraft.js`）、提交（`summarySubmitExecution.js`）、process 解析（`get_group_process_id`）三处**其实早就已经是纯 Spring**，代码注释里已经写明"no PHP endpoint involved"/"no PHP submit path left"，只有币种查询（`dataCaptureApi.js` 的 `fetchGroupCaptureCurrencies` → `get_scope_account_currencies_api.php`）还在用，本次已删除该函数及其唯一调用点（`useDataCaptureFormEngine.js` 的 `loadGroupOnlyCurrencies`），无 tenantId 时直接返回空列表
+- **Member Win/Loss**：`api/member/*`（用户已知、本次不处理）
+- **Reset Password**（`resetPassword.js`）：仍调 PHP（用户已知、本次不处理）
+- **Auth 字段不匹配**（见 [§15.4](#154-已知仍未修复本次明确不处理超出仅-login-范围)）：`sidebarPermissions.js` / `loginScope.js` 仍读旧字段名（`company_has_gambling`/`company_has_bank`/`is_current_company_c168`），与 Spring 实际返回的 `tenant_has_game`/`tenant_has_bank`/`is_current_tenant_c168` 不匹配，可能影响登入后默认落地页路由判断
+
+> **提醒**：`companySessionSwitchCore.js` 注释明确写着"reverse proxy sends every unrewritten `/api/*` path to Spring"——没在 `apiUrl.js` 改写表里登记的旧 PHP 路径，现在打过去大概率直接 404，不只是"待迁移"。上面这几项都不在改写表里。本次未实际发请求验证 404，纯代码审查结论。
+
+### 7.1 User Access 页面迁移记录（2026-08-25）
+
+用户对"整页都是 PHP"这个结论提出过质疑（"我记得已经转成 Spring 了"）——查 git 历史发现用户记忆是对的一部分：
+
+- **账户下拉**：初始 commit（`9bdcb48`）里本来就是 `POST /api/account/list?tenant_id=`（Spring），后来
+  `d7f8207`（2026-07-15，标题叫"migrate ... to Spring Boot"，实际却把这一处**改回**了 PHP
+  `accountlistapi.php`）造成回归，此后一直没人发现——因为这个页面在 App 里**没有任何侧边栏/按钮入口**，
+  只能直接输 `/useraccess` URL 才能到达，所以回归没在正常操作流程里被注意到
+- **用户列表**（`get_all_users`）和**流程下拉**：查了从初始 commit 到现在的完整历史，这两个从头到尾
+  都是 PHP，不是回归，是原本就没迁移过
+
+复核 Spring 侧后确认三块都有现成、已在用的等价接口，不需要后端补任何新端点：
+
+| 原 PHP | 换成 | 依据 |
+|---|---|---|
+| `useraccess_api.php`（`get_all_users`） | `POST /api/userlist/list?tenant_id=`（`userListApi.js` 的 `fetchAdminListByTenantId`） | User List 页面本来就在用；返回的每行自带 `permissions`/`tenantAccess.accountPermissions`/`tenantAccess.processPermissions`，跟模板用户要的数据完全对得上 |
+| `accountlistapi.php?company_id=` | `POST /api/account/list?tenant_id=`（`accountListApi.js` 的 `fetchAccountListByTenantId`） | Formula/Payment Maintenance 现在都在用 |
+| `processlist_api.php?company_id=&showAll=1` | `POST /api/process/process-list`（新增 `processListApi.js` 的 `fetchAllProcessListByTenantId`） | 复用 Process List 页同一个 Spring 端点，但**不做** `normalizeProcessListItem` 那个 Games-only 的 BANK 过滤，因为 User Access 的权限选择器需要 Games + Bank 两个 category 都能选 |
+| `useraccess_api.php`（`copy_permissions`） | `POST /api/userlist/update`（`userListApi.js` 的 `updateAdminUser`），对每个被选中的用户循环调一次 | Spring `AdminDTO.AccountPermissionItem`/`ProcessPermissionItem` 的字段形状（`{id, account_id}` / `{id, process_id, description}`）跟原 PHP payload 几乎一致，只是 process 那个字段原来叫 `process_description`，Spring 端没有 `@JsonProperty` 别名、要用 `description` |
+
+改动文件：
+- `src/pages/processlist/processListApi.js` —— 新增 `fetchAllProcessListByTenantId`（不过滤 category）
+- `src/pages/useraccess/UserAccessPage.jsx` —— `loadAccessData` 三个 fetch 全部换成上面表格右列的函数；
+  `doUpdatePermissions` 从一次 PHP `copy_permissions` 调用改成对每个 affected user 循环调
+  `updateAdminUser`（`Promise.allSettled`，部分失败会在提示里报出成功/失败数量）；`login_id`/
+  `account_permissions`/`process_permissions`/`tenant_access_id` 通过 `loadAccessData` 里的映射层
+  兼容旧字段名，页面其余渲染逻辑基本没动
+
+**已验证**：`vite build` 通过，无未用引用/变量报错。
+
+**未验证**：本次未做浏览器端到端测试——这个页面本来就没有 UI 入口能点进去（只能直接输 URL），需要真实
+登录 session + 后端联调才能测；建议下次有机会时手动跑一遍：选模板用户 → 勾账户/流程 → 勾 affected
+users → Update，确认 Spring `/api/userlist/update` 真的把权限写回去了，且 `PERMISSION_OPTIONS`（来自
+`getVisiblePermissionKeys`）跟 Spring 返回的 `permissions` 数组格式没有对不上的地方。
+
+### 7.2 移除 Maintenance 公司权限校验的多余 PHP 请求（2026-08-25）
+
+`maintenance/shared/maintenanceCompanyApi.js` 里 `fetchDomainCompanyPermissions`（+ 它的两个包装
+`fetchFormulaCompanyPermissionsRaw`、以及 capture/transaction 各自的 `fetchCompanyPermissions`）
+打的 `domain/domain_api.php`，核实过所有调用点在发起这个请求的时刻，Spring 侧其实已经把同一个答案
+免费算好了，于是把这次网络请求整个删掉，直接读已有数据：
+
+- **Boot 阶段**（Formula/Capture Maintenance）：直接读 `/auth/current-user` 已经返回、`me`
+  对象上现成的 `tenant_has_game`/`tenant_has_bank`（`PermissionServiceImpl.hasGameModule/
+  hasBankModule` 算出来的，语义跟原来 PHP 查的"公司 Games/Bank 权限"完全一致）
+- **Boot 阶段**（Transaction Maintenance）：这个页面 boot 时本来就会无条件 `await
+  updateSessionCompany(initialCompanyId)`（Spring `auth/switch-tenant`）去同步 session——原代码
+  是先查权限、查完才同步 session，顺序倒了。改成**先同步再查权限**，直接用同步响应里的
+  `has_gambling`/`has_bank`（跟 boot 公司精确对应，比读 `me.tenant_has_game` 更准，因为
+  `initialCompanyId` 有可能因为本地持久化的 UI 选择跟 session 当前租户不一致），`updateSessionCompany`
+  失败时兜底回 `me.tenant_has_game`/`me.tenant_has_bank`
+- **切换公司**（三个页面共用的 `runMaintenanceCompanySwitch`）：这个函数在调 `onStay` 之前本来就已经
+  `await updateSessionCompany(...)` 过一次了，只是三个页面的 `onStay` 回调都没接收这个参数、
+  又自己另外发一次权限请求。现在把 `onStay` 签名改成 `async (sessionData) => {...}`，直接用
+  `runMaintenanceCompanySwitch` 已经传进来的 `sessionData.has_gambling`/`sessionData.has_bank`
+
+`maintenanceCompanyApi.js` 整个重写：删掉 `fetchPermissionsFromApi`（PHP fetch）、
+`fetchDomainCompanyPermissions`（async 网络函数）、`fetchFormulaCompanyPermissionsRaw`；新增两个
+纯函数（不发请求）`permissionsFromCategoryFlags({hasGame, hasBank})` 和
+`resolveCompanyPermissions({companyCode, hasGame, hasBank, defaultPermissions})`，后者保留了原来
+的 fail-open 默认值行为（拿不到 flag 时默认放行 Games+Bank，跟原 PHP 调用失败时的降级逻辑一致）。
+`isBankOnlyCategoryCompany`/`companyPermsAllowDataCaptureMaintenance` 这两个纯判断函数不变——它们
+本来就是吃 `["Games","Bank"]` 形状的数组，跟数据来源无关。
+
+**另外**：`fetchMaintenanceProcesses`（`processes/processlist_api.php`）确认是彻底的死代码——
+定义了但整个前端仓库没有任何地方 import/调用它，随这次重写一并删掉，不需要迁移。
+
+改动文件：
+- `src/pages/maintenance/shared/maintenanceCompanyApi.js` —— 整个重写为纯函数，无网络调用
+- `src/pages/maintenance/formula/formulaMaintenanceLogic.js` / `FormulaMaintenancePage.jsx` ——
+  boot 处改用 `resolveCompanyPermissions({hasGame: u.tenant_has_game, hasBank: u.tenant_has_bank})`
+  （这个页面没有切换公司时的权限校验，只有 boot 这一处）
+- `src/pages/maintenance/capture/captureMaintenanceLogic.js` / `CaptureMaintenancePage.jsx` ——
+  boot + 切换公司两处都改
+- `src/pages/maintenance/transaction/transactionMaintenanceLogic.js` /
+  `TransactionMaintenancePage.jsx` —— boot（含 `updateSessionCompany` 调用顺序调整）+ 切换公司
+  两处都改
+
+**已验证**：`vite build` 通过；`vitest run src/pages/maintenance` 9/11 通过，2 个失败是
+`formulaMaintenanceLogic.test.js` 里 `syncEditFormSourcePercent`/`syncEditFormFormulaInput` 相关的
+既有失败，跟本次改动无关（本 session 更早时候已用 `git stash` 对比确认过是改动前就存在的失败）。
+
+**未验证**：未跑浏览器端到端回归。建议人工过一遍三个 Maintenance 页面：纯 Company 模式下 boot 能不能
+正常进（不被错误 redirect 去 dashboard）、切换公司时权限判断是否正确、以及 C168 / bank-only 公司
+（Capture Maintenance 的 `isC168CompanyCode` 特判分支）表现是否跟改动前一致。
+
+### 7.3 清理 Currency 删除里的死 PHP fallback（2026-08-25）
+
+`utils/api/currencyApi.js` 的 `deleteCurrency()` 常规分支本来就是 Spring `POST /api/currency/delete?
+id=&tenantId=`；只有 `force: true` 那个分支（跨 tenant/group 强制删除、绕过 usage 校验）落回旧 PHP
+`accounts/delete_currency_api.php`，原因是 Spring `CurrencyController.delete()` 目前只接受
+`id`/`tenantId`，没有 `force`/`group_only`/`group_id` 这套参数，后端本身没实现这个能力。
+
+但 `grep` 整个前端仓库确认 `deleteCurrency()` **没有任何地方调用**（只有 `domainTranslate.js` 里还留
+着几条相关的翻译字符串，没有真正接线的 UI）——所以这不是"漏迁移一个正在用的功能"，`force` 分支连同它
+调用的那段 PHP fallback 都是完全没被接线过的死代码。既然没有任何调用方在用 `force: true`，直接把这
+个分支删掉，`deleteCurrency()` 简化成只剩 Spring 分支。
+
+改动文件：
+- `src/utils/api/currencyApi.js` —— `deleteCurrency()` 删掉 `force`/`anchorCompanyId` 参数和整段
+  `force: true` 时的 PHP fallback 逻辑；连带删掉只被这段逻辑用到的 `applyTenantLedgerToParams` import
+  （`LEDGER_GROUP` 还在被 `resolveCurrencyTenantIdFromScope` 用，保留）
+
+**已验证**：`vite build` 通过，无未用引用/变量报错；`grep` 确认删除后仍然没有任何调用方引用
+`deleteCurrency()`，行为上不影响任何当前功能。
+
+**遗留**：如果之后真的要做"强制删除已被账户引用的币种"这个功能（`domainTranslate.js` 里的翻译字符串
+暗示曾经规划过），后端 `CurrencyController.delete()` 需要先补上 `force`/`group_only`/`group_id` 这套
+参数和对应的 usage 校验/级联逻辑，这部分能力目前 Spring 端还没有，不是前端能单独解决的。
+
+### 7.4 Process List / Bank Process List 页内公司切换改用 Spring（2026-08-25）
+
+`ProcessListPage.jsx`（`onSwitchCompany`）和 `useBankProcessListPage.js`（同名 handler）各有一处
+硬编码直接 `fetch(buildApiUrl("api/session/update_company_session_api.php?company_id=..."))`，
+没跟着走别的地方早就在用的 `fetchUpdateCompanySession`（`companySessionSwitchCore.js`，本质是
+Spring `auth/switch-tenant`）。换成这个已迁移好的函数即可，两个文件改法完全一样。
+
+**唯一需要注意的细节**：Spring 失败响应的形状跟旧 PHP 不一样。
+
+- 旧 PHP `update_company_session_api.php` 在租户过期/未过期两种被拒场景下，会返回结构化的
+  `data.reason`（`"expired"` 或 `"no_set"`），`ProcessListPage.jsx` 原本靠这个字段区分"公司已过期"
+  （弹出期限提示 `setExpirationCompanies(...)`）和其他失败原因。
+- Spring `switch-tenant` 走 `GlobalExceptionHandler` 统一处理 `BusinessException`，返回的是
+  `{status: "error", message: "..."}`——**没有 `success` 字段、也没有结构化 `reason`**，过期时
+  `message` 是纯文本 `"Company or Group has expired."`。改动后靠匹配
+  `message.toLowerCase().includes("expired")` 来还原"公司已过期"这个分支，其余失败原因（含 PHP
+  原本单独处理的 `"no_set"`）统一走通用失败提示。
+- **行为差异（已知，未修复，非本次范围）**：PHP 的 `"no_set"` 语义是"公司连到期日都没配置，禁止切换
+  过去"；Spring 的 `assertTenantNotExpired()`（`AuthServiceImpl.java:593`）只在
+  `expirationDate != null && 已过期` 时才拒绝，`expirationDate == null` 的公司现在**可以正常切换
+  过去**，不再被挡。这是后端 `switchSessionTenant` 缺了一条 PHP 曾经有的校验规则，不是前端能单独补上
+  的——如果这条规则仍然需要，得后端在 `assertTenantNotExpired` 里补一个 null 分支。
+
+改动文件：
+- `src/pages/processlist/ProcessListPage.jsx` —— `onSwitchCompany` 换成 `fetchUpdateCompanySession`
+  + message 文本匹配 `expired`
+- `src/pages/bankprocesslist/hooks/useBankProcessListPage.js` —— 同上，这个页面原本没有过期分支，
+  直接走通用失败提示，改法更简单
+
+**已验证**：`vite build` 通过。
+
+**未验证**：未跑浏览器端到端回归，尤其"切换到一个已过期的公司/组"这条路径——建议找一个
+`expiration_date` 在过去的测试租户实际切换一次，确认弹出的还是期限提示而不是普通的
+"switch company failed"。`expiration_date` 为 null 的租户现在能不能切换过去（预期：能，这是上面
+提到的已知行为差异）也值得顺便确认一下跟预期一致。
+
+---
+
+### 7.5 删除模拟旧 PHP `groups` 表的独立缓存 + 修复被误关的 Process List 预热（2026-08-27）
+
+`utils/company/sharedCompanyFilter.js` 里有一套 `fetchOwnerGroupsAll`/`ownerGroupsCache`/
+`findOwnerGroupByCode` 机制，是照着旧 PHP"公司表 + 独立 groups 表"两张表的模型写的，早就因为
+没有对应 Spring 端点被改成永远返回 `[]` 的空实现。但在 tenant 模型下，**Group 不是独立概念**——
+它就是 `Tenant` 表 `tenant_type = GROUP` 的一行，跟公司共用同一个 `/auth/tenant-accessible`，
+自带 `expiration_date`/`id`，且自引用（`company_id === group_id`）。这套独立缓存机制被读取的字段
+（`.expiration_date`、`.id`）在 `getCachedOwnerCompanies()`（已迁移的 tenant-accessible 快照）里
+本来就有，没有必要单独维护——整套删除，`resolveGroupExpirationDate`/`resolveOwnerDashboardGroupIds`
+简化成只读 `getCachedOwnerCompanies()`。
+
+顺手修了一个相关的死代码 bug：`AuthenticatedLayout.jsx` 的 `runProcessListWarm`（Account→Process
+List 页面预热）被一段过期注释锁成了空函数，注释说 `processRoutePrefetch.js` 还在打 PHP——但那个
+文件早就全部是 Spring 了（`fetchProcessListByTenantId`/`fetchBankProcessListByTenantId`/
+`fetchCurrencyListByTenantId`），注释没跟着代码更新。已按 `runAccountListWarm` 的写法把预热逻辑
+补回去。
+
+详细改动清单、已知限制（`useTransactionData.js` 里那句"empty Group KK"注释暗示的、早就已经失效的
+owner 空 Group 可见性场景）见 `Count-frontend/docs/owner-groups-cache-removal.md`。
+
+改动文件（均为 `Count-frontend`，后端本次未改动）：
+- `src/utils/company/sharedCompanyFilter.js` —— 删除 owner-groups 缓存整套 API，简化
+  `resolveGroupExpirationDate`/`resolveOwnerDashboardGroupIds`
+- `src/pages/dashboard/hooks/useDashboardPage.js` / `src/pages/report/customer/CustomerReportPage.jsx`
+  / `src/pages/report/domain/DomainReportPage.jsx` / `src/pages/transaction/hooks/useTransactionData.js`
+  —— 去掉对已删除的 `fetchOwnerGroupsAll` 的调用
+- `src/pages/userlist/UserListPage.jsx` —— 空 Group 选择器 id 逻辑去掉对已删除的
+  `findOwnerGroupByCode` 的依赖
+- `src/components/AuthenticatedLayout.jsx` —— `runProcessListWarm` 补回真正的预热逻辑 + 更新两处
+  过期注释
+
+**已验证**：`vite build` 通过；`node --test` 跑过 3 个覆盖到这几个文件的既有测试
+（`userListLogic.selfHiddenTiles.test.js`、`domainPageForbiddenRace.test.js`、
+`sharedCompanyFilter.partnerPill.test.js`），10/10 通过。
+
+**未验证**：未跑浏览器端到端回归，尤其 `runProcessListWarm` 重新打开后 Account→Process List 的
+预热是否真的生效（建议开着 Network 面板从 Account 页切到 Process List，确认列表几乎瞬时出现）。
+
+---
 
 新增迁移时：优先在对应 `*Api.js` 增加 `normalize*`，并更新本节状态表。
 
