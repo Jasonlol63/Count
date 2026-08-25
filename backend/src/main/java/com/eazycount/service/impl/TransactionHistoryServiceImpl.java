@@ -332,7 +332,8 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             row.setProduct(resolveDomainHistoryProduct(line));
         }
         row.setCurrency(currency);
-        row.setRate("-");
+        String dataCaptureRate = isDataCapture ? trimToEmpty(line.getRateExpression()) : "";
+        row.setRate(!dataCaptureRate.isEmpty() ? dataCaptureRate : "-");
         if (isBank || isAdjustment || isProfit || (isRateMiddlemanFee && !isPlatformFee)) {
             row.setWinLoss(TransactionMoneyFormat.formatMoney(signed));
             row.setCrDr(TransactionMoneyFormat.formatMoney(BigDecimal.ZERO));

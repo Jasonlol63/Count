@@ -438,19 +438,12 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         dataCaptureSummaryDao.insertCapture(header);
         Integer captureId = header.getId();
 
-        // 2) transactions first (WIN/LOSE, one per non-zero line) so each line can be stamped with the
-        // transaction it generated — Capture Maintenance delete needs that link to cascade-archive the
-        // right transaction per line (there is no other reliable way to correlate the two tables).
         List<DataCaptureLine> lineEntities = new ArrayList<>();
         int order = 0;
         for (ComputedLine computed : computedLines) {
-            Integer lineTransactionId = null;
-            if (computed.finalAmount.signum() != 0) {
-                Transaction txn = toTransaction(computed, tenantId, headerCurrencyId, captureDate, process.getCode(), session);
-                transactionDao.insert(txn);
-                lineTransactionId = txn.getId();
-            }
-            lineEntities.add(toLineEntity(computed, tenantId, captureId, headerCurrencyId, order, lineTransactionId));
+            Transaction txn = toTransaction(computed, tenantId, headerCurrencyId, captureDate, process.getCode(), session);
+            transactionDao.insert(txn);
+            lineEntities.add(toLineEntity(computed, tenantId, captureId, headerCurrencyId, order, txn.getId()));
             order++;
         }
         dataCaptureSummaryDao.insertLines(lineEntities);
