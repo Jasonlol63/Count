@@ -29,5 +29,6 @@ public interface ReportDao {
             @Param("tenantId") Integer tenantId,
             @Param("dateFrom") LocalDate dateFrom,
             @Param("dateTo") LocalDate dateTo,
-            @Param("processId") Integer processId);
+            @Param("processId") Integer processId,
+            @Param("category") String category);
 }

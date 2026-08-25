@@ -10,14 +10,12 @@ import java.math.BigDecimal;
 @Setter
 public class DomainReportDTO {
 
-    // Request
     private Integer tenantId;
     private String dateFrom;
     private String dateTo;
-    /* Single process filter; null = "All Process". */
     private Integer processId;
+    private String category;
 
-    // Response row
     private Integer processRowId;
     private String processCode;
     private String description;

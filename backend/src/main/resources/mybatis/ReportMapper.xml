@@ -79,7 +79,7 @@
            AND t.transaction_type IN ('WIN', 'LOSE')
         <where>
             AND p.tenant_id = #{tenantId}
-            AND p.category = 'GAME'
+            AND p.category = #{category}
             <if test="processId != null">
                 AND p.id = #{processId}
             </if>

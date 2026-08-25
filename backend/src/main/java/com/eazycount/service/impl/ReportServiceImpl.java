@@ -107,13 +107,15 @@ public class ReportServiceImpl implements ReportService {
             throw new BusinessException("dateTo must be on or after dateFrom");
         }
 
-        // processId is optional: null/blank means "All Process" — every GAME process under the tenant is returned.
         Integer processId = request.getProcessId() != null && request.getProcessId() > 0
                 ? request.getProcessId()
                 : null;
+        String category = request.getCategory() != null && !request.getCategory().isBlank()
+                ? request.getCategory().trim().toUpperCase(Locale.ROOT)
+                : "GAME";
 
         List<DomainReportDTO> rawRows = reportDao.findDomainReportRows(
-                request.getTenantId(), dateFrom, dateTo, processId);
+                request.getTenantId(), dateFrom, dateTo, processId, category);
         if (rawRows == null) {
             rawRows = List.of();
         }
