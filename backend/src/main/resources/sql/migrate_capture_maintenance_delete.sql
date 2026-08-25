@@ -1,6 +1,6 @@
 -- Capture Maintenance delete cascade: schema-only, no app logic here.
 -- Adds the linking columns needed to cascade a Capture Maintenance delete (always by
--- whole capture_id — never a partial subset of a capture's lines, see docs/maintenance-navigation.md)
+-- whole capture_id — never a partial subset of a capture's lines, see docs/frontend-springboot-migration.md 第18节)
 -- into transactions and process_submitted, plus the archive table for soft-deleted lines.
 -- Safe to re-run (idempotent) on an existing testcount that already has data_capture_line /
 -- data_captures / transactions / process_submitted.

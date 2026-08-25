@@ -6,7 +6,7 @@
 > **最后更新**：2026-07-29
 
 本文说明旧表在新租户模型（`tenant`）下如何 **迁移 / 拆分 / 合并 / 优化 / 弃用**。  
-**只谈表结构与设计意图**；业务 API 是否已切到 Spring 另见 `docs/datacapture-spring-api.md`、`docs/frontend-springboot-migration.md`。
+**只谈表结构与设计意图**；业务 API 是否已切到 Spring 另见 `docs/frontend-springboot-migration.md` 第32节（Data Capture）。
 
 ---
 
@@ -208,7 +208,7 @@ data_capture_draft ── data_capture_draft_cell
 | 同日 Resend 锁 | `bank_process_resend_daily_guard` |
 | 开放补单排程 | 列在 `bank_process` 上（`resend_schedule_*`），替代独立 pending 表 |
 
-Due 行为细则见 `docs/accounting-due-frequency-rules.md`。
+Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 
 ### 3.7 Transactions / RATE 三表归一
 
@@ -301,6 +301,6 @@ Get-Content backend\src\main\resources\sql\migrate_datacapture_line.sql -Raw |
 
 1. 增删改目标表时：**同步改 `schema.sql`**，需要增量时再补 `migrate_*.sql`。  
 2. 若某旧表决定「永不迁入」，在本文 **§4** 补一行原因，并在 `schema.sql` 注释写 `NOT planned`。  
-3. Data Capture 行为与前端契约：优先更新 `docs/datacapture-spring-api.md`。  
-4. Accounting Due / Resend：优先更新 `docs/accounting-due-frequency-rules.md`。  
+3. Data Capture 行为与前端契约：优先更新 `docs/frontend-springboot-migration.md` 第32节。  
+4. Accounting Due / Resend：优先更新 `docs/frontend-springboot-migration.md` 第31节。  
 5. 勿把 `backend/src/main/resources/schema.sql`（旧摘录）当作完整旧库或新目标结构。

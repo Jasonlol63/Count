@@ -38,7 +38,7 @@ leg2 是**单一对称金额**（一个 `amount` 字段，Cr/Dr 双边共用）�
 | Service（Payment History） | `service/impl/TransactionHistoryServiceImpl.java` | `mergeRateMiddlemanDeductionsIntoMainLeg()` 等，见第 10 节 |
 | Service（CONTRA 汇总） | `service/impl/TransactionSearchServiceImpl.java` | `buildDomainPaymentSearchSlice()` 等，见第 11 节 |
 | Rate-Mul 算法 | `util/RateMulCalculator.java` | 解析 Rate-Mul 输入、算佣金 |
-| 金额精度 | `util/TransactionMoneyFormat.java` | 见 [`transaction-amount-precision.md`](./transaction-amount-precision.md) |
+| 金额精度 | `util/TransactionMoneyFormat.java` | 见 [`frontend-springboot-migration.md` 第27节](./frontend-springboot-migration.md#27-transaction-amount-precision) |
 | Entity | `entity/TransactionRate.java` | 映射 `transactions_rate` |
 | DAO | `dao/TransactionRateDao.java` + `mybatis/TransactionRateMapper.xml` | 头表 insert/delete |
 | Schema | `sql/schema.sql`（`transactions_rate` 定义）+ `sql/migrate_rate_platform_fee_and_ratemul.sql`（增量迁移） | |
@@ -135,7 +135,7 @@ platformFeeAmount        Platform Fee 面值，第二（leg2）币种，恒正�
 
 ## 8. Description 文案
 
-沿用 [`transaction-description-rules.md`](./transaction-description-rules.md) 的规则，Middle-Man 那部分本次改了 rate token 的生成方式：
+沿用 [`frontend-springboot-migration.md` 第28节](./frontend-springboot-migration.md#28-transaction-description-storage) 的规则，Middle-Man 那部分本次改了 rate token 的生成方式：
 
 ```text
 Fee:            MARKUP X {ccy1} {amount} > {ccy2} | FROM {leg1ToAccountName}
@@ -231,8 +231,8 @@ Transaction Payment 页面顶部那个「Account / B-F / Win-Loss / Cr-Dr / Bala
 
 **Related docs**
 
-- [transaction-amount-precision.md](./transaction-amount-precision.md)
-- [transaction-description-rules.md](./transaction-description-rules.md)
+- [frontend-springboot-migration.md 第27节](./frontend-springboot-migration.md#27-transaction-amount-precision)
+- [frontend-springboot-migration.md 第28节](./frontend-springboot-migration.md#28-transaction-description-storage)
 - [`Count-frontend/docs/transaction-rate-springboot-submit.md`](../../Count-frontend/docs/transaction-rate-springboot-submit.md) —— 前端 payload 映射
 - [frontend-springboot-migration.md](./frontend-springboot-migration.md#26-rate-middle-man--rate-mul--platform-feespring-boot-现行实现) —— 本文件内容的镜像拷贝（第 26 节）
 

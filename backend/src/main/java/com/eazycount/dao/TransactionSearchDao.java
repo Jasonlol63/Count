@@ -10,7 +10,7 @@ import java.util.List;
 /**
  * Transaction Payment main list (Win/Loss + Cr/Dr account balances) — backs
  * {@code TransactionSearchServiceImpl} only. Split out of {@link TransactionDao} so this interface's
- * method set matches exactly what the Search page needs (see docs/transaction-datacapture-winloss.md).
+ * method set matches exactly what the Search page needs (see docs/frontend-springboot-migration.md 第25节).
  */
 @Mapper
 public interface TransactionSearchDao {

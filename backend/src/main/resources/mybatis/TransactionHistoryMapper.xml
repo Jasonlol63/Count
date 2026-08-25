@@ -7,7 +7,7 @@
       cross-namespace <include>) so this file stays self-contained and matches TransactionHistoryDao
       1:1. They are stable business-rule definitions (type lists / leg-matching predicates), not
       calculation logic, so the duplication is low-risk — but if you change one copy, change both
-      (see docs/transaction-datacapture-winloss.md §6).
+      (see docs/frontend-springboot-migration.md 第25节).
     -->
 
     <!-- Manual transfer Cr/Dr types: PAYMENT / CLAIM / CLEAR / CONTRA / RATE (To −, From +); bank_process_posted_id IS NULL -->

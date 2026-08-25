@@ -136,7 +136,7 @@ res.success === true || res.status === "success"
 - `is_current_tenant_c168`
 - `permissions[]`（小写，见 `sidebarPermissions.js`）
 
-Maintenance 侧边栏与 Bank Process 入口规则：[`maintenance-navigation.md`](./maintenance-navigation.md)
+Maintenance 侧边栏与 Bank Process 入口规则：[`frontend-springboot-migration.md`第18节](#18-maintenance-侧边栏导航spring-spa)
 
 ### 3.4 `utils/company/loginScope.js` / `sharedCompanyFilter.js`
 
@@ -197,7 +197,7 @@ Maintenance 侧边栏与 Bank Process 入口规则：[`maintenance-navigation.md
 | 币种 | `POST /api/currency/available?tenant_id=` / `add` / `delete` |
 | UI pill | AccountModal 仍显示 “Company” 标签，但 picker `id` = **`tenant.id`**，`company_id` 列 = **tenant code** |
 
-**Domain Confirm 写 Transaction**（`apply_commission_payments_on_domain_save` / Charge on Save）已实现：详见 [`login-to-business-pages.md` §4.5.1](./login-to-business-pages.md#451-domain-confirm-charge-on-save--写-transactions2026-07-20)。开关本身仍只是 UI 本地状态（不落 `tenant` 表），随 Domain Confirm 一次性提交给 `PUT /update-setting`，记账成功与否都不需要显式重置——下次重新拉取数据天然是关闭的。
+**Domain Confirm 写 Transaction**（`apply_commission_payments_on_domain_save` / Charge on Save）已实现：详见 [`frontend-springboot-migration.md`第33节 §4.5.1](#33-login--permission--各业务页面功能说明)。开关本身仍只是 UI 本地状态（不落 `tenant` 表），随 Domain Confirm 一次性提交给 `PUT /update-setting`，记账成功与否都不需要显式重置——下次重新拉取数据天然是关闭的。
 
 **2026-08-21 复核**：本节描述的契约此前曾被一次批量回退（`4f00f14`，与 Data Capture 那次同批事故）打回
 PHP——`domainApi.js`/`domainHelpers.js` 虽然内容和本节一致，但实际页面代码（`DomainPage.jsx` 及全部
@@ -655,7 +655,7 @@ owner 空 Group 可见性场景）见 `Count-frontend/docs/owner-groups-cache-re
 4. **Process list 展示**：Description / Day Use 字符串在前端拼，勿在 list API 再塞 `GROUP_CONCAT`（编辑仍要数组）。
 5. **新接口**：优先直写 Spring URL；仅在需兼容大量旧调用时才扩展 `apiUrl.js`。
 6. **相关文档**：
-   - 后端 API 行为：`login-to-business-pages.md`
+   - 后端 API 行为：`frontend-springboot-migration.md`第33节
    - 前端 ownership 代码索引：`Count-frontend/src/pages/ownership/README.md`
 
 ---
@@ -758,7 +758,7 @@ URL **不**带 `tenant_id` / `id`。`ProcessListPage` 的 `loadFormMeta` / `relo
 |----|------|
 | Add form meta | ✅ `fetchProcessFormMeta`（Spring currency + description + 本地 weekday）；`existingProcesses` 来自列表行 |
 | List process 服务端 search / showInactive | 暂无；✅ 客户端 `applyProcessListFilters`（`fetchGamesProcessListSlice`） |
-| 前端 add/update/status/delete / description | ✅ 全 Spring（见 [`process-list-spring-api.md`](./process-list-spring-api.md)） |
+| 前端 add/update/status/delete / description | ✅ 全 Spring（见 [`frontend-springboot-migration.md`第22节](#22-games-process-list--spring-api-对齐说明)） |
 | Edit 打开 | ✅ list 行本地回填（无 get API） |
 | Copy From | ✅ 列表行本地 patch（无 PHP `copy_from`） |
 | PHP `addprocess_api` / `processlist_api` | ✅ Games Process List 页已移除 |
@@ -1745,15 +1745,15 @@ backend/src/main/resources/sql/migrate_upline_role_to_supplier.sql  # UPLINE →
 
 ## 18. Maintenance 侧边栏导航（Spring SPA）
 
-> 原始独立文件：`docs/maintenance-navigation.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第18节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
 Maintenance 子菜单显示规则、Bank 公司入口、以及 **Spring `tenant_has_*` 与旧 PHP `company_has_*` 字段** 约定。修改 `AuthenticatedLayout`、sidebar 权限或 Maintenance 页面守卫时，**同步更新本文档**。
 
 相关：
 
-- Payment Maintenance 列表/软删：[`payment-maintenance-list-delete.md`](./payment-maintenance-list-delete.md)
-- Session / 登录：`login-to-business-pages.md`、`frontend-springboot-migration.md` §3.3
+- Payment Maintenance 列表/软删：[`frontend-springboot-migration.md`第19节](#19-payment-maintenance--list--deletespring)
+- Session / 登录：`frontend-springboot-migration.md`第33节、`frontend-springboot-migration.md` §3.3
 
 ---
 
@@ -2008,7 +2008,7 @@ WHERE dl.tenant_id = #{tenantId}
 
 `fetchProcessesForMaintenance`（本页 Process 下拉的数据源）原本就有三个分支，Bank category 分支（固定 `SALARY`/`BONUS`/`PROFIT`/`COMMISSION`）和 Group 分支都还在正常工作，**问题出在 Company 模式分支**：一直调用 `maintenanceCompanyApi.js` 里的 `fetchMaintenanceProcesses`，打的是未迁移的旧 PHP `api/processes/processlist_api.php`，导致下拉框空、连带搜索 "No data found"。
 
-修复：Company 模式改调 `pages/processlist/processListApi.js` 的 `fetchProcessListByTenantId(tenantId)`——跟 Process List 页（`docs/process-list-spring-api.md`）同一个 `POST /api/process/process-list`，`normalizeProcessListRows` 已经把 `category === 'BANK'` 的行丢了，返回的就是当前 tenant 下**全部 GAME process**（不筛 status，含 INACTIVE，因为历史数据可能引用已停用的 process）。顺手删掉了这个分支下已经不可达的死代码（`payrollChannel` 在函数最上面已经 return 过一次，走到这里必为 false，原来的 `permForApi`/二次 payroll 过滤永远不会执行）。
+修复：Company 模式改调 `pages/processlist/processListApi.js` 的 `fetchProcessListByTenantId(tenantId)`——跟 Process List 页（`frontend-springboot-migration.md`第22节）同一个 `POST /api/process/process-list`，`normalizeProcessListRows` 已经把 `category === 'BANK'` 的行丢了，返回的就是当前 tenant 下**全部 GAME process**（不筛 status，含 INACTIVE，因为历史数据可能引用已停用的 process）。顺手删掉了这个分支下已经不可达的死代码（`payrollChannel` 在函数最上面已经 return 过一次，走到这里必为 false，原来的 `permForApi`/二次 payroll 过滤永远不会执行）。
 
 范围只改了 `transactionMaintenanceLogic.js` 自己，没碰共享的 `maintenanceCompanyApi.js`——Capture/Payment/BankProcess Maintenance 的 Process 下拉如果有同样问题，需要另外处理，这次没有一并修。
 
@@ -2521,12 +2521,12 @@ function resolveCaptureMaintenanceCategory(scope) {
 
 ## 19. Payment Maintenance — List / Delete（Spring）
 
-> 原始独立文件：`docs/payment-maintenance-list-delete.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第19节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
 Payment Maintenance 页面的列表与软删除约定。修改 API、过滤规则、`transactions_deleted` 表结构或前端契约时，**同步更新本文档**。
 
-Maintenance 侧边栏（含 Bank Process 入口）：[`maintenance-navigation.md`](./maintenance-navigation.md)
+Maintenance 侧边栏（含 Bank Process 入口）：[`frontend-springboot-migration.md`第18节](#18-maintenance-侧边栏导航spring-spa)
 
 ### 1. 范围与原则
 
@@ -2542,7 +2542,7 @@ Maintenance 侧边栏（含 Bank Process 入口）：[`maintenance-navigation.md
 
 Payment 与 Bank Process Maintenance **共用** `transactions_deleted`；Formula Maintenance 为硬删，**不**进本表。
 
-Bank Process Maintenance 列表/删除：[`bankprocess-maintenance-list-delete.md`](./bankprocess-maintenance-list-delete.md)
+Bank Process Maintenance 列表/删除：[`frontend-springboot-migration.md`第20节](#20-bank-process-maintenance--list--deletespring)
 
 ### 2. 允许的 `transaction_type`
 
@@ -2814,21 +2814,21 @@ Service 内部有 `PaymentMaintenanceDeleteResult.deleted`（实际删除条数�
 - [ ] List 若需软删划线展示：Service 是否已 merge live + `findPaymentMaintenanceDeletedRows`（已实现）
 - [ ] Delete RATE 行：是否扩展 rate group + 先删 `transactions_rate`（已实现）
 - [ ] 前端归一化是否覆盖 `deleted` / `deletedBy` / `deletedAt`
-- [ ] Bank Process Maintenance 侧边栏：是否用 `tenant_has_bank`（见 `maintenance-navigation.md`）
+- [ ] Bank Process Maintenance 侧边栏：是否用 `tenant_has_bank`（见 `frontend-springboot-migration.md`第18节）
 
 ---
 
 ## 20. Bank Process Maintenance — List / Delete（Spring）
 
-> 原始独立文件：`docs/bankprocess-maintenance-list-delete.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第20节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
 Bank Process Maintenance 页面列表与软删除约定。修改 API、过滤规则或前端契约时，**同步更新本文档**。
 
 相关：
 
-- Payment Maintenance（对照实现）：[`payment-maintenance-list-delete.md`](./payment-maintenance-list-delete.md)
-- 侧边栏入口：[`maintenance-navigation.md`](./maintenance-navigation.md)
+- Payment Maintenance（对照实现）：[`frontend-springboot-migration.md`第19节](#19-payment-maintenance--list--deletespring)
+- 侧边栏入口：[`frontend-springboot-migration.md`第18节](#18-maintenance-侧边栏导航spring-spa)
 
 ---
 
@@ -2862,7 +2862,7 @@ Bank Process Maintenance 页面列表与软删除约定。修改 API、过滤规
 
 软删行：`deleted=true` → 红色划线（`maintenance-row-deleted`），`is_deleted=1`，不可再勾选。
 
-**无 Category pills**（见 `maintenance-navigation.md` §9）。
+**无 Category pills**（见 `frontend-springboot-migration.md`第18节 §9）。
 
 ---
 
@@ -3025,14 +3025,14 @@ Service 合并 live + archived，按 `createdAt` / `id` 降序。
 
 ## 21. Bank Process Status 编辑锁定规则
 
-> 原始独立文件：`docs/bankprocess-status-edit-lock.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第21节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
 `OFFICIAL` / `E_INVOICE` / `BLOCK` 状态下的 Bank Process **禁止编辑**任何字段（day_start、day_end、frequency、contract、supplier/customer/company price、insurance、SOP、Remark、Profit Sharing 等）；仅 Status 本身仍可透过 Status 控件切换。`INACTIVE` 不受影响，维持可自由编辑。修改相关字段编辑入口时，**同步更新本文档**。
 
 **锁点在「保存」而非「打开」**：用户仍可正常点击 Edit / Remark 图标打开对应弹窗，查看该 process 目前的完整信息（字段本身未做 disabled 处理）；真正的拦截发生在点击 Edit Process 弹窗的 **Update Process** / Remark 弹窗的 **Save** 时。
 
-相关：[`accounting-due-frequency-rules.md`](./accounting-due-frequency-rules.md)（同三个状态对出账行为的影响）
+相关：[`frontend-springboot-migration.md`第31节](#31-accounting-due-frequency-业务规则)（同三个状态对出账行为的影响）
 
 ### 范围
 
@@ -3084,7 +3084,7 @@ Status 本身的切换（ACTIVE ↔ INACTIVE ↔ OFFICIAL ↔ E_INVOICE ↔ BLOC
 
 ## 22. Games Process List — Spring API 对齐说明
 
-> 原始独立文件：`docs/process-list-spring-api.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第22节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
 > **前端仓库**：`../Count-frontend/`  
@@ -3258,7 +3258,7 @@ Spring 返回结构化行（非 PHP 扁平 snake_case）：
 ### 9. 维护约定
 
 - 新增 Process 相关 Spring 字段时：**先改后端 DTO + 本文**，再改 `normalizeProcessListItem` 与表单映射。
-- 与 [`frontend-springboot-migration.md`](./frontend-springboot-migration.md) 第 9 节、`datacapture-spring-api.md` 的 tenant 约定保持一致。
+- 与 [`frontend-springboot-migration.md`](./frontend-springboot-migration.md) 第 9 节、`frontend-springboot-migration.md`第32节 的 tenant 约定保持一致。
 - 服务端 list 若将来支持 search/status query，可删除客户端 `applyProcessListFilters` 中对应逻辑。
 
 ---
@@ -3276,7 +3276,7 @@ Spring 返回结构化行（非 PHP 扁平 snake_case）：
 
 ## 23. Account 多公司归属 (Account ↔ Company Multi-Tenant)
 
-> 原始独立文件：`docs/account-company-multi-tenant.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第23节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
 ### 背景
@@ -3402,10 +3402,10 @@ Account Edit/Add 弹窗的「Choose companies」原本用 checkbox 呈现成多�
 
 ## 24. Transaction list filters — Show Payment / Show Win/Loss / Show all 0 balance
 
-> 原始独立文件：`docs/transaction-list-payment-winloss-filters.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第24节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
-> Win/Loss 数据源（Bank Process 记账 + Data Capture Summary Submit + 手动 Adjustment/Profit/Rate-middleman）的聚合实现见 [transaction-datacapture-winloss.md](./transaction-datacapture-winloss.md)。
+> Win/Loss 数据源（Bank Process 记账 + Data Capture Summary Submit + 手动 Adjustment/Profit/Rate-middleman）的聚合实现见 [transaction-datacapture-winloss.md](#25-transaction-payment--payment-history--data-capture-winloss-补聚合)。
 
 勾选筛选时的展示规则。修改筛选时同步更新本文档。
 
@@ -3425,7 +3425,7 @@ Account Edit/Add 弹窗的「Choose companies」原本用 checkbox 呈现成多�
 
 ### Show Win/Loss Only
 
-- 看 **Win/Loss**：Bank Process `WIN`/`LOSE`、**Data Capture Summary Submit `WIN`/`LOSE`**、`ADJUSTMENT`、`PROFIT`、RATE Middle-Man 等（详见 [transaction-datacapture-winloss.md](./transaction-datacapture-winloss.md)）
+- 看 **Win/Loss**：Bank Process `WIN`/`LOSE`、**Data Capture Summary Submit `WIN`/`LOSE`**、`ADJUSTMENT`、`PROFIT`、RATE Middle-Man 等（详见 [transaction-datacapture-winloss.md](#25-transaction-payment--payment-history--data-capture-winloss-补聚合)）
 - 判定：`win_loss` / `win_loss_full` 非 0，或 `hasWinLossInPeriod` → `has_win_loss_transactions`
 - **不**用 `has_period_id_product_rows`（避免 Payment-only 误入）
 
@@ -3463,17 +3463,17 @@ Account Edit/Add 弹窗的「Choose companies」原本用 checkbox 呈现成多�
 
 ## 25. Transaction Payment / Payment History — Data Capture Win/Loss 补聚合
 
-> 原始独立文件：`docs/transaction-datacapture-winloss.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第25节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
-> **相关**：[datacapture-spring-api.md](./datacapture-spring-api.md) §2.8（Summary 最终 Submit 写 `transactions`）、[transaction-list-payment-winloss-filters.md](./transaction-list-payment-winloss-filters.md)（Show Win/Loss Only 等筛选）
+> **相关**：[datacapture-spring-api.md](#32-data-capture--spring-api-对齐说明) §2.8（Summary 最终 Submit 写 `transactions`）、[transaction-list-payment-winloss-filters.md](#24-transaction-list-filters--show-payment--show-winloss--show-all-0-balance)（Show Win/Loss Only 等筛选）
 > **最后更新**：2026-08-11
 
 ---
 
 ### 1. 问题
 
-Data Capture Summary Submit（GAME）成功后，`data_captures` / `data_capture_line` / `process_submitted` / `transactions` 四张表都正确写入了数据（见 `datacapture-spring-api.md` §2.8），但 Transaction Payment 主列表、右上 Payment History 明细都看不到这几笔——跟公司/日期/币别筛选无关，换任何条件都查不到。
+Data Capture Summary Submit（GAME）成功后，`data_captures` / `data_capture_line` / `process_submitted` / `transactions` 四张表都正确写入了数据（见 `frontend-springboot-migration.md`第32节 §2.8），但 Transaction Payment 主列表、右上 Payment History 明细都看不到这几笔——跟公司/日期/币别筛选无关，换任何条件都查不到。
 
 **根因：** `TransactionMapper.xml` 里所有跟 WIN/LOSE 相关的聚合查询（`aggregateBankProcessWinLoss`、`aggregateBankProcessBfByAccount`、`findBankProcessHistoryLines`）都写死 `t.bank_process_posted_id IS NOT NULL`——这个前提假设"WIN/LOSE 只会来自 Bank Process 记账流程"（`AccountingDueServiceImpl.insertTxnLine()` 才会 set 这个字段）。但 `DataCaptureSummaryServiceImpl.toTransaction()`（Data Capture Summary Submit）也会写 `transaction_type IN ('WIN','LOSE')`，却从来不 set `bankProcessPostedId`，插入后这一列是 `NULL`——落进了任何查询分支都覆盖不到的空档：manual 那几条（ADJUSTMENT/PROFIT/RATE middleman）虽然也是 `bank_process_posted_id IS NULL`，但过滤的 `transaction_type` 不是 WIN/LOSE，接不住。
 
@@ -3574,10 +3574,10 @@ const idProductDisplay = r.product || (r.is_bank_process_transaction ? r.card_ow
 
 ### 5. 自测
 
-1. Games process Submit（`datacapture-spring-api.md` §2.8 自测 3）→ 打开 Transaction Payment，该账户所在币别行的 Win/Loss 金额包含这笔（不再是 0/缺失）。
+1. Games process Submit（`frontend-springboot-migration.md`第32节 §2.8 自测 3）→ 打开 Transaction Payment，该账户所在币别行的 Win/Loss 金额包含这笔（不再是 0/缺失）。
 2. 打开该账户 Payment History → 出现对应行，`WIN/LOSE` 列有正确签名金额，`DESCRIPTION` 是 `"{processCode}: {formula}"`（如 `BONUS: 3000`），**`ID PRODUCT` 列显示 `DATA CAPTURE`**（不是空白）。
 3. Bank Process 记账（`AccountingDueServiceImpl` 走的那条）产生的 WIN/LOSE 行，Payment History 里 `ID PRODUCT` 仍保持空白——确认没被 Data Capture 分支误伤。
-4. `Show Win/Loss Only` 勾选后该账户仍会出现（判定逻辑本身没变，只是数据源多了一路，见 `transaction-list-payment-winloss-filters.md`）。
+4. `Show Win/Loss Only` 勾选后该账户仍会出现（判定逻辑本身没变，只是数据源多了一路，见 `frontend-springboot-migration.md`第24节）。
 
 ---
 
@@ -3656,7 +3656,7 @@ leg2 是**单一对称金额**（一个 `amount` 字段，Cr/Dr 双边共用）�
 | Service（Payment History） | `service/impl/TransactionHistoryServiceImpl.java` | `mergeRateMiddlemanDeductionsIntoMainLeg()` 等，见第 10 节 |
 | Service（CONTRA 汇总） | `service/impl/TransactionSearchServiceImpl.java` | `buildDomainPaymentSearchSlice()` 等，见第 11 节 |
 | Rate-Mul 算法 | `util/RateMulCalculator.java` | 解析 Rate-Mul 输入、算佣金 |
-| 金额精度 | `util/TransactionMoneyFormat.java` | 见 [`transaction-amount-precision.md`](./transaction-amount-precision.md) |
+| 金额精度 | `util/TransactionMoneyFormat.java` | 见 [`frontend-springboot-migration.md`第27节](#27-transaction-amount-precision) |
 | Entity | `entity/TransactionRate.java` | 映射 `transactions_rate` |
 | DAO | `dao/TransactionRateDao.java` + `mybatis/TransactionRateMapper.xml` | 头表 insert/delete |
 | Schema | `sql/schema.sql`（`transactions_rate` 定义）+ `sql/migrate_rate_platform_fee_and_ratemul.sql`（增量迁移） | |
@@ -3753,7 +3753,7 @@ platformFeeAmount        Platform Fee 面值，第二（leg2）币种，恒正�
 
 ### 8. Description 文案
 
-沿用 [`transaction-description-rules.md`](./transaction-description-rules.md) 的规则，Middle-Man 那部分本次改了 rate token 的生成方式：
+沿用 [`frontend-springboot-migration.md`第28节](#28-transaction-description-storage) 的规则，Middle-Man 那部分本次改了 rate token 的生成方式：
 
 ```text
 Fee:            MARKUP X {ccy1} {amount} > {ccy2} | FROM {leg1ToAccountName}
@@ -3849,8 +3849,8 @@ Transaction Payment 页面顶部那个「Account / B-F / Win-Loss / Cr-Dr / Bala
 
 **Related docs**
 
-- [transaction-amount-precision.md](./transaction-amount-precision.md)
-- [transaction-description-rules.md](./transaction-description-rules.md)
+- [transaction-amount-precision.md](#27-transaction-amount-precision)
+- [transaction-description-rules.md](#28-transaction-description-storage)
 - [`Count-frontend/docs/transaction-rate-springboot-submit.md`](../../Count-frontend/docs/transaction-rate-springboot-submit.md) —— 前端 payload 映射
 
 ---
@@ -3891,7 +3891,7 @@ middleman（OK3）看到的是未合并的原始视角：Rate `+100`、Fee `+8.5
 
 ## 27. Transaction Amount Precision
 
-> 原始独立文件：`docs/transaction-amount-precision.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第27节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
 金额精度约定：**存真值，看 2 位。**  
@@ -4050,8 +4050,8 @@ rate 表达式形式：`*N` 乘、`/N` 除、`N` 乘；空 / 非法 / 0 视为�
 
 ### Related docs
 
-- [datacapture-spring-api.md](./datacapture-spring-api.md) — Data Capture Spring API / Summary Submit
-- [transaction-description-rules.md](./transaction-description-rules.md) — `transactions.description` audit storage vs History UI
+- [datacapture-spring-api.md](#32-data-capture--spring-api-对齐说明) — Data Capture Spring API / Summary Submit
+- [transaction-description-rules.md](#28-transaction-description-storage) — `transactions.description` audit storage vs History UI
 - [transaction-rate-middleman-logic.md](./transaction-rate-middleman-logic.md) — RATE Middle-Man / Rate-Mul / Platform Fee 完整逻辑
 
 ### 相关文件（速查）
@@ -4087,7 +4087,7 @@ rate 表达式形式：`*N` 乘、`/N` 除、`N` 乘；空 / 非法 / 0 视为�
 
 ## 28. Transaction Description Storage
 
-> 原始独立文件：`docs/transaction-description-rules.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第28节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
 `transactions.description` 入库约定。修改提交写入或 History 展示拼装时，必须同步更新本文档。
@@ -4188,7 +4188,7 @@ ADJUSTMENT - WIN/LOSS
 
 ### 与金额精度
 
-金额在 description 中的写法遵循 [transaction-amount-precision.md](./transaction-amount-precision.md) 的 plain 真值序列化（不强制 round-to-2）。
+金额在 description 中的写法遵循 [transaction-amount-precision.md](#27-transaction-amount-precision) 的 plain 真值序列化（不强制 round-to-2）。
 
 ### Related docs
 
@@ -4198,7 +4198,7 @@ ADJUSTMENT - WIN/LOSS
 
 ## 29. Customer Report — Spring API 迁移说明
 
-> 原始独立文件：`docs/customer-report-spring-migration.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第29节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
 > **前端仓库**：`../Count-frontend/`
@@ -4369,12 +4369,12 @@ Domain Report 大概率会踩到一样的重定向。
 
 `fetchAccounts()` 和 `fetchReportScopeCurrencies()` 原本打的旧 PHP 端点（`get_accounts_api.php`、
 `get_scope_account_currencies_api.php`）在反向代理把所有 `/api/*` 转发给 Spring 后必然 500——跟
-`docs/maintenance-navigation.md` §11.6.2 的 `fetchAccounts` 500 是同一类问题。这两个是 Customer Report
+`frontend-springboot-migration.md`第18节 §11.6.2 的 `fetchAccounts` 500 是同一类问题。这两个是 Customer Report
 自己真正会用到的下拉数据源（不是 Dashboard 那三个无关的），本次一并对齐：
 
 | 功能 | 旧 PHP | 新 Spring | 说明 |
 |------|--------|-----------|------|
-| Account 下拉 | `api/transactions/get_accounts_api.php` | `POST /api/account/list?tenant_id=` | 复用 `accountListApi.js` 的 `fetchAccountListByTenantId`（跟 Formula Maintenance 账户下拉同一个函数，见 `maintenance-navigation.md` §11.6.2）。聚合模式逐 tenant 请求，按 `id` 去重合并，`account_id` 排序。**不过滤 status**——对齐旧版 Customer Report 账户列表本来就没有 ACTIVE/INACTIVE 过滤。 |
+| Account 下拉 | `api/transactions/get_accounts_api.php` | `POST /api/account/list?tenant_id=` | 复用 `accountListApi.js` 的 `fetchAccountListByTenantId`（跟 Formula Maintenance 账户下拉同一个函数，见 `frontend-springboot-migration.md`第18节 §11.6.2）。聚合模式逐 tenant 请求，按 `id` 去重合并，`account_id` 排序。**不过滤 status**——对齐旧版 Customer Report 账户列表本来就没有 ACTIVE/INACTIVE 过滤。 |
 | Currency 下拉 | `api/transactions/get_scope_account_currencies_api.php` | `POST /api/currency/list?tenant_id=` | `reportCompanyApi.js` 里改写，逐 tenant 请求后按 `code` 去重合并排序。后端目前只支持单 tenant，没有 group/scope 聚合参数（`view_group`/`group_aggregate`/`subsidiary_accounts_only` 全部丢弃）。 |
 
 **没有动、也不需要动的**（跟 Customer Report 无关，Dashboard 自己的技术债）：
@@ -4427,9 +4427,9 @@ Domain Report 大概率会踩到一样的重定向。
 ### 10. 维护约定
 
 - 新增字段时：先改 `CustomerReportDTO` + 本文，再改 `normalizeSpringCustomerReportRow`。
-- 币种口径、tenant 循环写法与 [`process-list-spring-api.md`](./process-list-spring-api.md) §5、
-  `maintenance-navigation.md` 保持一致；DATA CAPTURE 判定口径与
-  [`transaction-datacapture-winloss.md`](./transaction-datacapture-winloss.md) 保持一致——两边任一处改动
+- 币种口径、tenant 循环写法与 [`frontend-springboot-migration.md`第22节](#22-games-process-list--spring-api-对齐说明) §5、
+  `frontend-springboot-migration.md`第18节 保持一致；DATA CAPTURE 判定口径与
+  [`frontend-springboot-migration.md`第25节](#25-transaction-payment--payment-history--data-capture-winloss-补聚合) 保持一致——两边任一处改动
   判定条件，另一处要同步检查。
 
 ---
@@ -4468,13 +4468,13 @@ Bank-only、要不要跳去 Bank Process List）原本调用 `reportCompanyApi.j
 | `pages/report/customer/CustomerReportPage.jsx` | `checkBankOnly` 不再调用 `reportCompanyApi.js` 的 `fetchCompanyPermissions`（PHP，一直在静默 500，判定从未生效），改成纯前端 `companyMatchesBankOnlyPillScope`（`utils/company/companyCategoryFlags.js`），基于已加载的 `companies` 行 / session flags 缓存判断，无需额外请求。 |
 
 同一次事故也影响了 Domain Report，改动清单见
-[`domain-report-spring-migration.md` §10.1](./domain-report-spring-migration.md#101-前端改动文件清单2026-08-18)。
+[`frontend-springboot-migration.md`第30节 §10.1](#30-domain-report--spring-api-迁移说明)。
 
 ---
 
 ## 30. Domain Report — Spring API 迁移说明
 
-> 原始独立文件：`docs/domain-report-spring-migration.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第30节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
 > **前端仓库**：`../Count-frontend/`
@@ -4489,7 +4489,7 @@ Domain Report 原本完全跑在旧版 PHP（`count168/api/reports/domain_report
 （无数据的 process 也显示 0），直接聚合旧表 `data_capture_details.processed_amount`——跟遷移前的
 `customer_report_api.php` 是同一種寫法。
 
-跟 [`customer-report-spring-migration.md`](./customer-report-spring-migration.md) 一样，本次把
+跟 [`frontend-springboot-migration.md`第29节](#29-customer-report--spring-api-迁移说明) 一样，本次把
 Win/Lose 的資料來源换成 `transactions` 表（同一套 DATA CAPTURE 判定口径），不再依赖已淘汰的
 `data_capture_details`。
 
@@ -4613,7 +4613,7 @@ legacy 一致：`description` 有值時是 `"CODE (DESCRIPTION)"`，否則就是
 
 #### 6.3 `company_has_gambling` 過期字段名 bug
 
-跟 [`customer-report-spring-migration.md` §7.1](./customer-report-spring-migration.md) 提到的是同一個
+跟 [`frontend-springboot-migration.md`第29节 §7.1](#29-customer-report--spring-api-迁移说明) 提到的是同一個
 bug，`DomainReportPage.jsx:186` 一路留到現在才修。改用 `sessionHasTenantGame(u)`
 （`utils/auth/sessionTenant.js`）。
 
@@ -4658,7 +4658,7 @@ bug，`DomainReportPage.jsx:186` 一路留到現在才修。改用 `sessionHasTe
 
 - 新增字段時：先改 `DomainReportDTO` + 本文，再改 `normalizeSpringDomainReportRow`。
 - DATA CAPTURE 判定口徑、`transactions` join 方式與
-  [`customer-report-spring-migration.md`](./customer-report-spring-migration.md) 保持一致，任一處改動
+  [`frontend-springboot-migration.md`第29节](#29-customer-report--spring-api-迁移说明) 保持一致，任一處改動
   判定條件，另一處要同步檢查。
 - 如果之後要幫 Group-only（SALARY/COMMISSION/BONUS）補上 Spring 端點，需要另外評估 BANK category 的
   win/lose 資料來源，不能直接套用現有 `category = 'GAME'` 的 query。
@@ -4667,7 +4667,7 @@ bug，`DomainReportPage.jsx:186` 一路留到現在才修。改用 `sessionHasTe
 
 ### 10. 2026-08-18 補充：找回被覆蓋的遷移
 
-跟 [`customer-report-spring-migration.md` §11](./customer-report-spring-migration.md#11-2026-08-18-补充找回被覆盖的迁移--清掉-bank-only-检测的最后一个-php-调用)
+跟 [`frontend-springboot-migration.md`第29节 §11](#29-customer-report--spring-api-迁移说明)
 是同一次事故：`domainReportApi.js` 在遷移完成（`6d7801b`）當天稍晚被整倉快照式提交 `4f00f14` 整段覆蓋回純
 PHP 版本，Company/Aggregate 模式的 `fetchDomainReport` / `fetchProcesses` 一路在打會 500 的
 `domain_report_api.php`。`captureMaintenanceLogic.js` 的 Group-only payroll process 下拉也依賴這個檔案的
@@ -4687,13 +4687,13 @@ PHP 版本，Company/Aggregate 模式的 `fetchDomainReport` / `fetchProcesses` 
 | `pages/report/domain/DomainReportPage.jsx` | `checkBankOnly` 不再調用 `api/domain/domain_api.php`（PHP，一直在靜默 500，判定從未生效），改成純前端 `companyMatchesBankOnlyPillScope`（`utils/company/companyCategoryFlags.js`）。 |
 
 Customer Report 那邊的 `reportCompanyApi.js` / `CustomerReportPage.jsx` 改動清單見
-[`customer-report-spring-migration.md` §11.1](./customer-report-spring-migration.md#111-前端改动文件清单2026-08-18)。
+[`frontend-springboot-migration.md`第29节 §11.1](#29-customer-report--spring-api-迁移说明)。
 
 ---
 
 ## 31. Accounting Due Frequency 业务规则
 
-> 原始独立文件：`docs/accounting-due-frequency-rules.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第31节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
 本文档记录 Bank Process 在 Accounting Due 中的出账规则。修改 Frequency、账期生成、跳过或交易逻辑时，必须同步更新本文档。
@@ -4749,7 +4749,7 @@ Customer Report 那邊的 `reportCompanyApi.js` / `CustomerReportPage.jsx` 改�
   - `FULL_MONTH` / `FIRST_MONTH`：比例 = 1（全额）
   - `PARTIAL_FIRST_MONTH` / `DAY_END_TAIL`：比例 = 闭区间天数 / 该自然月总天数  
     例：`7/15–7/31` → 17/31；尾段 `9/1–9/9` → 9/30
-- Buy / Sell / Profit / PS（若有）共用同一比例；进账金额按 [transaction-amount-precision.md](./transaction-amount-precision.md)：普通交易最多 **6** 位小数、**不** round-to-2；系统折算仅当结果超过 6 位时才 HALF_UP 到 6 位。API / 库为真值，UI 展示再 round 2。
+- Buy / Sell / Profit / PS（若有）共用同一比例；进账金额按 [transaction-amount-precision.md](#27-transaction-amount-precision)：普通交易最多 **6** 位小数、**不** round-to-2；系统折算仅当结果超过 6 位时才 HALF_UP 到 6 位。API / 库为真值，UI 展示再 round 2。
 - 写入顺序：先 `bank_process_accounting_posted`（`outcome=POSTED`）→ 再写 N 条 `transactions`（共用 `bank_process_posted_id`）。
 - `transaction_date` = 该行 `postedDate`；审批一律 `APPROVED`。
 - Description（银行名 = Bank Name）：
@@ -4974,13 +4974,13 @@ Resend 在正常 Accounting Due **之外**追加一笔 make-up 账单。不修�
 
 ## 32. Data Capture — Spring API 对齐说明
 
-> 原始独立文件：`docs/datacapture-spring-api.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第32节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
 > **前端仓库**：`../Count-frontend/`  
 > **后端契约**：`DataCaptureGameDTO` + tenant 模型（无 JSON / 无 `scope_*`）  
 > **最后更新**：2026-08-19（修复 2026-08-14 commit `4f00f14` 整批覆盖回退，见 §0；Formula CRUD / Account-Currency 下拉 / Summary Submit 重新切回 Spring，见 §2.4 / §2.5 / §2.6 / §2.7 / §2.8；Category 切换 toolbar 二次移除，见 §2.10；Summary populate / Add Account / 公司访问权限剩余 PHP 清理，见 §0.1；Edit Formula Save 漏带 processId 的 bug fix，见 §0.2）  
-> **金额精度**：Summary processed amount 见 [transaction-amount-precision.md](./transaction-amount-precision.md)「Data Capture Summary」节（后端 `SummaryAmountFormat` + 前端 `summaryRowAmount.js`，ROUND_DOWN 6/8）
+> **金额精度**：Summary processed amount 见 [transaction-amount-precision.md](#27-transaction-amount-precision)「Data Capture Summary」节（后端 `SummaryAmountFormat` + 前端 `summaryRowAmount.js`，ROUND_DOWN 6/8）
 
 ---
 
@@ -5416,9 +5416,9 @@ Bank 形态（C168 / bank-only company / group payroll UI，或 `selectedPermiss
 | Submit 门槛 | 所有行重算后金额高精度求和，`SummaryAmountFormat.isTotalWithinSubmitTolerance`（±0.05）不过则整单拒绝，不写任何表 |
 | GAME 拦截 | `category` 解析为 GAME 时，若当日该 process 已提交（`process_submitted`）直接拒绝；**BANK 不受此限**，可重复提交 |
 | Process 解析 | 有 `processId` 优先；否则按 `processCode` 解析（Bank 缺省自动建，同 §2.4） |
-| `transactions` 记录 | 每个非零行一笔：`amount` 存绝对值，`transactionType` 由正负号定 `WIN`/`LOSE`；`description` 格式 `"{processCode}: {formula}"`（见 `docs/transaction-description-rules.md`「WIN / LOSE」节） |
+| `transactions` 记录 | 每个非零行一笔：`amount` 存绝对值，`transactionType` 由正负号定 `WIN`/`LOSE`；`description` 格式 `"{processCode}: {formula}"`（见 `frontend-springboot-migration.md`第28节「WIN / LOSE」节） |
 | Customer/Domain Report | 这次只保证落库；报表页面本身未实现。**Bank 提交不产出 report 数据**——报表查询将来加 `data_captures.category = 'GAME'` 过滤，不需要额外字段 |
-| Transaction Payment / Payment History 可见性 | 这里写的 `WIN`/`LOSE` 行 `bank_process_posted_id` 恒为 `NULL`（不经过 Bank Process 记账流程）。Transaction 模块原本的 WIN/LOSE 查询都要求 `bank_process_posted_id IS NOT NULL`，一度导致这些行在 Transaction Payment / Payment History 里完全查不到；已补齐对称聚合并让 `ID PRODUCT` 显示 `DATA CAPTURE`，详见 [transaction-datacapture-winloss.md](./transaction-datacapture-winloss.md) |
+| Transaction Payment / Payment History 可见性 | 这里写的 `WIN`/`LOSE` 行 `bank_process_posted_id` 恒为 `NULL`（不经过 Bank Process 记账流程）。Transaction 模块原本的 WIN/LOSE 查询都要求 `bank_process_posted_id IS NOT NULL`，一度导致这些行在 Transaction Payment / Payment History 里完全查不到；已补齐对称聚合并让 `ID PRODUCT` 显示 `DATA CAPTURE`，详见 [transaction-datacapture-winloss.md](#25-transaction-payment--payment-history--data-capture-winloss-补聚合) |
 
 **前端调用（Count-frontend）：**
 
@@ -5527,7 +5527,7 @@ Group/Company picker **未改 UI 行为**：仍用 `fetchOwnerCompaniesAll()`（
 
 #### 3.1 Summary processed amount（前后端同管线）
 
-完整规则与示例见 [transaction-amount-precision.md](./transaction-amount-precision.md)「Data Capture Summary」。
+完整规则与示例见 [transaction-amount-precision.md](#27-transaction-amount-precision)「Data Capture Summary」。
 
 要点：
 
@@ -5580,13 +5580,13 @@ Group/Company picker **未改 UI 行为**：仍用 `fetchOwnerCompaniesAll()`（
 - 新增 Data Capture Spring 接口时：**先更新本文 + `DataCaptureGameDTO`**，再改 `dataCaptureSpringApi.js`。
 - 勿在 Spring 层恢复 snake_case 兼容；前端在 API 边界做 normalize（仅读取时兼容旧 session storage 可保留双读）。
 - 与 [`frontend-springboot-migration.md`](./frontend-springboot-migration.md) 第 2 节迁移表同步更新 Data Capture 行状态。
-- 改 Summary **processed amount** 精度 / rate / ±0.05 门槛时：同步更新 [transaction-amount-precision.md](./transaction-amount-precision.md)「Data Capture Summary」、后端 `SummaryAmountFormat`、前端 `summaryRowAmount.js`（及 Submit / 模板写入路径）。
+- 改 Summary **processed amount** 精度 / rate / ±0.05 门槛时：同步更新 [transaction-amount-precision.md](#27-transaction-amount-precision)「Data Capture Summary」、后端 `SummaryAmountFormat`、前端 `summaryRowAmount.js`（及 Submit / 模板写入路径）。
 
 ---
 
 ## 33. Login → Permission → 各业务页面功能说明
 
-> 原始独立文件：`docs/login-to-business-pages.md`（内容已合并于此；原文件已改为跳转说明）
+> 原始独立文件：`frontend-springboot-migration.md`第33节（内容已合并于此；原文件已于 2026-08-25 删除）
 
 
 > 基于当前 `backend/` 代码整理，描述**已实现**行为，并标注缺口。  
@@ -5717,7 +5717,7 @@ flowchart TB
 | `tenant_id` / `tenant_code` | 当前会话租户 |
 | `permissions` | 侧边栏模块，**小写**，如 `["home","admin","account","process"]` |
 | `is_current_tenant_c168` | 是否 C168 |
-| `tenant_has_game` / `tenant_has_bank` | 租户功能模块（Maintenance 子菜单、Process 路由；见 [`maintenance-navigation.md`](./maintenance-navigation.md)） |
+| `tenant_has_game` / `tenant_has_bank` | 租户功能模块（Maintenance 子菜单、Process 路由；见 [`frontend-springboot-migration.md`第18节](#18-maintenance-侧边栏导航spring-spa)） |
 | `read_only` | Admin 只读标记 |
 | `needs_user_secondary` / `needs_owner_secondary` | 二级密码 |
 
