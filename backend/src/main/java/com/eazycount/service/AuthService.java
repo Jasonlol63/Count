@@ -32,6 +32,9 @@ public interface AuthService {
 
     Map<String, Object> accessibleTenants(boolean all);
 
+    /** Resolve one accessible tenant's id by its code (group or company), always DB-fresh. */
+    Map<String, Object> tenantByCode(String code);
+
     /**
      * Resolve a login identity by session/API user type.
      *

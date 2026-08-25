@@ -15,11 +15,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -117,9 +113,7 @@ public class AuthController {
     }
 
     @GetMapping("/tenant-accessible")
-    public ResponseEntity<Map<String, Object>> tenantAccessible(
-            @RequestParam(value = "all", defaultValue = "1") int all
-    ) {
+    public ResponseEntity<Map<String, Object>> tenantAccessible(@RequestParam(value = "all", defaultValue = "1") int all) {
         SessionUser user = SecurityUtils.currentUser();
         if (user == null) {
             Map<String, Object> body = new LinkedHashMap<>();
@@ -131,6 +125,29 @@ public class AuthController {
 
         try {
             return ResponseEntity.ok(authService.accessibleTenants(all == 1));
+        } catch (BusinessException e) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", false);
+            body.put("message", e.getMessage());
+            body.put("data", null);
+            return ResponseEntity.ok(body);
+        }
+    }
+
+    // Resolve one accessible tenant's id by its code.
+    @GetMapping("/tenant-by-code")
+    public ResponseEntity<Map<String, Object>> tenantByCode(@RequestBody String code) {
+        SessionUser user = SecurityUtils.currentUser();
+        if (user == null) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", false);
+            body.put("message", "Not logged in");
+            body.put("data", null);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
+        }
+
+        try {
+            return ResponseEntity.ok(authService.tenantByCode(code));
         } catch (BusinessException e) {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", false);

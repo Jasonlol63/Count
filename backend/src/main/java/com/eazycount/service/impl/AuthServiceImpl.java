@@ -296,6 +296,39 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    public Map<String, Object> tenantByCode(String code) {
+        SessionUser user = SecurityUtils.currentUser();
+        if (user == null || user.user_id == null) {
+            throw new BusinessException("Not logged in");
+        }
+        String normalized = code == null ? null : code.trim().toUpperCase();
+        if (normalized == null || normalized.isEmpty()) {
+            throw new BusinessException("Invalid tenant code");
+        }
+
+        String userType = String.valueOf(user.user_type).trim().toLowerCase();
+        List<TenantDTO> rows = findAllTenantsByUserType(userType, user.user_id);
+        Tenant match = TenantDtoHelper.distinctTenants(rows).stream()
+                .filter(t -> t != null && normalized.equalsIgnoreCase(t.getCode()))
+                .findFirst()
+                .orElse(null);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", true);
+        body.put("message", "");
+        if (match == null) {
+            body.put("data", null);
+        } else {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("tenant_id", match.getId());
+            data.put("tenant_code", match.getCode());
+            data.put("tenant_type", match.getTenantType() != null ? match.getTenantType().name() : null);
+            body.put("data", data);
+        }
+        return body;
+    }
+
+    @Override
     public SessionUser applyInitialSecondaryState(SessionUser sessionUser, LoginResultDTO result) {
         if (result.getIdentity().getOwner() != null) {
             if (!sessionUser.needs_owner_secondary) {
