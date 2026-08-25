@@ -205,9 +205,11 @@
             UPPER(c.code) AS currencyCode,
             NULL AS cardOwner,
             TRUE AS bankProcessLine,
-            TRUE AS dataCaptureLine
+            TRUE AS dataCaptureLine,
+            dcl.id_product AS idProduct
         FROM transactions t
         INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        LEFT JOIN data_capture_line dcl ON dcl.transaction_id = t.id
         WHERE t.tenant_id = #{tenantId}
           AND t.account_id = #{accountId}
           AND t.bank_process_posted_id IS NULL

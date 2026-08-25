@@ -15,6 +15,7 @@ import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.ProcessService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -339,6 +340,7 @@ public class ProcessServiceImpl implements ProcessService {
     }
 
     @Override
+    @Transactional
     public void insertNewProcessDescription(ProcessDescription processDescription) {
         SessionUser sessionUser = SecurityUtils.currentUser();
         if (sessionUser == null) {
@@ -364,12 +366,15 @@ public class ProcessServiceImpl implements ProcessService {
 
         try {
             processDao.insertNewProcessDescription(processDescription);
+        } catch (DuplicateKeyException e) {
+            throw new BusinessException("Description name already exists!");
         } catch (Exception e) {
             throw new BusinessException("Insert failed. Please try again!");
         }
     }
 
     @Override
+    @Transactional
     public void deleteProcessDescriptionById(Integer id, Integer tenantId) {
         SessionUser sessionUser = SecurityUtils.currentUser();
         if (sessionUser == null) {

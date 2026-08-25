@@ -3340,6 +3340,8 @@ Data Capture Summary Submit（GAME）成功后，`data_captures` / `data_capture
 
 ### 4. Payment History "ID PRODUCT" 列显示 "DATA CAPTURE"
 
+> **注意**：本节描述的"固定显示 `DATA CAPTURE`"这个行为已被 §7（2026-08-25）取代——现在优先显示 Summary 提交时用户创建的真实 `id_product`，`DATA CAPTURE` 仅作为该值缺失时的兜底。本节其余排查过程/结论仍然有效，仅结尾展示值不同。
+
 `bankProcessLine=TRUE` 现在真正 Bank Process 记账行和 Data Capture 行都会用到（为了让金额落在 Win/Loss 列），单靠它已经分不出来源。所以新增一个专门字段区分：
 
 | 新增 | 说明 |
@@ -3391,6 +3393,33 @@ const idProductDisplay = r.product || (r.is_bank_process_transaction ? r.card_ow
 - 以后再新增一个会写 `transactions` 且 `transaction_type IN ('WIN','LOSE')` 的来源（不经过 Bank Process posting），必须同时检查 `TransactionMapper.xml` 三条 WIN/LOSE 查询（`aggregateBankProcessWinLoss`/`aggregateBankProcessBfByAccount`/`findBankProcessHistoryLines`）能不能覆盖到；覆盖不到就照本文 §2 的模式再镜像一份，不要直接改现有 Bank Process 查询的 `IS NOT NULL` 条件。
 - 新来源如果需要在 Payment History `ID PRODUCT` 列有专属标签，参照 §4 加一个独立的 `xxxLine` 布尔字段，不要复用 `bankProcessLine`（它已经是"走 Win/Loss 显示分支"的通用开关，不代表来源）。
 - 后端给了 `product` 字段不代表前端会自动显示——参照 §4.1，务必确认前端渲染 ID PRODUCT 的地方不是只按 `is_bank_process_transaction` 二选一（`card_owner` vs `product`），而是 `product` 优先。
+
+---
+
+### 7. Payment History "ID PRODUCT" 改为显示真实 Id Product 名称（2026-08-25）
+
+**问题**：§4 把 Data Capture 来源的行固定显示成字面量 `"DATA CAPTURE"`，但用户希望看到的是 Summary 提交时自己创建的那个 Id Product 名称（如 `SALARY`），DESCRIPTION 列里的公式/金额（`data_capture_line.formula` / `processed_amount`）已经通过 `transactions.description`（`"{processCode}: {formula}"`）间接展示，不需要额外列。
+
+**关联表**：`data_capture_line.transaction_id` FK → `transactions.id`，一对一（至多一条），在 `DataCaptureSummaryServiceImpl.submit()` 里同一事务写入两边，`data_capture_line.id_product` 就是用户在 Summary 里创建的产品名。
+
+**改法**：`findDataCaptureHistoryLines` 新增 `LEFT JOIN`，把真实 `id_product` 带出来，service 层优先使用它，取不到时才回退 §4 的 `"DATA CAPTURE"` 字面量（对应 schema 注释里 `processed_amount=0` 或历史补录数据没有 `transaction_id` 关联的边缘情况）。
+
+| 文件 | 改动 |
+|------|------|
+| `TransactionHistoryMapper.xml` — `findDataCaptureHistoryLines` | `FROM transactions t` 后新增 `LEFT JOIN data_capture_line dcl ON dcl.transaction_id = t.id`；SELECT 新增 `dcl.id_product AS idProduct` |
+| `TransactionHistoryLineRow` | 新增字段 `idProduct`（String） |
+| `TransactionHistoryServiceImpl.toHistoryRow()` | `isDataCapture` 分支从固定 `row.setProduct("DATA CAPTURE")` 改为：`idProduct` 非空则用它，否则回退 `"DATA CAPTURE"` |
+
+```java
+} else if (isDataCapture) {
+    String idProduct = trimToEmpty(line.getIdProduct());
+    row.setProduct(!idProduct.isEmpty() ? idProduct : "DATA CAPTURE");
+}
+```
+
+前端侧不需要改动——§4.1 已经把 ID PRODUCT 列改成优先读 `product` 字段，本次改动只是让后端 `product` 里装的值从字面量变成真实产品名，前端取值逻辑不变。
+
+**自测**：重复 §5 自测第 2 步，确认 `ID PRODUCT` 列显示的是 Summary 里创建的产品名（如 `SALARY`）而不是 `DATA CAPTURE`；§5 第 3 步（Bank Process 记账行 ID PRODUCT 仍空白）不受影响。
 
 ---
 
@@ -6265,4 +6294,24 @@ Transaction (BP Win/Loss + Domain Payment Cr/Dr + 手动 PAYMENT Submit, 2026-07
 Account role UPLINE 移除 (2026-07-20)
   sql/migrate_upline_role_to_supplier.sql
   service/impl/UserServiceImpl.java             # 白名单无 UPLINE；写入 normalize → SUPPLIER
+
+## 34. Process Description 重复创建修复（2026-08-25）
+
+**问题**：`process_description` 表（租户级描述模板，见 §9 / §12 文件索引 Process）只有普通索引 `idx_description_tenant_id (tenant_id)`，没有唯一约束。`ProcessServiceImpl.insertNewProcessDescription()` 靠"先查是否存在、不存在再插入"（check-then-insert）来防重复，但这两步不在同一个原子操作里——并发场景下（同一租户几乎同时提交两个同名 description，或前端重复点击提交）两个请求都可能查到"不存在"，各自插入成功，导致同一个 `(tenant_id, name)` 出现多行重复数据。
+
+**修复**：
+
+| 文件 | 改动 |
+|------|------|
+| `schema.sql` — `process_description` | 把 `KEY idx_description_tenant_id (tenant_id)` 改成 `UNIQUE KEY uk_process_description_tenant_name (tenant_id, name)`，从数据库层面堵住并发重复插入 |
+| `ProcessServiceImpl.insertNewProcessDescription()` | 加 `@Transactional`；`catch` 块里新增 `catch (DuplicateKeyException e)`（早于原有的通用 `catch (Exception e)`），命中唯一约束时仍然返回原本的业务提示 `"Description name already exists!"`，而不是被通用 catch 吞成 `"Insert failed. Please try again!"` |
+| `ProcessServiceImpl.deleteProcessDescriptionById()` | 加 `@Transactional`（顺带补上，删除逻辑本身未变） |
+| `sql/migrate_process_description_unique.sql`（新增，一次性迁移脚本，`schema.sql` 只对新建库生效） | 步骤：① 把引用了重复 description 的 `process_description_link` / `data_capture_description` 行改指向同名最早的那条（`MIN(id)`），避免删除时违反 FK；② 删除已经改指完、不再被引用的重复行本身；③ `ALTER TABLE` 加上新唯一索引，再删旧的非唯一索引 `idx_description_tenant_id`（顺序不能反——MySQL #1553：`tenant_id` 上的 FK 需要随时有覆盖索引，必须先加新索引再删旧索引） |
+
+**原有的业务层查重没有删**——`insertNewProcessDescription()` 里"先 `findDescriptionByName` 查重、命中就抛 `BusinessException`"这段逻辑保留，正常单次提交仍然走这条路径提前给出清晰报错；新增的 `DuplicateKeyException` 分支只是给并发场景下漏过查重的那次请求兜底，两层加起来才是完整修复（只加约束不改 catch，会让并发场景下的用户看到不友好的"Insert failed"；只改 catch 不加约束，约束层面还是能插入重复行）。
+
+**自测**：
+1. 正常提交一个已存在的 description 名字（非并发）→ 前端提示 `"Description name already exists!"`，跟修复前行为一致。
+2. 两个并发请求几乎同时提交同一个新名字 → 一个成功，另一个应该收到 `"Description name already exists!"` 而不是 `"Insert failed. Please try again!"` 或 500。
+3. 对已有历史脏数据的库（存在重复 `(tenant_id, name)`），先跑 `migrate_process_description_unique.sql`，确认 `process_description_link` / `data_capture_description` 引用没有丢失（重复行被合并指向保留的那条），且执行不报 FK 或索引错误；对全新建库则直接用 `schema.sql` 里的唯一约束，不需要跑这个迁移脚本。
 ```

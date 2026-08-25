@@ -574,7 +574,7 @@ CREATE TABLE `process_description` (
    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
    PRIMARY KEY (`id`),
    CONSTRAINT `fk_process_description_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
-   KEY `idx_description_tenant_id` (`tenant_id`)
+   UNIQUE KEY `uk_process_description_tenant_name` (`tenant_id`, `name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='交易描述库/模板表';
 
 CREATE TABLE `process` (

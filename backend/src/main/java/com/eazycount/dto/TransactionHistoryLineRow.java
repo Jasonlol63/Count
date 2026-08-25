@@ -21,8 +21,10 @@ public class TransactionHistoryLineRow {
     private String currencyCode;
     private String cardOwner;
     private Boolean bankProcessLine;
-    /* True only for "findDataCaptureHistoryLines" rows — drives the "DATA CAPTURE" ID Product label. */
+    /* True only for "findDataCaptureHistoryLines" rows — drives the ID Product label. */
     private Boolean dataCaptureLine;
+    /* data_capture_line.id_product for dataCaptureLine rows — the Id Product created in Summary. */
+    private String idProduct;
     private Integer toAccountId;
     private Integer fromAccountId;
     private String toAccountCode;

@@ -326,7 +326,8 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         } else if (isRateMiddlemanFee) {
             row.setProduct("RATE");
         } else if (isDataCapture) {
-            row.setProduct("DATA CAPTURE");
+            String idProduct = trimToEmpty(line.getIdProduct());
+            row.setProduct(!idProduct.isEmpty() ? idProduct : "DATA CAPTURE");
         } else if (!isBank) {
             row.setProduct(resolveDomainHistoryProduct(line));
         }
