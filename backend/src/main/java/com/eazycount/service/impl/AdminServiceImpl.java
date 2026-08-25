@@ -422,7 +422,6 @@ public class AdminServiceImpl implements AdminService {
     }
 
     private AdminTenantAccess syncTenantGrants(Admin admin, AdminDTO dto, boolean isCreate) {
-        AclModes modes = resolveAclModes(dto);
         Integer scopeTenantId = resolveScopeTenantId(dto);
         List<Integer> tenantIds = dto.getTenantIds();
 
@@ -430,10 +429,7 @@ public class AdminServiceImpl implements AdminService {
             if (scopeTenantId == null) {
                 throw new BusinessException("Invalid Tenant Id!");
             }
-            AdminTenantAccess access = upsertTenantAccess(admin.getId(), scopeTenantId, modes);
-            replaceAccountAcl(access.getId(), dto.getAccountPermissions(), modes.account());
-            replaceProcessAcl(access.getId(), dto.getProcessPermissions(), modes.process());
-            return access;
+            return syncScopedTenantAccess(admin.getId(), scopeTenantId, dto);
         }
 
         if (tenantIds == null || tenantIds.isEmpty()) {
@@ -450,12 +446,12 @@ public class AdminServiceImpl implements AdminService {
                 continue;
             }
 
-            AdminTenantAccess access = upsertTenantAccess(admin.getId(), tenantId, modes);
-            replaceAccountAcl(access.getId(), dto.getAccountPermissions(), modes.account());
-            replaceProcessAcl(access.getId(), dto.getProcessPermissions(), modes.process());
+            boolean isScopedTenant = scopeTenantId != null && scopeTenantId.equals(tenantId);
+            AdminTenantAccess access = isScopedTenant
+                    ? syncScopedTenantAccess(admin.getId(), tenantId, dto)
+                    : ensureUnscopedTenantAccess(admin.getId(), tenantId);
 
-            if (primaryAccess == null
-                    || (scopeTenantId != null && scopeTenantId.equals(tenantId))) {
+            if (primaryAccess == null || isScopedTenant) {
                 primaryAccess = access;
             }
         }
@@ -466,11 +462,24 @@ public class AdminServiceImpl implements AdminService {
         return primaryAccess;
     }
 
-    private AdminTenantAccess upsertTenantAccess(
-            int userId,
-            int tenantId,
-            AclModes modes
-    ) {
+    private AdminTenantAccess syncScopedTenantAccess(Integer userId, Integer tenantId, AdminDTO dto) {
+        AclModes modes = resolveAclModes(dto.getAccountPermissions(), dto.getProcessPermissions());
+        AdminTenantAccess access = upsertTenantAccess(userId, tenantId, modes);
+        replaceAccountAcl(access.getId(), dto.getAccountPermissions(), modes.account());
+        replaceProcessAcl(access.getId(), dto.getProcessPermissions(), modes.process());
+        return access;
+    }
+
+    private AdminTenantAccess ensureUnscopedTenantAccess(Integer userId, Integer tenantId) {
+        AdminTenantAccess existing = adminDao.findTenantAccessByUserIdAndTenantId(userId, tenantId);
+        if (existing != null) {
+            return existing;
+        }
+        AclModes allModes = new AclModes(AdminTenantAccess.AclMode.ALL, AdminTenantAccess.AclMode.ALL);
+        return upsertTenantAccess(userId, tenantId, allModes);
+    }
+
+    private AdminTenantAccess upsertTenantAccess(Integer userId, Integer tenantId, AclModes modes) {
         AdminTenantAccess existing = adminDao.findTenantAccessByUserIdAndTenantId(userId, tenantId);
         if (existing != null) {
             existing.setAccountAclMode(modes.account());
@@ -648,19 +657,18 @@ public class AdminServiceImpl implements AdminService {
         return staffRole.getId();
     }
 
-    private AclModes resolveAclModes(AdminDTO dto) {
-        List<AdminDTO.AccountPermissionItem> accountItems =
-                dto.getAccountPermissions() != null ? dto.getAccountPermissions() : List.of();
-        List<AdminDTO.ProcessPermissionItem> processItems =
-                dto.getProcessPermissions() != null ? dto.getProcessPermissions() : List.of();
+    private AclModes resolveAclModes(
+            List<AdminDTO.AccountPermissionItem> accountItemsRaw,
+            List<AdminDTO.ProcessPermissionItem> processItemsRaw
+    ) {
+        return new AclModes(resolveAclMode(accountItemsRaw), resolveAclMode(processItemsRaw));
+    }
 
-        AdminTenantAccess.AclMode accountMode = accountItems.isEmpty()
-                ? AdminTenantAccess.AclMode.ALL
-                : AdminTenantAccess.AclMode.CUSTOM;
-        AdminTenantAccess.AclMode processMode = processItems.isEmpty()
-                ? AdminTenantAccess.AclMode.ALL
-                : AdminTenantAccess.AclMode.CUSTOM;
-        return new AclModes(accountMode, processMode);
+    private AdminTenantAccess.AclMode resolveAclMode(List<?> itemsRaw) {
+        if (itemsRaw == null) {
+            return AdminTenantAccess.AclMode.ALL;
+        }
+        return itemsRaw.isEmpty() ? AdminTenantAccess.AclMode.NONE : AdminTenantAccess.AclMode.CUSTOM;
     }
 
     private void requireLoggedIn() {

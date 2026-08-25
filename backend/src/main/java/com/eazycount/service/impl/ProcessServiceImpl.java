@@ -1,9 +1,12 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
+import com.eazycount.dao.AdminDao;
 import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.ProcessDao;
+import com.eazycount.dto.AdminDTO;
 import com.eazycount.dto.ProcessDTO;
+import com.eazycount.entity.AdminTenantAccess;
 import com.eazycount.entity.Process;
 import com.eazycount.entity.ProcessDay;
 import com.eazycount.entity.ProcessDescription;
@@ -16,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -25,6 +29,9 @@ public class ProcessServiceImpl implements ProcessService {
 
     @Autowired
     private ProcessDao processDao;
+
+    @Autowired
+    private AdminDao adminDao;
 
     @Autowired
     private CurrencyDao currencyDao;
@@ -40,7 +47,37 @@ public class ProcessServiceImpl implements ProcessService {
             throw new BusinessException("tenant_id is required!");
         }
 
-        return processDao.findProcessByTenantId(tenantId);
+        List<ProcessDTO> rows = processDao.findProcessByTenantId(tenantId);
+        return filterByProcessAcl(rows, sessionUser, tenantId);
+    }
+
+    private List<ProcessDTO> filterByProcessAcl(List<ProcessDTO> rows, SessionUser session, Integer tenantId) {
+        if (session.user_id == null || !"user".equalsIgnoreCase(session.user_type)) {
+            return rows;
+        }
+
+        AdminTenantAccess access = adminDao.findTenantAccessByUserIdAndTenantId(session.user_id, tenantId);
+        if (access == null || access.getProcessAclMode() == null || access.getProcessAclMode() == AdminTenantAccess.AclMode.ALL) {
+            return rows;
+        }
+        if (access.getProcessAclMode() == AdminTenantAccess.AclMode.NONE) {
+            return List.of();
+        }
+
+        Set<Integer> allowedProcessIds = new HashSet<>();
+        for (AdminDTO.ProcessPermissionItem item : adminDao.findProcessPermissionsByUserTenantAccessId(access.getId())) {
+            if (item.getProcessId() != null) {
+                allowedProcessIds.add(item.getProcessId());
+            }
+        }
+
+        List<ProcessDTO> filtered = new ArrayList<>();
+        for (ProcessDTO row : rows) {
+            if (allowedProcessIds.contains(row.getId())) {
+                filtered.add(row);
+            }
+        }
+        return filtered;
     }
 
     @Override

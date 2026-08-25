@@ -1,9 +1,12 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
+import com.eazycount.dao.AdminDao;
 import com.eazycount.dao.TenantDao;
 import com.eazycount.dao.UserDao;
+import com.eazycount.dto.AdminDTO;
 import com.eazycount.dto.UserListDTO;
+import com.eazycount.entity.AdminTenantAccess;
 import com.eazycount.entity.Tenant;
 import com.eazycount.entity.UserLink;
 import com.eazycount.entity.User;
@@ -28,6 +31,9 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private UserDao userDao;
+
+    @Autowired
+    private AdminDao adminDao;
 
     @Autowired
     private TenantDao tenantDao;
@@ -79,7 +85,37 @@ public class UserServiceImpl implements UserService {
         for (UserListDTO row : rows) {
             row.setTenantIds(userDao.findTenantIdsByUserId(row.getId()));
         }
-        return rows;
+        return filterByAccountAcl(rows, tenantId);
+    }
+
+    private List<UserListDTO> filterByAccountAcl(List<UserListDTO> rows, Integer tenantId) {
+        SessionUser session = SecurityUtils.currentUser();
+        if (session == null || session.user_id == null || !"user".equalsIgnoreCase(session.user_type)) {
+            return rows;
+        }
+
+        AdminTenantAccess access = adminDao.findTenantAccessByUserIdAndTenantId(session.user_id, tenantId);
+        if (access == null || access.getAccountAclMode() == null || access.getAccountAclMode() == AdminTenantAccess.AclMode.ALL) {
+            return rows;
+        }
+        if (access.getAccountAclMode() == AdminTenantAccess.AclMode.NONE) {
+            return List.of();
+        }
+
+        Set<Integer> allowedAccountIds = new HashSet<>();
+        for (AdminDTO.AccountPermissionItem item : adminDao.findAccountPermissionsByUserTenantAccessId(access.getId())) {
+            if (item.getAccountId() != null) {
+                allowedAccountIds.add(item.getAccountId());
+            }
+        }
+
+        List<UserListDTO> filtered = new ArrayList<>();
+        for (UserListDTO row : rows) {
+            if (allowedAccountIds.contains(row.getId())) {
+                filtered.add(row);
+            }
+        }
+        return filtered;
     }
 
     private String normalizeAccountLedgerRole(String role) {
