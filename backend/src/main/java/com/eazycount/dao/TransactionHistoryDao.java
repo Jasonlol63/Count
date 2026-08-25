@@ -8,11 +8,7 @@ import org.apache.ibatis.annotations.Param;
 import java.time.LocalDate;
 import java.util.List;
 
-/**
- * Payment History per-account drill-down (BF balance + line-by-line detail) — backs
- * {@code TransactionHistoryServiceImpl} only. Split out of {@link TransactionDao} so this interface's
- * method set matches exactly what Payment History needs (see docs/frontend-springboot-migration.md 第25节).
- */
+// Payment History drill-down (BF balance + line detail) for TransactionHistoryServiceImpl.
 @Mapper
 public interface TransactionHistoryDao {
 
@@ -41,7 +37,7 @@ public interface TransactionHistoryDao {
             @Param("dateTo") LocalDate dateTo,
             @Param("currencyCodes") List<String> currencyCodes);
 
-    /** Data Capture Summary Win/Loss lines — counterpart to {@link #findBankProcessHistoryLines}. */
+    //Counterpart to findBankProcessHistoryLines for Data Capture Summary.
     List<TransactionHistoryLineRow> findDataCaptureHistoryLines(
             @Param("tenantId") Integer tenantId,
             @Param("accountId") Integer accountId,
