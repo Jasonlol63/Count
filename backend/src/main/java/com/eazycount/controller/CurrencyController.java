@@ -1,5 +1,6 @@
 package com.eazycount.controller;
 
+import com.eazycount.common.BusinessException;
 import com.eazycount.dto.UserCurrencyDTO;
 import com.eazycount.dto.UserLinkedDTO;
 import com.eazycount.entity.Currency;
@@ -29,12 +30,8 @@ public class CurrencyController {
                     "message", "Currency retrieved successfully",
                     "data", data
             ));
-        } catch (com.eazycount.common.BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
         }
     }
 
@@ -47,12 +44,8 @@ public class CurrencyController {
                     "message", "Currency insert successfully",
                     "data", cur
             ));
-        } catch (com.eazycount.common.BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
         }
     }
 
@@ -66,12 +59,8 @@ public class CurrencyController {
             body.put("data", null);
             return ResponseEntity.ok(body);
 
-        } catch (com.eazycount.common.BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
         }
     }
 
@@ -84,12 +73,8 @@ public class CurrencyController {
                     "message", "Currency retrieved successfully",
                     "data", data
             ));
-        } catch (com.eazycount.common.BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
         }
     }
 
@@ -103,12 +88,8 @@ public class CurrencyController {
                     "message", "Linked accounts retrieved successfully",
                     "data", data
             ));
-        } catch (com.eazycount.common.BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
         }
     }
 
@@ -121,12 +102,16 @@ public class CurrencyController {
             body.put("message", "Currency settings saved");
             body.put("data", null);
             return ResponseEntity.ok(body);
-        } catch (com.eazycount.common.BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
         }
+    }
+
+    private static ResponseEntity<Map<String, Object>> error(BusinessException e) {
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", false);
+        body.put("message", e.getMessage());
+        body.put("data", null);
+        return ResponseEntity.ok(body);
     }
 }

@@ -29,11 +29,7 @@ public class AdminController {
                     "data", data
             ));
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -47,11 +43,7 @@ public class AdminController {
                     "data", data
             ));
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -64,11 +56,7 @@ public class AdminController {
                     "message", "Admin created successfully",
                     "data", data));
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -82,11 +70,7 @@ public class AdminController {
                     "message", "Admin updated successfully",
                     "data", data));
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -99,11 +83,7 @@ public class AdminController {
                     "message", "Owner updated successfully",
                     "data", data));
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -115,12 +95,8 @@ public class AdminController {
                     "success", true,
                     "message", "Admin Status updated successfully",
                     "data", data));
-        }catch (BusinessException e){
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
         }
     }
 
@@ -133,12 +109,16 @@ public class AdminController {
             body.put("message", "Admin deleted successfully");
             body.put("data", null);
             return ResponseEntity.ok(body);
-        } catch (Exception e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
         }
+    }
+
+    private static ResponseEntity<Map<String, Object>> error(BusinessException e) {
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", false);
+        body.put("message", e.getMessage());
+        body.put("data", null);
+        return ResponseEntity.ok(body);
     }
 }

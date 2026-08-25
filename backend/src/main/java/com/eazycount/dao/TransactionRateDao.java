@@ -11,7 +11,6 @@ public interface TransactionRateDao {
 
     void insert(TransactionRate row);
 
-    /** Remove RATE headers before deleting linked {@code transactions} rows (FK on leg1/leg2). */
     int deleteByTenantIdAndRateGroupIds(
             @Param("tenantId") Integer tenantId,
             @Param("rateGroupIds") List<String> rateGroupIds);

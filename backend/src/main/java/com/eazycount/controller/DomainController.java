@@ -31,11 +31,7 @@ public class DomainController {
                     "message", "Owner retrieved successfully",
                     "data", data));
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -48,11 +44,7 @@ public class DomainController {
                     "message", "Owner created successfully",
                     "data", data));
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -66,11 +58,7 @@ public class DomainController {
             body.put("data", null);
             return ResponseEntity.ok(body);
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -85,11 +73,7 @@ public class DomainController {
             body.put("data", data);
             return ResponseEntity.ok(body);
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -103,11 +87,7 @@ public class DomainController {
             body.put("data", null);
             return ResponseEntity.ok(body);
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -120,11 +100,7 @@ public class DomainController {
                     "message", "Domain Fee retrieved successfully",
                     "data", List.of(settings)));
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -137,11 +113,15 @@ public class DomainController {
                     "message", "Domain Fee updated successfully",
                     "data", fee));
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
+    }
+
+    private static ResponseEntity<Map<String, Object>> error(BusinessException e) {
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", false);
+        body.put("message", e.getMessage());
+        body.put("data", null);
+        return ResponseEntity.ok(body);
     }
 }

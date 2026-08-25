@@ -70,11 +70,7 @@ public class AnnouncementController {
                     "data", announcements
             ));
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -88,11 +84,7 @@ public class AnnouncementController {
                     "data", maintenance
             ));
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -106,11 +98,7 @@ public class AnnouncementController {
                     "data", announcements
             ));
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -124,11 +112,7 @@ public class AnnouncementController {
                     "data", maintenance
             ));
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -142,11 +126,7 @@ public class AnnouncementController {
             body.put("data", null);
             return ResponseEntity.ok(body);
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
@@ -160,14 +140,16 @@ public class AnnouncementController {
             body.put("data", null);
             return ResponseEntity.ok(body);
         } catch (BusinessException e) {
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
+            return error(e);
         }
     }
 
-
+    private static ResponseEntity<Map<String, Object>> error(BusinessException e) {
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", false);
+        body.put("message", e.getMessage());
+        body.put("data", null);
+        return ResponseEntity.ok(body);
+    }
 
 }

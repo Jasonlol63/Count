@@ -30,7 +30,7 @@ import java.util.List;
 @Service
 public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
 
-    /** Prefer the "C168" account code; fall back to a "PROFIT" code if C168 itself was renamed. */
+    /* Prefer the "C168" account code; fall back to a "PROFIT" code if C168 itself was renamed. */
     private static final String[] PROFIT_ACCOUNT_CODES = {"C168", "PROFIT"};
 
     private static final String LEDGER_CURRENCY_CODE = "MYR";
