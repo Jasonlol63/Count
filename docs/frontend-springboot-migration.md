@@ -448,7 +448,7 @@ Group 候选完全依赖 Spring `GET /api/ownership/available-accounts`。
 - **Announcement 维护模式开关**（`AnnouncementPage.jsx` 的 `maintenance/mode_api.php`）：Announcement 模块其余接口（list/create/update/delete、含维护公告）都已在 `apiUrl.js` 改写到 Spring，唯独这一个 mode 开关端点漏了
 - **Currency 删除**：**已于 2026-08-25 清理**（本条历史记录见下方 §7.3）——不再是待迁移/待清理项
 - **Process List / Bank Process List 页内的公司切换**：**已于 2026-08-25 修复**（本条历史记录见下方 §7.4）——不再是待迁移项。**Dashboard**（`useDashboardPage.js`）和 **Member Win/Loss**（`useMemberWinLoss.js`）里还各有一处同样硬编码调 `update_company_session_api.php` 的代码，这两个页面用户已知未迁移、留到之后再做，本次不处理
-- **Games Process List — Copy From**：仍无对应 Spring 端点（详见下方 §7.6），列为下一步计划迁移项
+- **Games Process List — Copy From**：**已于 2026-08-26 实现**（本条历史记录见下方 §7.6）——不再是待迁移项
 - **Member 页面登录报表查询功能**：boot 阶段仍调两个 PHP 端点（详见下方 §7.7），列为下一步计划迁移项
 - ~~真 AP/IG 纯 Group 账本 Data Capture 币种/草稿/提交/process 解析~~：**已于 2026-08-25 清理**。查 `testcount`（Spring 库）`tenant` 表确认 `id` 是 `NOT NULL AUTO_INCREMENT` 主键——"Group 没有自己 tenant.id"这种情况在当前数据模型下结构性不可能存在（不是概率低，是主键约束直接排除），旧文档记的"遗留边界"是延续 PHP 时代的过度兼容，不是真实存在的场景。实际清理时发现草稿（`dataCaptureGroupOnlyTableDraft.js`）、提交（`summarySubmitExecution.js`）、process 解析（`get_group_process_id`）三处**其实早就已经是纯 Spring**，代码注释里已经写明"no PHP endpoint involved"/"no PHP submit path left"，只有币种查询（`dataCaptureApi.js` 的 `fetchGroupCaptureCurrencies` → `get_scope_account_currencies_api.php`）还在用，本次已删除该函数及其唯一调用点（`useDataCaptureFormEngine.js` 的 `loadGroupOnlyCurrencies`），无 tenantId 时直接返回空列表
 - **Member Win/Loss 报表数据本体**：`api/member/*`（跟 §7.7 的登录/公司解析 boot 流程是两回事；用户已知、留到之后再做）
@@ -645,30 +645,34 @@ owner 空 Group 可见性场景）见 `Count-frontend/docs/owner-groups-cache-re
 
 ---
 
-### 7.6【计划中，尚未实现】Games Process List — Copy From 补 Spring 端点（2026-08-26 记录）
+### 7.6【已完成，2026-08-26】Games Process List — Copy From 补 Spring 端点
 
-**现状**：Copy From 目前完全是纯前端行为，没有调用任何后端接口——`buildCopyFromFormPatch()`
-（`src/pages/processlist/processListHelpers.js:381-407`）从**已经加载在当前列表里**的一行
-`normalizeProcessListItem` 结果直接拼出 Add 表单的补丁对象（`currency_id`/`selected_descriptions`/
-`remove_word`/`replace_word_from`/`replace_word_to`/`remark`/`day_use`），函数注释明确写着
-"no network call (Spring has no `copy_from` endpoint)"。`processListApi.js` 目前只有列表级接口
-（`fetchProcessListByTenantId`/`fetchAllProcessListByTenantId`），没有任何单条 process 的
-detail/get 端点——已核实过整个文件的导出列表，确认这个缺口是真实的，不是遗漏没找到。
+**原状态（已解决，保留记录）**：Copy From 原本完全是纯前端行为，没有调用任何后端接口——
+`buildCopyFromFormPatch()`（`src/pages/processlist/processListHelpers.js:381-407`）只是从
+**已经加载在当前列表里**的一行 `normalizeProcessListItem` 结果直接拼出 Add 表单的补丁对象，
+函数注释当时写着 "no network call (Spring has no `copy_from` endpoint)"。
 
-**限制（当前行为的直接后果）**：Copy From 的下拉选项只能来自 `form.existingProcesses`
-（`ProcessFormModal.jsx:71` 的 `sortedCopyFromOptions`），也就是当前已经在浏览器内存里的那批
-process——如果用户想复制的源 process 因为分页/筛选/尚未加载而不在这批数据里，Copy From 就选不到它。
+**已实现的方案**：没有另开一个"单条 process 详情"端点，而是直接在现有的
+`POST /api/process/add-process`（`ProcessDTO`）上加一个可选入参 `copyFromProcessId`——
+后端拿到这个 id 后**重新从数据库权威读取**源 process 的全部数据（不信任前端已经预填好的表单值），
+在同一个事务里完成：新 process 落库（`copyFromProcessId` 换成新 code）、深拷贝
+description/day/formula 三类子数据。前端 Copy From 下拉仍然只从 `form.existingProcesses`
+（当前已加载列表）里选，选中后本地预填表单只是即时视觉反馈，真正的复制发生在后端。
 
-**计划方向（未实现，待评估）**：
-- 后端补一个单条 process 详情端点，例如 `POST /api/process/detail?tenantId=&processId=`，返回值形状
-  跟 `fetchProcessListByTenantId` 单行一致（这样前端 `normalizeProcessListItem` 可以直接复用，
-  `buildCopyFromFormPatch` 的输入不用改）
-- 前端 Copy From 下拉改成：先按名称/ID 做服务端搜索（或者保留"已加载列表优先，找不到再打 detail
-  接口补拉一条"的折衷方案，视后端是否愿意开放模糊搜索而定）
-- **需要先确认的前提**：legacy PHP 版本的 Copy From 当年是不是本来就有专门的服务端查询能力（本仓库
-  没有 legacy PHP 代码可查，无法直接核实"这是不是本来就该有、只是 Spring 迁移时漏掉的能力"，还是
-  "PHP 版本本来也是纯前端已加载列表挑选，Spring 版本行为其实一直对齐"）——动手写后端端点前建议先
-  跟熟悉 legacy 行为的人确认一下，避免做了一个从来不存在的能力。
+顺带修了一个导致 Copy From 选项一直选不中的既有 bug（`ProcessFormModal.jsx` 用了数据里不存在的
+`p.process_id` 字段，改成 `p.id`）。
+
+完整实现细节（数据库改动、后端 `resolveCopyFromSource`/`copyProcessChildData`、前端改动）见：
+- [`docs/process-copy-from-and-delete-guards.md`](process-copy-from.md)（后端）
+- `Count-frontend/docs/process-copy-from-frontend-changes.md`（前端）
+- 配套的删除防护（process/account/currency 有 transaction 数据不允许删）见
+  [§37](#37-process--account--currency-删除防护--transaction-amount-完整性专项2026-08-26)
+
+**已知限制（沿用原设计，未改变）**：Copy From 的下拉选项仍然只能来自当前已经加载在浏览器内存里的
+process 列表——如果用户想复制的源 process 因为分页/筛选/尚未加载而不在这批数据里，Copy From 还是
+选不到它。这次没有做"服务端搜索"或"补拉单条详情"，因为已实现的方案不需要额外的 detail 端点
+（复制逻辑整个在后端 `add-process` 里完成，前端预填只是体验优化，不是数据来源）。如果以后确实需要
+"复制一个当前列表没加载到的 process"，再评估要不要补服务端搜索。
 
 ### 7.7【计划中，尚未实现】Member 页面登录报表查询功能补 Spring 端点（2026-08-26 记录）
 
@@ -819,7 +823,7 @@ URL **不**带 `tenant_id` / `id`。`ProcessListPage` 的 `loadFormMeta` / `relo
 | List process 服务端 search / showInactive | 暂无；✅ 客户端 `applyProcessListFilters`（`fetchGamesProcessListSlice`） |
 | 前端 add/update/status/delete / description | ✅ 全 Spring（见 [`frontend-springboot-migration.md`第22节](#22-games-process-list--spring-api-对齐说明)） |
 | Edit 打开 | ✅ list 行本地回填（无 get API） |
-| Copy From | ✅ 列表行本地 patch（无 PHP `copy_from`） |
+| Copy From | ✅ 列表行本地 patch 预填表单 + `add-process` 端点 `copyFromProcessId` 入参做服务端权威深拷贝（2026-08-26，见 §7.6） |
 | PHP `addprocess_api` / `processlist_api` | ✅ Games Process List 页已移除 |
 
 ### 9.8 Games ↔ Bank Process 页面路由（2026-07-14）
@@ -3246,7 +3250,9 @@ Spring 返回结构化行（非 PHP 扁平 snake_case）：
 
 - `dayOfWeeks`：`1=Mon … 7=Sun`（与 `PROCESS_WEEKDAY_OPTIONS` 一致）。
 - **Multi-Process Add**：前端对每个 code 循环调用 `addProcess()`（不再走 PHP 批量 `selected_processes`）。
-- **Copy From**：从当前列表行本地读取字段填充表单（不再调 PHP `copy_from`）。
+- **Copy From**：前端从当前列表行本地读取字段预填表单（即时视觉反馈），提交时额外带
+  `copyFromProcessId`；后端收到后重新权威读取源 process 数据做深拷贝（含 formula），不信任前端已填
+  的表单值（2026-08-26，详见 §7.6）。
 
 #### 4.2 更新（Edit）
 

@@ -1,9 +1,9 @@
 # Known Issues — Transaction / Data Capture Summary (待優化 #2)
 
-記錄日期：2026-08-21（2026-08-26 更新：原第 1 項〔Data Capture Summary amount = 0.00 交易鏈路〕與
-第 2 項〔Payment History Export PDF 異常〕已全部修復/驗證完畢，歸檔記錄搬到
-[`frontend-springboot-migration.md`](frontend-springboot-migration.md) 第 36 節、第 35 節後，從本文件
-移除；新增 Games Process List Copy From、Member 頁面登錄報表查詢功能兩項計劃中工作）
+記錄日期：2026-08-21（2026-08-26 更新：原第 1 項〔Data Capture Summary amount = 0.00 交易鏈路〕、
+第 2 項〔Payment History Export PDF 異常〕、以及 Games Process List Copy From 補 Spring 端點，
+已全部修復/實現/驗證完畢，歸檔記錄搬到 [`frontend-springboot-migration.md`](frontend-springboot-migration.md)
+第 36 節、第 35 節、第 7.6 節後，從本文件移除；Member 頁面登錄報表查詢功能仍是計劃中工作）
 
 ## 已歸檔（點連結看完整記錄，本文件不再重複）
 
@@ -13,13 +13,17 @@
 - **Payment History 頁 Export PDF（Win/Lose Report）異常**（幣別選單空白 2a / Export 報錯 2b /
   Id Product 欄位空白 2c，全部 ✅）：
   [`frontend-springboot-migration.md` 第 35 節](frontend-springboot-migration.md#35-payment-history-export-pdf--group-账本币别选单空白修复2026-08-26)
+- **Games Process List — Copy From** 補 Spring 端點（新 process 的 currency/remove word/replace word/
+  remark/description/day use/formula 全部改成後端權威深拷貝，並修了選項選不中的既有 bug；配套加了
+  process/account/currency「有 transaction 數據不允許刪」的刪除防護，全部 ✅）：
+  [`frontend-springboot-migration.md` 第 7.6 節](frontend-springboot-migration.md#76已完成2026-08-26games-process-list--copy-from-补-spring-端点)
+  ／實現細節見 [`process-copy-from-and-delete-guards.md`](process-copy-from.md)
+  （前端見 `Count-frontend/docs/process-copy-from-frontend-changes.md`）
 
 ---
 
 ## 計劃中（尚未實現，詳見 frontend-springboot-migration.md 第 7 節）
 
-- **Games Process List — Copy From** 補 Spring 端點：
-  [`frontend-springboot-migration.md` 第 7.6 節](frontend-springboot-migration.md#76计划中尚未实现games-process-list--copy-from-补-spring-端点2026-08-26-记录)
 - **Member 頁面登錄報表查詢功能** 補 Spring 端點：
   [`frontend-springboot-migration.md` 第 7.7 節](frontend-springboot-migration.md#77计划中尚未实现member-页面登录报表查询功能补-spring-端点2026-08-26-记录)
 - **Dashboard**、**Reset Password** 仍調 PHP，用戶已知、留到之後再做（見
