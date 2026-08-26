@@ -1,37 +1,64 @@
-# Known Issues — Transaction / Data Capture Summary (待優化 #2)
+# Pending Items — Spring Boot Migration & Optimizations (待優化 #2)
 
 記錄日期：2026-08-21（2026-08-26 更新：原第 1 項〔Data Capture Summary amount = 0.00 交易鏈路〕、
 第 2 項〔Payment History Export PDF 異常〕、Games Process List Copy From 補 Spring 端點、以及
 Member 頁面登錄報表查詢功能（含 Account Link、mini grid），已全部修復/實現/驗證完畢，歸檔記錄搬到
 [`frontend-springboot-migration.md`](frontend-springboot-migration.md) 第 36 節、第 35 節、
-第 7.6 節、第 7.7/38 節後，從本文件移除）
-
-## 已歸檔（點連結看完整記錄，本文件不再重複）
-
-- **Data Capture Summary 執行 amount = 0.00 交易的相關問題**（寫入端 1a / Payment History 顯示端 1b /
-  Transaction「Show all 0 balance」1c，全部 ✅）：
-  [`frontend-springboot-migration.md` 第 36 節](frontend-springboot-migration.md#36-data-capture-summary-amount--000-交易链路修复归档2026-08-25--2026-08-26已解决)
-- **Payment History 頁 Export PDF（Win/Lose Report）異常**（幣別選單空白 2a / Export 報錯 2b /
-  Id Product 欄位空白 2c，全部 ✅）：
-  [`frontend-springboot-migration.md` 第 35 節](frontend-springboot-migration.md#35-payment-history-export-pdf--group-账本币别选单空白修复2026-08-26)
-- **Games Process List — Copy From** 補 Spring 端點（新 process 的 currency/remove word/replace word/
-  remark/description/day use/formula 全部改成後端權威深拷貝，並修了選項選不中的既有 bug；配套加了
-  process/account/currency「有 transaction 數據不允許刪」的刪除防護，全部 ✅）：
-  [`frontend-springboot-migration.md` 第 7.6 節](frontend-springboot-migration.md#76已完成2026-08-26games-process-list--copy-from-补-spring-端点)
-  ／實現細節見 [`process-copy-from-and-delete-guards.md`](process-copy-from.md)
-  （前端見 `Count-frontend/docs/process-copy-from-frontend-changes.md`）
-- **Member 頁面**（boot 流程、Account Link 判斷、有 link 時的多帳號 mini grid、Win/Loss 報表）
-  補 Spring 端點，全部完成並經真實帳號實測、修了幾個實測才暴露出來的 bug：
-  [`frontend-springboot-migration.md` 第 7.7 / 38 節](frontend-springboot-migration.md#77已完成member-页面-boot--account-link--win-loss-报表含-mini-grid-全部迁移-spring2026-08-26)
-  ／實現細節見 [`member-account-link-report.md`](member-account-link-report.md)
-  （前端見 `Count-frontend/docs/member-winloss-springboot-migration.md`）
-
----
+第 7.6 節、第 7.7/38 節後，從本文件移除。同日再更新：把「Dashboard」「Reset Password」尚未遷移
+Spring 的條目補上具體現況說明，並新增一條計劃中項目——Account 頁面批量新增
+bidirectional/unidirectional 帳號連結）
 
 ## 計劃中（尚未實現，詳見 frontend-springboot-migration.md 第 7 節）
 
-- **Dashboard**、**Reset Password** 仍調 PHP，用戶已知、留到之後再做（見
-  frontend-springboot-migration.md 第 7 節條目列表）
+### 1. Dashboard 遷移 Spring Boot API 格式
+
+`useDashboardPage.js` / `dashboardRoutePrefetch.js` 仍調 `dashboard_bootstrap_api.php`、
+`update_company_session_api.php`；倉庫和文檔目前都找不到對應的 Spring 端點規劃，需要先確定
+`dashboard_bootstrap_api.php` 的 Spring 契約（回傳格式對齊 Spring DTO 慣例），再遷移頁面本身與
+`warmDashboardRouteCache()` 背景預熱邏輯。用戶已知、留到之後再做（見 frontend-springboot-migration.md
+第 7 節）。
+
+---
+
+### 2. Reset Password 遷移 Spring Boot API 格式
+
+`pages/login/resetPassword.js` 仍調 `send_reset_tac_api.php` / `reset_password_api.php`；Spring 端
+已經有封裝好但**未接線**的 `authApi.sendResetTacRequest()` / `authApi.resetPasswordRequest()`
+（對應 `POST /auth/send-reset-tac` / `POST /auth/reset-password`），之後只需要把 `resetPassword.js`
+改成呼叫這兩個既有方法即可，不需要新建前端端點。用戶已知、留到之後再做（見
+frontend-springboot-migration.md 第 7 節）。
+
+**後端 TAC 發送/驗證這塊本次順帶討論了以下優化方案，後續實作時採納：**
+
+- **TAC 存儲改用 Redis，不用 DB**：`schema.sql` 已存在的 `password_reset_tac` /
+  `password_reset_tac_owner` 兩張表（`PRIMARY KEY (email, tenant_id)`）設計本身沒問題，但 TAC 是
+  短生命週期、一次性、不需要長期留存的數據，比較適合用專案裡已經接好的 Redis（`StringRedisTemplate`
+  ／參考現成寫法 [`AuthTokenStore.java`](../backend/src/main/java/com/eazycount/security/AuthTokenStore.java)），
+  用 `SET key value EX ttl` 讓 Redis 自動過期，不用像 DB 方案那樣手動比對 `expires_at` 欄位、也不用
+  額外寫清理過期行的 job。實作後這兩張表可以直接不用（要不要 `DROP` 待之後決定，先保留死 schema 不影響功能）
+- **60 秒重發冷卻，且必須在後端強制**：發送 TAC 後 60 秒內同一個 email/tenant 不能再次觸發發送，
+  避免使用者手滑連點兩次收到兩封信、也避免被拿來對 SMTP 服務商洗量。可以跟 TAC 本體共用 Redis 機制，
+  用 `SET NX EX 60` 當冷卻鎖（key 存在＝還在冷卻，直接拒絕並回傳剩餘秒數）；驗證碼本身另外用
+  10–15 分鐘的 TTL（兩個時間窗不同，互不影響）。前端按鈕 disable 60 秒只是體驗優化，不能作為唯一防線
+- **驗證碼一次性使用**：`reset-password` 呼叫成功後立刻刪掉對應 Redis key，防止同一個碼被重放
+- **失敗次數限制**：驗證碼校驗錯誤達到一定次數（例如 5 次）就讓該碼直接失效，防止暴力枚舉 6 位數字
+- **不要回顯「這個 email 是否存在」**：不管 email 在不在系統裡，`send-reset-tac` 都回統一話術
+  （「如果該信箱存在，驗證碼已寄出」），避免被用來枚舉系統內有哪些帳號 email
+- **admin／owner 兩套 TAC 邏輯重複**：`password_reset_tac` 與 `password_reset_tac_owner`
+  幾乎是同一套邏輯拆成兩張表，Service 層可以考慮做成帶 `scope` 參數的共用實作，避免以後改一處忘改
+  另一處（呼應最近一次「拆分 process 業務邏輯」提交的整理方向）
+- **Email 發送本身走 `JavaMailSender` + SMTP**：本地開發即可測試，不需要先部署上線才生效（本地機器
+  連外網打 SMTP server 即可），開發階段也可以用 MailHog/smtp4dev 這類本地假 SMTP 抓包工具避免真的發信
+
+---
+
+### 3. Account 頁面 Account Link 優化（批量新增 bidirectional / unidirectional）
+
+目前 `UserController` 的 `insertAccountLink` 一次只能建立一條 `UserLink`（`bidirectional` 或
+`unidirectional` 二選一），Account 頁面若要一次幫多個帳號同時建立 link，只能逐條發請求。目標是加一個
+批量端點（一次請求內可以混合多條 bidirectional／unidirectional link），確保「同時新增多個
+bidirectional 和 unidirectional 帳號連結」可以在同一次操作內完成，而不是分開多次點擊/多次請求。尚未
+實現，待排期。
 
 ## 優先級原則
 
