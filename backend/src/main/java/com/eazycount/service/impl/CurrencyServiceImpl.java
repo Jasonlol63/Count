@@ -143,7 +143,7 @@ public class CurrencyServiceImpl implements CurrencyService {
         }
 
         if (transactionDao.countTransactionsByCurrencyId(id, tenantId) > 0) {
-            throw new BusinessException("Currency has existing transaction cannot be deleted!");
+            throw new BusinessException("Currency has existing transaction in used cannot be deleted!");
         }
 
         try {

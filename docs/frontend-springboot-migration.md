@@ -6860,3 +6860,14 @@ if (transactionDao.countTransactionsByCurrencyId(id, tenantId) > 0) {
 `BusinessException → { success:false, message }` 响应格式，前端已有的错误提示逻辑会正常显示出来。
 
 ---
+
+## 38. Member 页面 Profile / Win-Loss 报表 — Account Link 分支（进行中，前端尚未接）
+
+对应 §7.7 记录的计划：Member 页面 boot 流程要判断当前登录账号有没有 Account Link，然后分两种情况
+展示不同东西（无 link 展示 Company + 自己的 currency；有 link 展示 Account 选择器 + 按选中账号切换
+的报表）。后端已新增 `MemberProfileDTO`/`UserPageService`/`UserPageServiceImpl`/`MemberController`
+（`/api/member/profile`、`/api/member/history`、`/api/member/account-currencies`），前端完全没动，
+三个新端点还没有任何调用方。详见独立文档
+[`docs/member-account-link-report.md`](member-account-link-report.md)。
+
+---
