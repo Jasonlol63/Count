@@ -4,13 +4,11 @@ import com.eazycount.common.BusinessException;
 import com.eazycount.dao.AdminDao;
 import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.ProcessDao;
+import com.eazycount.dao.TransactionDao;
 import com.eazycount.dto.AdminDTO;
 import com.eazycount.dto.ProcessDTO;
-import com.eazycount.entity.AdminTenantAccess;
+import com.eazycount.entity.*;
 import com.eazycount.entity.Process;
-import com.eazycount.entity.ProcessDay;
-import com.eazycount.entity.ProcessDescription;
-import com.eazycount.entity.ProcessDescriptionLink;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.ProcessService;
@@ -36,6 +34,9 @@ public class ProcessServiceImpl implements ProcessService {
 
     @Autowired
     private CurrencyDao currencyDao;
+
+    @Autowired
+    private TransactionDao transactionDao;
 
     @Override
     public List<ProcessDTO> findProcessByTenantId(Integer tenantId) {
@@ -95,11 +96,14 @@ public class ProcessServiceImpl implements ProcessService {
         String code = processDTO.getCode().trim().toUpperCase();
         processDTO.setCode(code);
 
-        Process.Category category = processDTO.getCategory() != null
-                ? processDTO.getCategory()
-                : Process.Category.GAME;
+        Process copySource = resolveCopyFromSource(processDTO.getCopyFromProcessId(), processDTO.getTenantId());
 
-        if (currencyDao.findByIdAndTenantId(processDTO.getCurrencyId(), processDTO.getTenantId()) == null) {
+        Process.Category category = copySource != null
+                ? copySource.getCategory()
+                : (processDTO.getCategory() != null ? processDTO.getCategory() : Process.Category.GAME);
+
+        Integer currencyId = copySource != null ? copySource.getCurrencyId() : processDTO.getCurrencyId();
+        if (currencyDao.findByIdAndTenantId(currencyId, processDTO.getTenantId()) == null) {
             throw new BusinessException("Currency not found!");
         }
 
@@ -111,11 +115,12 @@ public class ProcessServiceImpl implements ProcessService {
         process.setTenantId(processDTO.getTenantId());
         process.setCategory(category);
         process.setCode(code);
-        process.setCurrencyId(processDTO.getCurrencyId());
-        process.setRemoveWord(processDTO.getRemoveWord());
-        process.setReplaceWordFrom(processDTO.getReplaceWordFrom());
-        process.setReplaceWordTo(processDTO.getReplaceWordTo());
-        process.setRemark(processDTO.getRemark());
+        process.setCopiedFromProcessId(copySource != null ? copySource.getId() : null);
+        process.setCurrencyId(currencyId);
+        process.setRemoveWord(copySource != null ? copySource.getRemoveWord() : processDTO.getRemoveWord());
+        process.setReplaceWordFrom(copySource != null ? copySource.getReplaceWordFrom() : processDTO.getReplaceWordFrom());
+        process.setReplaceWordTo(copySource != null ? copySource.getReplaceWordTo() : processDTO.getReplaceWordTo());
+        process.setRemark(copySource != null ? copySource.getRemark() : processDTO.getRemark());
         process.setStatus(Process.Status.ACTIVE);
         process.setCreatedBy(sessionUser.login_id);
 
@@ -128,45 +133,49 @@ public class ProcessServiceImpl implements ProcessService {
             throw new BusinessException("Insert process failed. Please try again!");
         }
 
-        List<Integer> descriptionIds = processDTO.getDescriptionIds();
-        if (descriptionIds != null && !descriptionIds.isEmpty()) {
-            List<ProcessDescriptionLink> links = new ArrayList<>();
-            Set<Integer> seenDesc = new LinkedHashSet<>();
-            for (Integer descriptionId : descriptionIds) {
-                if (descriptionId == null || descriptionId <= 0 || !seenDesc.add(descriptionId)) {
-                    continue;
+        if (copySource != null) {
+            copyProcessChildData(copySource.getId(), process.getId(), processDTO.getTenantId(), sessionUser.login_id);
+        } else {
+            List<Integer> descriptionIds = processDTO.getDescriptionIds();
+            if (descriptionIds != null && !descriptionIds.isEmpty()) {
+                List<ProcessDescriptionLink> links = new ArrayList<>();
+                Set<Integer> seenDesc = new LinkedHashSet<>();
+                for (Integer descriptionId : descriptionIds) {
+                    if (descriptionId == null || descriptionId <= 0 || !seenDesc.add(descriptionId)) {
+                        continue;
+                    }
+                    ProcessDescription desc = processDao.findDescriptionByIdAndTenantId(
+                            descriptionId, processDTO.getTenantId());
+                    if (desc == null) {
+                        throw new BusinessException("Description not found: " + descriptionId);
+                    }
+                    links.add(new ProcessDescriptionLink(null, process.getId(), descriptionId, null));
                 }
-                ProcessDescription desc = processDao.findDescriptionByIdAndTenantId(
-                        descriptionId, processDTO.getTenantId());
-                if (desc == null) {
-                    throw new BusinessException("Description not found: " + descriptionId);
+                if (!links.isEmpty()) {
+                    try {
+                        processDao.insertProcessDescriptionLinkBatch(links);
+                    } catch (Exception e) {
+                        throw new BusinessException("Insert process description links failed!");
+                    }
                 }
-                links.add(new ProcessDescriptionLink(null, process.getId(), descriptionId, null));
             }
-            if (!links.isEmpty()) {
-                try {
-                    processDao.insertProcessDescriptionLinkBatch(links);
-                } catch (Exception e) {
-                    throw new BusinessException("Insert process description links failed!");
-                }
-            }
-        }
 
-        List<Integer> dayOfWeeks = processDTO.getDayOfWeeks();
-        if (dayOfWeeks != null && !dayOfWeeks.isEmpty()) {
-            List<ProcessDay> days = new ArrayList<>();
-            Set<Integer> seenDays = new LinkedHashSet<>();
-            for (Integer day : dayOfWeeks) {
-                if (day == null || day < 1 || day > 7 || !seenDays.add(day)) {
-                    continue;
+            List<Integer> dayOfWeeks = processDTO.getDayOfWeeks();
+            if (dayOfWeeks != null && !dayOfWeeks.isEmpty()) {
+                List<ProcessDay> days = new ArrayList<>();
+                Set<Integer> seenDays = new LinkedHashSet<>();
+                for (Integer day : dayOfWeeks) {
+                    if (day == null || day < 1 || day > 7 || !seenDays.add(day)) {
+                        continue;
+                    }
+                    days.add(new ProcessDay(null, process.getId(), day));
                 }
-                days.add(new ProcessDay(null, process.getId(), day));
-            }
-            if (!days.isEmpty()) {
-                try {
-                    processDao.insertProcessDayBatch(days);
-                } catch (Exception e) {
-                    throw new BusinessException("Insert process days failed!");
+                if (!days.isEmpty()) {
+                    try {
+                        processDao.insertProcessDayBatch(days);
+                    } catch (Exception e) {
+                        throw new BusinessException("Insert process days failed!");
+                    }
                 }
             }
         }
@@ -174,6 +183,29 @@ public class ProcessServiceImpl implements ProcessService {
         processDTO.setId(process.getId());
         processDTO.setCategory(category);
         return processDTO;
+    }
+
+    //Copy From: resolve and validate the source process to duplicate.Re-reads from the DB rather than trusting so the copy is race-safe.
+    private Process resolveCopyFromSource(Integer copyFromProcessId, Integer tenantId) {
+        if (copyFromProcessId == null) {
+            return null;
+        }
+        Process source = processDao.findProcessByIdAndTenantId(copyFromProcessId, tenantId);
+        if (source == null) {
+            throw new BusinessException("Copy From source process not found!");
+        }
+        return source;
+    }
+
+    // Copy From: deep-copy the source process's description links / days / formulas onto the new process.
+    private void copyProcessChildData(Integer sourceProcessId, Integer newProcessId, Integer tenantId, String createdBy) {
+        try {
+            processDao.copyProcessDescriptionLinks(sourceProcessId, newProcessId);
+            processDao.copyProcessDays(sourceProcessId, newProcessId);
+            processDao.copyProcessFormulas(sourceProcessId, newProcessId, tenantId, createdBy);
+        } catch (Exception e) {
+            throw new BusinessException("Failed to copy data from source process!");
+        }
     }
 
     @Override
@@ -283,6 +315,10 @@ public class ProcessServiceImpl implements ProcessService {
         }
         if (process.getStatus() != Process.Status.INACTIVE) {
             throw new BusinessException("Process is not inactive, cannot be deleted!");
+        }
+
+        if (transactionDao.countTransactionsByProcessId(id, tenantId) > 0) {
+            throw new BusinessException("Process has existing transaction cannot be deleted!");
         }
 
         // Child rows (description_link / day / process_submitted) cascade from process FK.

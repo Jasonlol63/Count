@@ -31,6 +31,17 @@ public interface ProcessDao {
 
     void insertProcessDayBatch(@Param("list") List<ProcessDay> list);
 
+    // Copy From: deep-copy a source process's description links / days / formulas onto a new process id
+    void copyProcessDescriptionLinks(@Param("sourceProcessId") Integer sourceProcessId, @Param("newProcessId") Integer newProcessId);
+
+    void copyProcessDays(@Param("sourceProcessId") Integer sourceProcessId, @Param("newProcessId") Integer newProcessId);
+
+    void copyProcessFormulas(
+            @Param("sourceProcessId") Integer sourceProcessId,
+            @Param("newProcessId") Integer newProcessId,
+            @Param("tenantId") Integer tenantId,
+            @Param("createdBy") String createdBy);
+
     // Update process children: delete-all then re-insert (same batch inserts as add)
     void deleteProcessDescriptionLinkByProcessId(@Param("processId") Integer processId);
 

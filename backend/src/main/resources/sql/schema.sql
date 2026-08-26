@@ -582,6 +582,7 @@ CREATE TABLE `process` (
    `tenant_id`         INT UNSIGNED NOT NULL COMMENT 'FK tenant.id',
    `category`          ENUM('GAME', 'BANK') NOT NULL DEFAULT 'GAME' COMMENT 'GAME=动态 process+day+submitted 过滤；BANK=固定四码且 option 常显',
    `code`              VARCHAR(50) NOT NULL COMMENT '业务码；BANK 固定 PROFIT/SALARY/COMMISSION/BONUS',
+   `copied_from_process_id` INT UNSIGNED DEFAULT NULL COMMENT '来源 process.id（Copy From 建立时记录，仅用于追溯/排查，不影响业务逻辑）',
    `currency_id`       INT UNSIGNED NOT NULL COMMENT '默认币别 FK currency.id',
    `remove_word`       TEXT DEFAULT NULL COMMENT '要过滤的词，逗号分隔（GAME）',
    `replace_word_from` VARCHAR(255) DEFAULT NULL COMMENT 'GAME',
@@ -596,8 +597,10 @@ CREATE TABLE `process` (
    UNIQUE KEY `uk_process_tenant_category_code` (`tenant_id`, `category`, `code`),
    CONSTRAINT `fk_process_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
    CONSTRAINT `fk_process_currency` FOREIGN KEY (`currency_id`) REFERENCES `currency` (`id`),
+   CONSTRAINT `fk_process_copied_from` FOREIGN KEY (`copied_from_process_id`) REFERENCES `process` (`id`) ON DELETE SET NULL,
    KEY `idx_process_tenant_id` (`tenant_id`),
-   KEY `idx_process_tenant_category` (`tenant_id`, `category`, `status`)
+   KEY `idx_process_tenant_category` (`tenant_id`, `category`, `status`),
+   KEY `idx_process_copied_from` (`copied_from_process_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='流程配置表（无 JSON；GAME/BANK 同表用 category 区分规则）';
 
 -- Moved here (was declared right after user_tenant_account_access) because it FKs into `process`,

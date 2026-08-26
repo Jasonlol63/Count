@@ -11,6 +11,7 @@
             <result property="tenantId" column="processTenantId"/>
             <result property="category" column="processCategory"/>
             <result property="code" column="processCode"/>
+            <result property="copiedFromProcessId" column="processCopiedFromProcessId"/>
             <result property="currencyId" column="processCurrencyId"/>
             <result property="removeWord" column="processRemoveWord"/>
             <result property="replaceWordFrom" column="processReplaceWordFrom"/>
@@ -39,6 +40,7 @@
         <result property="tenantId" column="tenant_id"/>
         <result property="category" column="category"/>
         <result property="code" column="code"/>
+        <result property="copiedFromProcessId" column="copied_from_process_id"/>
         <result property="currencyId" column="currency_id"/>
         <result property="removeWord" column="remove_word"/>
         <result property="replaceWordFrom" column="replace_word_from"/>
@@ -58,6 +60,7 @@
             p.tenant_id         AS processTenantId,
             p.category          AS processCategory,
             p.code              AS processCode,
+            p.copied_from_process_id AS processCopiedFromProcessId,
             p.currency_id       AS processCurrencyId,
             c.code              AS processCurrencyCode,
             p.remove_word       AS processRemoveWord,
@@ -103,6 +106,7 @@
             tenant_id,
             category,
             code,
+            copied_from_process_id,
             currency_id,
             remove_word,
             replace_word_from,
@@ -123,6 +127,7 @@
             tenant_id,
             category,
             code,
+            copied_from_process_id,
             currency_id,
             remove_word,
             replace_word_from,
@@ -145,6 +150,7 @@
             tenant_id,
             category,
             code,
+            copied_from_process_id,
             currency_id,
             remove_word,
             replace_word_from,
@@ -164,8 +170,8 @@
 
     <!-- Insert Process Use -->
     <insert id="insertNewProcess" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
-        INSERT INTO process (tenant_id, category, code, currency_id, remove_word, replace_word_from, replace_word_to, remark, status, created_by, created_at)
-        VALUES (#{tenantId}, #{category}, #{code}, #{currencyId}, #{removeWord}, #{replaceWordFrom}, #{replaceWordTo}, #{remark}, #{status}, #{createdBy}, NOW())
+        INSERT INTO process (tenant_id, category, code, copied_from_process_id, currency_id, remove_word, replace_word_from, replace_word_to, remark, status, created_by, created_at)
+        VALUES (#{tenantId}, #{category}, #{code}, #{copiedFromProcessId}, #{currencyId}, #{removeWord}, #{replaceWordFrom}, #{replaceWordTo}, #{remark}, #{status}, #{createdBy}, NOW())
     </insert>
 
     <insert id="insertProcessDescriptionLinkBatch">
@@ -182,6 +188,38 @@
         <foreach collection="list" item="item" separator=",">
             (#{item.processId}, #{item.dayOfWeek})
         </foreach>
+    </insert>
+
+    <!-- Copy From: deep-copy source process's description links / days / formulas onto the new process -->
+    <insert id="copyProcessDescriptionLinks">
+        INSERT INTO process_description_link (process_id, description_id, created_at)
+        SELECT #{newProcessId}, description_id, NOW()
+        FROM process_description_link
+        WHERE process_id = #{sourceProcessId}
+    </insert>
+
+    <insert id="copyProcessDays">
+        INSERT INTO process_day (process_id, day_of_week)
+        SELECT #{newProcessId}, day_of_week
+        FROM process_day
+        WHERE process_id = #{sourceProcessId}
+    </insert>
+
+    <insert id="copyProcessFormulas">
+        INSERT INTO data_capture_formula (
+            tenant_id, process_id, product_type, id_product, parent_id_product, formula_variant,
+            sub_order, row_index, account_id, currency_id, description, source_columns, columns_display,
+            formula, input_method, source_percent, enable_source_percent, enable_input_method,
+            created_by, created_at
+        )
+        SELECT
+            tenant_id, #{newProcessId}, product_type, id_product, parent_id_product, formula_variant,
+            sub_order, row_index, account_id, currency_id, description, source_columns, columns_display,
+            formula, input_method, source_percent, enable_source_percent, enable_input_method,
+            #{createdBy}, NOW()
+        FROM data_capture_formula
+        WHERE process_id = #{sourceProcessId}
+          AND tenant_id = #{tenantId}
     </insert>
 
     <!-- Update Process Use -->

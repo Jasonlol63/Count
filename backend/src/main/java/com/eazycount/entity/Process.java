@@ -27,6 +27,8 @@ public class Process {
 
     private String code;
 
+    private Integer copiedFromProcessId;
+
     private Integer currencyId;
 
     private String removeWord;
@@ -39,10 +41,8 @@ public class Process {
 
     private Status status;
 
-    /** Creator login_id (admin {@code user.login_id} or owner {@code owner_code}) */
     private String createdBy;
 
-    /** Last editor login_id */
     private String updatedBy;
 
     private LocalDateTime createdAt;
