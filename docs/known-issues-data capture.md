@@ -1,9 +1,10 @@
 # Known Issues — Transaction / Data Capture Summary (待優化 #2)
 
 記錄日期：2026-08-21（2026-08-26 更新：原第 1 項〔Data Capture Summary amount = 0.00 交易鏈路〕、
-第 2 項〔Payment History Export PDF 異常〕、以及 Games Process List Copy From 補 Spring 端點，
-已全部修復/實現/驗證完畢，歸檔記錄搬到 [`frontend-springboot-migration.md`](frontend-springboot-migration.md)
-第 36 節、第 35 節、第 7.6 節後，從本文件移除；Member 頁面登錄報表查詢功能仍是計劃中工作）
+第 2 項〔Payment History Export PDF 異常〕、Games Process List Copy From 補 Spring 端點、以及
+Member 頁面登錄報表查詢功能（含 Account Link、mini grid），已全部修復/實現/驗證完畢，歸檔記錄搬到
+[`frontend-springboot-migration.md`](frontend-springboot-migration.md) 第 36 節、第 35 節、
+第 7.6 節、第 7.7/38 節後，從本文件移除）
 
 ## 已歸檔（點連結看完整記錄，本文件不再重複）
 
@@ -19,13 +20,16 @@
   [`frontend-springboot-migration.md` 第 7.6 節](frontend-springboot-migration.md#76已完成2026-08-26games-process-list--copy-from-补-spring-端点)
   ／實現細節見 [`process-copy-from-and-delete-guards.md`](process-copy-from.md)
   （前端見 `Count-frontend/docs/process-copy-from-frontend-changes.md`）
+- **Member 頁面**（boot 流程、Account Link 判斷、有 link 時的多帳號 mini grid、Win/Loss 報表）
+  補 Spring 端點，全部完成並經真實帳號實測、修了幾個實測才暴露出來的 bug：
+  [`frontend-springboot-migration.md` 第 7.7 / 38 節](frontend-springboot-migration.md#77已完成member-页面-boot--account-link--win-loss-报表含-mini-grid-全部迁移-spring2026-08-26)
+  ／實現細節見 [`member-account-link-report.md`](member-account-link-report.md)
+  （前端見 `Count-frontend/docs/member-winloss-springboot-migration.md`）
 
 ---
 
 ## 計劃中（尚未實現，詳見 frontend-springboot-migration.md 第 7 節）
 
-- **Member 頁面登錄報表查詢功能** 補 Spring 端點：
-  [`frontend-springboot-migration.md` 第 7.7 節](frontend-springboot-migration.md#77计划中尚未实现member-页面登录报表查询功能补-spring-端点2026-08-26-记录)
 - **Dashboard**、**Reset Password** 仍調 PHP，用戶已知、留到之後再做（見
   frontend-springboot-migration.md 第 7 節條目列表）
 

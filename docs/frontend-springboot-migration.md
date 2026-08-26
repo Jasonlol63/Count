@@ -93,7 +93,7 @@ res.success === true || res.status === "success"
 | **Ownership** | ✅ API 已迁移 + **数据层已对齐 Spring** | `/api/ownership/*` | `apiUrl.js` 重写 + `ownershipRowHelpers` normalize |
 | **Process** | ✅ 已迁移（2026-08-25 复核：第 17 节的列表加载 PHP + 死代码 bug 已修） | `/api/process/*` + `/api/currency/list` | Add/Update/Status/Delete/description CRUD 及列表加载均直调 Spring；`processRoutePrefetch.js` 已改用 `fetchProcessListByTenantId`/`fetchProcessFormMeta`，不再打 `processlist_api.php`。页内仍有一处硬编码 `session/update_company_session_api.php`（公司切换），未跟着迁移，见第 7 节 |
 | **Bank Process** | ✅ 已迁移（2026-08-25 复核，与 Process 同批修复） | `/api/bank-process/*`、`/api/bank-country-option/*`、`/api/account/*` | Add/Update/Status/Delete/Remark/Resend/Accounting Due Post-to-Transaction（见第 10 节）+ 列表加载（`bankProcessListApi.js` 全量 `/api/bank-process/*`）均已 Spring。页内同样有一处硬编码 `session/update_company_session_api.php`，见第 7 节 |
-| **Transaction / Report / Data Capture / Member / Maintenance** | ⚠️ 部分（2026-08-25 复核，多数子模块已完成） | `/api/transaction/search` + `/history` + `/submit`；`/api/report/domain-report/list` + `/api/report/customer-report/list`；`/api/maintenance/{formula,payment,transaction,capture}-maintenance/*`；Data Capture 全量 Spring 端点 | **Transaction Payment 页** Meta / Search / History / Submit（含 RATE）已 Spring；Contra Inbox 无 pending；SSE ticket 未接 Spring。**Report 已全部迁移**（Domain Report + Customer Report，2026-08-19 文档写"完全未迁移"是旧记录，已过时）。**Maintenance 业务页**（Formula/Payment/Transaction/Capture，含纯 Group 账本形式）**已全部迁移**（2026-08-19 文档写"仍 PHP"是旧记录，已过时）；仅共用的 `maintenanceCompanyApi.js` 权限校验/备用 process 下拉仍是 PHP，见第 7 节。**Data Capture**：Games form / Formula CRUD / Bank draft / Summary submit（Games·Bank 公司范围）已 Spring；**仅真 AP/IG group ledger**（非 C168/Bank 公司范围）仍走 PHP，是已知的记录在案的遗留边界，非新发现。**Member Win/Loss**（`api/member/*`）完全未迁移（用户已知，本次不处理） |
+| **Transaction / Report / Data Capture / Member / Maintenance** | ⚠️ 部分（2026-08-25 复核，多数子模块已完成） | `/api/transaction/search` + `/history` + `/submit`；`/api/report/domain-report/list` + `/api/report/customer-report/list`；`/api/maintenance/{formula,payment,transaction,capture}-maintenance/*`；Data Capture 全量 Spring 端点 | **Transaction Payment 页** Meta / Search / History / Submit（含 RATE）已 Spring；Contra Inbox 无 pending；SSE ticket 未接 Spring。**Report 已全部迁移**（Domain Report + Customer Report，2026-08-19 文档写"完全未迁移"是旧记录，已过时）。**Maintenance 业务页**（Formula/Payment/Transaction/Capture，含纯 Group 账本形式）**已全部迁移**（2026-08-19 文档写"仍 PHP"是旧记录，已过时）；仅共用的 `maintenanceCompanyApi.js` 权限校验/备用 process 下拉仍是 PHP，见第 7 节。**Data Capture**：Games form / Formula CRUD / Bank draft / Summary submit（Games·Bank 公司范围）已 Spring；**仅真 AP/IG group ledger**（非 C168/Bank 公司范围）仍走 PHP，是已知的记录在案的遗留边界，非新发现。**Member Win/Loss**（`api/member/*`，含 boot、Account Link、mini grid）**已于 2026-08-26 全部迁移完成**，见第 38 节 |
 
 ---
 
@@ -447,11 +447,11 @@ Group 候选完全依赖 Spring `GET /api/ownership/available-accounts`。
 - **Maintenance 公司权限校验**：**已于 2026-08-25 移除**（本条历史记录见下方 §7.2）
 - **Announcement 维护模式开关**（`AnnouncementPage.jsx` 的 `maintenance/mode_api.php`）：Announcement 模块其余接口（list/create/update/delete、含维护公告）都已在 `apiUrl.js` 改写到 Spring，唯独这一个 mode 开关端点漏了
 - **Currency 删除**：**已于 2026-08-25 清理**（本条历史记录见下方 §7.3）——不再是待迁移/待清理项
-- **Process List / Bank Process List 页内的公司切换**：**已于 2026-08-25 修复**（本条历史记录见下方 §7.4）——不再是待迁移项。**Dashboard**（`useDashboardPage.js`）和 **Member Win/Loss**（`useMemberWinLoss.js`）里还各有一处同样硬编码调 `update_company_session_api.php` 的代码，这两个页面用户已知未迁移、留到之后再做，本次不处理
+- **Process List / Bank Process List 页内的公司切换**：**已于 2026-08-25 修复**（本条历史记录见下方 §7.4）——不再是待迁移项。**Dashboard**（`useDashboardPage.js`）里还有一处同样硬编码调 `update_company_session_api.php` 的代码，用户已知未迁移、留到之后再做，本次不处理。**Member Win/Loss**（`useMemberWinLoss.js`）的同款问题**已于 2026-08-26 一并修复**，见下方 §7.7 —— 不再是待迁移项
 - **Games Process List — Copy From**：**已于 2026-08-26 实现**（本条历史记录见下方 §7.6）——不再是待迁移项
-- **Member 页面登录报表查询功能**：boot 阶段仍调两个 PHP 端点（详见下方 §7.7），列为下一步计划迁移项
+- **Member 页面登录报表查询功能 + Win/Loss 报表数据本体（含 mini grid）**：**已于 2026-08-26 全部迁移完成**（详见下方 §7.7，以及独立文档 `docs/member-account-link-report.md` 后端 /
+  `Count-frontend/docs/member-winloss-springboot-migration.md` 前端）——不再是待迁移项
 - ~~真 AP/IG 纯 Group 账本 Data Capture 币种/草稿/提交/process 解析~~：**已于 2026-08-25 清理**。查 `testcount`（Spring 库）`tenant` 表确认 `id` 是 `NOT NULL AUTO_INCREMENT` 主键——"Group 没有自己 tenant.id"这种情况在当前数据模型下结构性不可能存在（不是概率低，是主键约束直接排除），旧文档记的"遗留边界"是延续 PHP 时代的过度兼容，不是真实存在的场景。实际清理时发现草稿（`dataCaptureGroupOnlyTableDraft.js`）、提交（`summarySubmitExecution.js`）、process 解析（`get_group_process_id`）三处**其实早就已经是纯 Spring**，代码注释里已经写明"no PHP endpoint involved"/"no PHP submit path left"，只有币种查询（`dataCaptureApi.js` 的 `fetchGroupCaptureCurrencies` → `get_scope_account_currencies_api.php`）还在用，本次已删除该函数及其唯一调用点（`useDataCaptureFormEngine.js` 的 `loadGroupOnlyCurrencies`），无 tenantId 时直接返回空列表
-- **Member Win/Loss 报表数据本体**：`api/member/*`（跟 §7.7 的登录/公司解析 boot 流程是两回事；用户已知、留到之后再做）
 - **Reset Password**（`resetPassword.js`）：仍调 PHP（用户已知、留到之后再做）
 - **Auth 字段不匹配**（见 [§15.4](#154-已知仍未修复本次明确不处理超出仅-login-范围)）：`sidebarPermissions.js` / `loginScope.js` 仍读旧字段名（`company_has_gambling`/`company_has_bank`/`is_current_company_c168`），与 Spring 实际返回的 `tenant_has_game`/`tenant_has_bank`/`is_current_tenant_c168` 不匹配，可能影响登入后默认落地页路由判断
 
@@ -674,31 +674,27 @@ process 列表——如果用户想复制的源 process 因为分页/筛选/尚�
 （复制逻辑整个在后端 `add-process` 里完成，前端预填只是体验优化，不是数据来源）。如果以后确实需要
 "复制一个当前列表没加载到的 process"，再评估要不要补服务端搜索。
 
-### 7.7【计划中，尚未实现】Member 页面登录报表查询功能补 Spring 端点（2026-08-26 记录）
+### 7.7【已完成】Member 页面 boot / Account Link / Win-Loss 报表（含 mini grid）全部迁移 Spring（2026-08-26）
 
-**现状**：Member 页面 boot 流程（`src/pages/member/useMemberPageShell.js:86-121`）仍在打两个 PHP
-端点：
+原本记录在这里的两个 boot 期 PHP 端点（`current_user_api.php`、`account_company_api.php?action=
+get_account_companies`），以及 §7 另一条目「Member Win/Loss 报表数据本体」（`api/member/*`），
+连同 mini grid（有 Account Link 时多账号同时展示）、currency 拖拽排序、切公司/切查看账号，
+**这次全部一次性迁移完成**，不再有任何一处调旧 PHP 端点（导出 PDF 弹窗除外，见下）。
 
-| 调用位置 | PHP 端点 | 用途 |
-|---|---|---|
-| `useMemberPageShell.js:90`（另在 `refreshSession`，约 125 行，重复一次） | `api/session/current_user_api.php` | 取当前登录用户（`user_type`/`member_login_account_id` 等），用来判断是不是 Member 身份、boot 后续流程 |
-| `useMemberPageShell.js:102-103` | `api/accounts/account_company_api.php?action=get_account_companies&account_id={loginId}` | 用该 Member 登录账号的 `account_id` 查它能看到哪些 company，填充 `setCompanies(...)`，是 Member Win/Loss 报表能选哪些公司的数据来源 |
+`current_user_api.php` → `/auth/current-user`；`account_company_api.php?action=
+get_account_companies` → `/auth/tenant-accessible?all=1`——当时担心的字段名不对齐问题，实测确认
+`/auth/current-user` 返回的 `SessionUser` 没有 `user_type`/`member_login_account_id` 这两个字段名，
+但语义上都能从其他字段等价推出（`user_type` 本来就有同名字段；`member_login_account_id` 对 member
+类型 session 就等于 `user_id`），`useMemberPageShell.js` 里写了
+`normalizeSessionUserToMemberMe()` 做这层映射，没有改动后端。`/auth/tenant-accessible` 和
+"account_id 绑定的 company 列表"这两者语义是否等价——排查后确认等价：member 登录本身就要求
+`account_tenant_access` 里有匹配的 tenant 行（`findMemberByAccountIdAndTenantCode` 的 JOIN
+条件），`/auth/tenant-accessible` 走的也是同一张表（`findTenantFeaturesByMemberId`），范围完全
+一致，不需要新端点。
 
-**跟 §7 现有条目「Member Win/Loss」的关系**：那一条（`api/member/*`）指的是报表数据本体（win/loss
-明细查询），是另一批端点；这里记录的是 boot 时"这个 Member 登录后能看到哪些 company"的前置解析，
-两者都仍在用 PHP，但属于不同的接口面。
-
-**计划方向（未实现，待评估）**：
-- `api/session/current_user_api.php` 大概率可以直接换成本文档其他章节已经在用的 `/auth/current-user`
-  （见 §7.2 的用法示例）——但需要先确认 Spring `/auth/current-user` 返回的 JSON 里是否带
-  `user_type`/`member_login_account_id` 这两个字段（或等价的 camelCase 命名），字段名对不上的话要在
-  这里加一层 normalize，不能假设直接可用
-- `api/accounts/account_company_api.php?action=get_account_companies&account_id=` 这个"按
-  account_id 查其可见 company 列表"的能力，需要跟后端确认 Spring 侧有没有等价端点——`/auth/
-  tenant-accessible`（§7.5 提到，返回当前 session 用户自己可访问的 tenant 列表）语义上可能不完全
-  一样：那个是"当前登录 session 的可访问 tenant"，这里要的是"以 `account_id` 为准、这个具体账号绑定
-  的 company 列表"，两者是不是同一件事需要后端确认，不能想当然直接替换
-- 在上述两点都跟后端对齐、确认好返回形状之前，不建议直接动手改代码——先记录现状和计划方向
+详细设计、接口对照表、踩过的坑，见两份独立文档：
+- 后端：[`docs/member-account-link-report.md`](member-account-link-report.md)
+- 前端：`Count-frontend/docs/member-winloss-springboot-migration.md`
 
 ---
 
@@ -6861,13 +6857,15 @@ if (transactionDao.countTransactionsByCurrencyId(id, tenantId) > 0) {
 
 ---
 
-## 38. Member 页面 Profile / Win-Loss 报表 — Account Link 分支（进行中，前端尚未接）
+## 38. Member 页面 Profile / Win-Loss 报表 — Account Link + mini grid 全部迁移（已完成）
 
-对应 §7.7 记录的计划：Member 页面 boot 流程要判断当前登录账号有没有 Account Link，然后分两种情况
-展示不同东西（无 link 展示 Company + 自己的 currency；有 link 展示 Account 选择器 + 按选中账号切换
-的报表）。后端已新增 `MemberProfileDTO`/`UserPageService`/`UserPageServiceImpl`/`MemberController`
-（`/api/member/profile`、`/api/member/history`、`/api/member/account-currencies`），前端完全没动，
-三个新端点还没有任何调用方。详见独立文档
-[`docs/member-account-link-report.md`](member-account-link-report.md)。
+对应 §7.7：Member 页面 boot 流程判断当前登录账号有没有 Account Link，没有 link 展示 Company +
+自己的 currency，有 link 展示 Account 选择器 + mini grid（多账号同时展示，样式沿用旧版，只是
+接口换成了 Spring）。后端 `MemberPageDTO`/`UserPageService`/`UserPageServiceImpl`/
+`MemberController`（`/api/member/profile`、`/history`、`/account-currencies` 及其批量版、
+`/mini-grid-balances`）**已全部接上前端**（`useMemberPageShell.js`/`useMemberWinLoss.js`/
+`memberWinLossApi.js`），并经真实账号实测、修了几个实测才暴露出来的 bug。详见独立文档：
+- 后端：[`docs/member-account-link-report.md`](member-account-link-report.md)
+- 前端：`Count-frontend/docs/member-winloss-springboot-migration.md`
 
 ---
