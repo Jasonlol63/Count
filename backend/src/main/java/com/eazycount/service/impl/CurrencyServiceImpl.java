@@ -2,6 +2,7 @@ package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.CurrencyDao;
+import com.eazycount.dao.TransactionDao;
 import com.eazycount.dto.UserCurrencyDTO;
 import com.eazycount.dto.UserLinkedDTO;
 import com.eazycount.entity.Currency;
@@ -21,6 +22,9 @@ public class CurrencyServiceImpl implements CurrencyService {
 
     @Autowired
     private CurrencyDao currencyDao;
+
+    @Autowired
+    private TransactionDao transactionDao;
 
     @Override
     public List<Currency> findCurrencyByTenantId(Integer tenantId) {
@@ -136,6 +140,10 @@ public class CurrencyServiceImpl implements CurrencyService {
 
             Map<String, Object> payload = Map.of("accounts_in_use", accountsInUse);
             throw new BusinessException("Cannot delete currency. The following accounts are using it: " + labels, payload);
+        }
+
+        if (transactionDao.countTransactionsByCurrencyId(id, tenantId) > 0) {
+            throw new BusinessException("Currency has existing transaction cannot be deleted!");
         }
 
         try {

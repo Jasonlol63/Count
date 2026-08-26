@@ -3,6 +3,7 @@ package com.eazycount.service.impl;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.AdminDao;
 import com.eazycount.dao.TenantDao;
+import com.eazycount.dao.TransactionDao;
 import com.eazycount.dao.UserDao;
 import com.eazycount.dto.AdminDTO;
 import com.eazycount.dto.UserListDTO;
@@ -37,6 +38,9 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private TenantDao tenantDao;
+
+    @Autowired
+    private TransactionDao transactionDao;
 
     @Autowired
     private CurrencyService currencyService;
@@ -283,6 +287,15 @@ public class UserServiceImpl implements UserService {
             if (!desiredSet.contains(tid)) toRemove.add(tid);
         }
 
+        // Unbind guard: same rule as deleteUserByIdAndStatus, checked up front for every tenant being removed
+        // so a partial unbind can't happen before we hit the failure.
+        for (Integer targetTenantId : toRemove) {
+            if (transactionDao.countTransactionsByAccountId(userListDTO.getId(), targetTenantId) > 0) {
+                throw new BusinessException("This Account has existing transaction under tenant "
+                        + targetTenantId + ", cannot unbind!");
+            }
+        }
+
         try {
             for (Integer targetTenantId : toAdd) {
                 assertAccountCodeAvailable(targetTenantId, existing.getAccountId(), userListDTO.getId());
@@ -392,6 +405,10 @@ public class UserServiceImpl implements UserService {
         }
         if (existing.getStatus() == User.AccountStatus.ACTIVE) {
             throw new BusinessException("User is not inactive, cannot be deleted!");
+        }
+
+        if (transactionDao.countTransactionsByAccountId(id, scopeTenantId) > 0) {
+            throw new BusinessException("This Account has existing transaction cannot be deleted!");
         }
 
         try {

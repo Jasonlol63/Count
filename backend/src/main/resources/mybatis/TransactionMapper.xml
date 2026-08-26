@@ -13,4 +13,30 @@
                )
     </insert>
 
+    <!-- Delete-process guard: any transactions recorded under this process's data captures? -->
+    <select id="countTransactionsByProcessId" resultType="int">
+        SELECT COUNT(*)
+        FROM transactions t
+                 INNER JOIN data_capture_line dcl ON dcl.transaction_id = t.id
+                 INNER JOIN data_captures dc ON dc.id = dcl.capture_id
+        WHERE dc.process_id = #{processId}
+          AND t.tenant_id = #{tenantId}
+    </select>
+
+    <!-- Delete-account guard: any transactions referencing this account (as payer or transfer-from)? -->
+    <select id="countTransactionsByAccountId" resultType="int">
+        SELECT COUNT(*)
+        FROM transactions t
+        WHERE t.tenant_id = #{tenantId}
+          AND (t.account_id = #{accountId} OR t.from_account_id = #{accountId})
+    </select>
+
+    <!-- Delete-currency guard: any transactions recorded under this currency? -->
+    <select id="countTransactionsByCurrencyId" resultType="int">
+        SELECT COUNT(*)
+        FROM transactions t
+        WHERE t.tenant_id = #{tenantId}
+          AND t.currency_id = #{currencyId}
+    </select>
+
 </mapper>

@@ -447,10 +447,12 @@ Group 候选完全依赖 Spring `GET /api/ownership/available-accounts`。
 - **Maintenance 公司权限校验**：**已于 2026-08-25 移除**（本条历史记录见下方 §7.2）
 - **Announcement 维护模式开关**（`AnnouncementPage.jsx` 的 `maintenance/mode_api.php`）：Announcement 模块其余接口（list/create/update/delete、含维护公告）都已在 `apiUrl.js` 改写到 Spring，唯独这一个 mode 开关端点漏了
 - **Currency 删除**：**已于 2026-08-25 清理**（本条历史记录见下方 §7.3）——不再是待迁移/待清理项
-- **Process List / Bank Process List 页内的公司切换**：**已于 2026-08-25 修复**（本条历史记录见下方 §7.4）——不再是待迁移项。**Dashboard**（`useDashboardPage.js`）和 **Member Win/Loss**（`useMemberWinLoss.js`）里还各有一处同样硬编码调 `update_company_session_api.php` 的代码，这两个页面用户已知未迁移、本次不处理，未跟着一起改
+- **Process List / Bank Process List 页内的公司切换**：**已于 2026-08-25 修复**（本条历史记录见下方 §7.4）——不再是待迁移项。**Dashboard**（`useDashboardPage.js`）和 **Member Win/Loss**（`useMemberWinLoss.js`）里还各有一处同样硬编码调 `update_company_session_api.php` 的代码，这两个页面用户已知未迁移、留到之后再做，本次不处理
+- **Games Process List — Copy From**：仍无对应 Spring 端点（详见下方 §7.6），列为下一步计划迁移项
+- **Member 页面登录报表查询功能**：boot 阶段仍调两个 PHP 端点（详见下方 §7.7），列为下一步计划迁移项
 - ~~真 AP/IG 纯 Group 账本 Data Capture 币种/草稿/提交/process 解析~~：**已于 2026-08-25 清理**。查 `testcount`（Spring 库）`tenant` 表确认 `id` 是 `NOT NULL AUTO_INCREMENT` 主键——"Group 没有自己 tenant.id"这种情况在当前数据模型下结构性不可能存在（不是概率低，是主键约束直接排除），旧文档记的"遗留边界"是延续 PHP 时代的过度兼容，不是真实存在的场景。实际清理时发现草稿（`dataCaptureGroupOnlyTableDraft.js`）、提交（`summarySubmitExecution.js`）、process 解析（`get_group_process_id`）三处**其实早就已经是纯 Spring**，代码注释里已经写明"no PHP endpoint involved"/"no PHP submit path left"，只有币种查询（`dataCaptureApi.js` 的 `fetchGroupCaptureCurrencies` → `get_scope_account_currencies_api.php`）还在用，本次已删除该函数及其唯一调用点（`useDataCaptureFormEngine.js` 的 `loadGroupOnlyCurrencies`），无 tenantId 时直接返回空列表
-- **Member Win/Loss**：`api/member/*`（用户已知、本次不处理）
-- **Reset Password**（`resetPassword.js`）：仍调 PHP（用户已知、本次不处理）
+- **Member Win/Loss 报表数据本体**：`api/member/*`（跟 §7.7 的登录/公司解析 boot 流程是两回事；用户已知、留到之后再做）
+- **Reset Password**（`resetPassword.js`）：仍调 PHP（用户已知、留到之后再做）
 - **Auth 字段不匹配**（见 [§15.4](#154-已知仍未修复本次明确不处理超出仅-login-范围)）：`sidebarPermissions.js` / `loginScope.js` 仍读旧字段名（`company_has_gambling`/`company_has_bank`/`is_current_company_c168`），与 Spring 实际返回的 `tenant_has_game`/`tenant_has_bank`/`is_current_tenant_c168` 不匹配，可能影响登入后默认落地页路由判断
 
 > **提醒**：`companySessionSwitchCore.js` 注释明确写着"reverse proxy sends every unrewritten `/api/*` path to Spring"——没在 `apiUrl.js` 改写表里登记的旧 PHP 路径，现在打过去大概率直接 404，不只是"待迁移"。上面这几项都不在改写表里。本次未实际发请求验证 404，纯代码审查结论。
@@ -643,6 +645,59 @@ owner 空 Group 可见性场景）见 `Count-frontend/docs/owner-groups-cache-re
 
 ---
 
+### 7.6【计划中，尚未实现】Games Process List — Copy From 补 Spring 端点（2026-08-26 记录）
+
+**现状**：Copy From 目前完全是纯前端行为，没有调用任何后端接口——`buildCopyFromFormPatch()`
+（`src/pages/processlist/processListHelpers.js:381-407`）从**已经加载在当前列表里**的一行
+`normalizeProcessListItem` 结果直接拼出 Add 表单的补丁对象（`currency_id`/`selected_descriptions`/
+`remove_word`/`replace_word_from`/`replace_word_to`/`remark`/`day_use`），函数注释明确写着
+"no network call (Spring has no `copy_from` endpoint)"。`processListApi.js` 目前只有列表级接口
+（`fetchProcessListByTenantId`/`fetchAllProcessListByTenantId`），没有任何单条 process 的
+detail/get 端点——已核实过整个文件的导出列表，确认这个缺口是真实的，不是遗漏没找到。
+
+**限制（当前行为的直接后果）**：Copy From 的下拉选项只能来自 `form.existingProcesses`
+（`ProcessFormModal.jsx:71` 的 `sortedCopyFromOptions`），也就是当前已经在浏览器内存里的那批
+process——如果用户想复制的源 process 因为分页/筛选/尚未加载而不在这批数据里，Copy From 就选不到它。
+
+**计划方向（未实现，待评估）**：
+- 后端补一个单条 process 详情端点，例如 `POST /api/process/detail?tenantId=&processId=`，返回值形状
+  跟 `fetchProcessListByTenantId` 单行一致（这样前端 `normalizeProcessListItem` 可以直接复用，
+  `buildCopyFromFormPatch` 的输入不用改）
+- 前端 Copy From 下拉改成：先按名称/ID 做服务端搜索（或者保留"已加载列表优先，找不到再打 detail
+  接口补拉一条"的折衷方案，视后端是否愿意开放模糊搜索而定）
+- **需要先确认的前提**：legacy PHP 版本的 Copy From 当年是不是本来就有专门的服务端查询能力（本仓库
+  没有 legacy PHP 代码可查，无法直接核实"这是不是本来就该有、只是 Spring 迁移时漏掉的能力"，还是
+  "PHP 版本本来也是纯前端已加载列表挑选，Spring 版本行为其实一直对齐"）——动手写后端端点前建议先
+  跟熟悉 legacy 行为的人确认一下，避免做了一个从来不存在的能力。
+
+### 7.7【计划中，尚未实现】Member 页面登录报表查询功能补 Spring 端点（2026-08-26 记录）
+
+**现状**：Member 页面 boot 流程（`src/pages/member/useMemberPageShell.js:86-121`）仍在打两个 PHP
+端点：
+
+| 调用位置 | PHP 端点 | 用途 |
+|---|---|---|
+| `useMemberPageShell.js:90`（另在 `refreshSession`，约 125 行，重复一次） | `api/session/current_user_api.php` | 取当前登录用户（`user_type`/`member_login_account_id` 等），用来判断是不是 Member 身份、boot 后续流程 |
+| `useMemberPageShell.js:102-103` | `api/accounts/account_company_api.php?action=get_account_companies&account_id={loginId}` | 用该 Member 登录账号的 `account_id` 查它能看到哪些 company，填充 `setCompanies(...)`，是 Member Win/Loss 报表能选哪些公司的数据来源 |
+
+**跟 §7 现有条目「Member Win/Loss」的关系**：那一条（`api/member/*`）指的是报表数据本体（win/loss
+明细查询），是另一批端点；这里记录的是 boot 时"这个 Member 登录后能看到哪些 company"的前置解析，
+两者都仍在用 PHP，但属于不同的接口面。
+
+**计划方向（未实现，待评估）**：
+- `api/session/current_user_api.php` 大概率可以直接换成本文档其他章节已经在用的 `/auth/current-user`
+  （见 §7.2 的用法示例）——但需要先确认 Spring `/auth/current-user` 返回的 JSON 里是否带
+  `user_type`/`member_login_account_id` 这两个字段（或等价的 camelCase 命名），字段名对不上的话要在
+  这里加一层 normalize，不能假设直接可用
+- `api/accounts/account_company_api.php?action=get_account_companies&account_id=` 这个"按
+  account_id 查其可见 company 列表"的能力，需要跟后端确认 Spring 侧有没有等价端点——`/auth/
+  tenant-accessible`（§7.5 提到，返回当前 session 用户自己可访问的 tenant 列表）语义上可能不完全
+  一样：那个是"当前登录 session 的可访问 tenant"，这里要的是"以 `account_id` 为准、这个具体账号绑定
+  的 company 列表"，两者是不是同一件事需要后端确认，不能想当然直接替换
+- 在上述两点都跟后端对齐、确认好返回形状之前，不建议直接动手改代码——先记录现状和计划方向
+
+---
+
 新增迁移时：优先在对应 `*Api.js` 增加 `normalize*`，并更新本节状态表。
 
 ---
@@ -657,6 +712,10 @@ owner 空 Group 可见性场景）见 `Count-frontend/docs/owner-groups-cache-re
 6. **相关文档**：
    - 后端 API 行为：`frontend-springboot-migration.md`第33节
    - 前端 ownership 代码索引：`Count-frontend/src/pages/ownership/README.md`
+7. **优先级原则（2026-08-26 确认）**：先把第 7 节里列出的所有「仍走 PHP / 后端功能与前端功能未对齐」
+   的条目逐条排查、迁移、验证清楚，确认完全没有遗留问题后，才考虑单纯的前端代码优化/清理（如残留死
+   代码、重构、性能调整等）。前后端功能对齐是优先级更高的工作，不要在还有已知 PHP 依赖/功能缺口的
+   情况下先去做纯代码层面的优化。
 
 ---
 
@@ -3458,6 +3517,30 @@ Account Edit/Add 弹窗的「Choose companies」原本用 checkbox 呈现成多�
 | 前端请求 | `buildSpringSearchRequest({ showAllZeroBalance: !hideZeroBalance })` |
 | 前端判定 | `rowHasPeriodCrdr` / `rowHasPeriodWinLoss` / `rowIsNeverTransacted` |
 | 前端应用 | `filterTransactionTableRows` → `useTransactionSearch.tablePresentation` |
+
+### 当日 0.00 balance 自动显示（2026-08-26，纯前端展示层，未改后端/API）
+
+**问题**：balance=0.00 但当日有 Cr/Dr 或 Win/Loss 动账的账户（如轧平成 0 的 CONTRA）在默认视图（不勾
+任何筛选）下不显示，只有手动勾「Show all 0 balance」才能看到——但那是给「浏览历史 0.00 账户」用的，
+不该是查看"今天自己刚做的账单"的唯一入口。
+
+**根因确认**：后端 `TransactionSearchServiceImpl` 只在真正"从未动账"的行才整行跳过（`agg.periodCrDrCount
+<= 0 && bf/crDr == 0` 且非 `neverTransacted`/`fromWinLoss`），本期有动账、只是净额轧成 0 的行本来就有
+返回给前端（`hasCrDrInPeriod`/`hasWinLossInPeriod` 照常置 true）；是前端 Layer B 零余额过滤在默认视图
+下无条件砍掉了这些行，跟"Show Payment Only"/"Show Win/Loss Only"的逃生舱绑在一起，必须手动勾才生效。
+
+**修复**：Capture Date 查询范围**恰好是今天单日**时，Layer B 自动放行 `rowHasPeriodCrdr(row) ||
+rowHasPeriodWinLoss(row)` 为真的 0.00 行，不需要用户勾任何筛选；换成别的日期/历史范围，行为不变（仍需
+手动勾「Show all 0 balance」）。纯前端判断（`todayDmy` vs 查询的 `dateFrom`/`dateTo`），不改 API 参数
+和缓存 key。
+
+| 层 | 位置 |
+|----|------|
+| Layer B 过滤逃生舱 | `rowPassesHideZeroBalanceFilter(showZero, row, opts)` 新增 `opts.autoShowTodayActivity`（`Count-frontend/src/pages/transaction/lib/transactionPaymentLogic.js`） |
+| 透传 | `applyTransactionDisplayFilters` / `filterTransactionTableRows` / `countDisplayedRows`（同文件） |
+| 今日判定 + 接入 | `useTransactionSearch.js`：`isTodayOnlyRange`（`effectiveDateFrom/To === todayDmy`）接入 `tablePresentation`；`runSearch.commitQuiet` 按实际查询日期算 `queryIsTodayOnlyRange` 接入 toast 计数 |
+| 详细文档 | `Count-frontend/docs/transaction-today-zero-balance-autoshow.md` |
+| 关联 known issue | `docs/known-issues-transaction.md` 第 1c 项（「Show all 0 balance」本体已验证无误，此为同一轮验证顺带新增的相关功能） |
 
 ---
 
@@ -6508,3 +6591,266 @@ Account role UPLINE 移除 (2026-07-20)
 2. 两个并发请求几乎同时提交同一个新名字 → 一个成功，另一个应该收到 `"Description name already exists!"` 而不是 `"Insert failed. Please try again!"` 或 500。
 3. 对已有历史脏数据的库（存在重复 `(tenant_id, name)`），先跑 `migrate_process_description_unique.sql`，确认 `process_description_link` / `data_capture_description` 引用没有丢失（重复行被合并指向保留的那条），且执行不报 FK 或索引错误；对全新建库则直接用 `schema.sql` 里的唯一约束，不需要跑这个迁移脚本。
 ```
+
+---
+
+## 35. Payment History Export PDF — Group 账本币别选单空白修复（2026-08-26）
+
+### 35a. 币别选单空白（原始问题）
+
+**问题**：Transaction → Payment History 页点右上角「PDF」开 Win/Lose Report 导出弹窗，Currency 栏显示
+「No currencies available for this account」，选不到币别，Export PDF 按钮 disable。仅 Group 账本账号
+（无 `companyId`，只有 `groupId`，如截图里的 `G-OK3`／Group `GOK`）会触发；普通公司账号正常。
+
+**根因**：币别拉取和历史记录拉取都已经是 Spring Boot 接口（不是遗留 PHP 没迁移），但两处 tenantId 解析
+方式不一致：
+
+| 函数 | 接口 | tenantId 解析 |
+|------|------|----------------|
+| `getHistory()`（`transactionApi.js`，History 表用，一直正常） | `POST /api/transaction/history` | `resolveTransactionSpringTenantId({ companyId, groupId })` —— `companyId` 空时用 `groupId` 查 owner-companies 缓存取 Group 的 tenant id |
+| `fetchPaymentHistoryExportCurrencies()`（`paymentHistoryMemberReportExport.js`，Export PDF 币别弹窗用，本次改前一直是空的） | `POST /api/currency/available` | 直接 `Number(companyId) \|\| 0`，**完全没用传进来的 `groupId` 参数**，Group 账本账号 `companyId` 恒为空 → `cid <= 0` → 直接 `return []` |
+
+即两个同页面的功能，一个正确处理了「Group 账本没有 companyId」的场景，另一个漏了——不是接口没迁移，是
+迁移后一个函数没同步对齐 tenantId 解析逻辑。
+
+**修复**：
+
+| 文件 | 改动 |
+|------|------|
+| `Count-frontend/src/pages/transaction/lib/transactionApi.js` | `resolveTransactionSpringTenantId` 由模块私有函数改为 `export`，供其他 lib 文件复用 |
+| `Count-frontend/src/pages/transaction/lib/paymentHistoryMemberReportExport.js` | `fetchPaymentHistoryExportCurrencies(accountId, companyId, groupId, signal)` 改用 `resolveTransactionSpringTenantId({ companyId, groupId })` 解析 tenantId，再传给 `fetchAvailableCurrencies({ tenantId, accountId })`，与 `getHistory()` 保持同一套解析逻辑 |
+
+未改动 Spring 端 `/api/currency/available`——它本来就接受 `tenant_id`，只是前端之前没把 Group 的 tenant id
+传过去；`PaymentHistoryExportPdfModal.jsx` 里 `if (!accountId || (!companyId && !groupId))` 的守卫本身
+没问题（已经允许"只有 groupId"通过），问题完全出在这一个函数内部短路。
+
+### 35b. 币别选单修好后，点 Export PDF 仍报「Account or company is missing」（2026-08-26）
+
+同一页面同一种 bug 模式又出现一次，换了个函数：实际拉历史数据的 `fetchMemberReportHistory()`
+（同一个文件）自己另写了一套前置检查：
+
+```js
+const cid = Number(companyId) || 0;
+if (!id || cid <= 0) {
+  throw new Error("Account or company is missing");
+}
+```
+
+同样完全没用 `groupId`——Group 账本账号还没真正调用 `getHistory()`（它自己其实能用 `groupId` 解析
+tenantId）就先被这行拦截报错；而且原本往下传给 `getHistory({ companyId: cid, ... })` 的 `cid` 也已经
+是被压成 0 的错值。
+
+**修复**：`fetchMemberReportHistory()` 同样改用 `resolveTransactionSpringTenantId({ companyId, groupId })`
+解析 tenantId 后再传给 `getHistory({ companyId: tenantId, ... })`，跟 35a 的
+`fetchPaymentHistoryExportCurrencies()` 复用同一个 import、同一套逻辑。
+
+### 35c. 前两处修好后能正常导出，但 PDF 里 Data Capture Summary 提交的行 Id Product 列空白（2026-08-26）
+
+**现象**：手动交易（CONTRA 等）导出的 PDF Id Product 列正常；Data Capture Summary 提交的行
+（BON / BON2 / COMM3 / PRO2 等）在浏览器 Payment History 表格里显示正常，但导出的 PDF 里这一列是
+`-`。跟 tenantId 无关，是导出渲染层单独一份取值逻辑写错了。
+
+**根因**：浏览器表格（`TransactionHistoryTable.jsx`）取 Id Product 列用的是：
+
+```js
+const idProductDisplay = r.product || r.card_owner || "-";
+```
+
+`product` 优先，两种来源（Summary 提交 / 手动交易）都能正确取到。但 PDF 导出用的 `productCell()`
+（`paymentHistoryMemberReportExport.js`）另外写了一套按 `is_bank_process_transaction` 分支的逻辑：
+
+```js
+function productCell(row) {
+  if (row?.is_bank_process_transaction) return row.card_owner || "-";
+  return row?.product || "-";
+}
+```
+
+Data Capture Summary 提交的交易，后端返回的 `is_bank_process_transaction` 恰好是 `true`（这个标志位语义
+比字面更宽，不只对应真正的银行卡处理交易），于是走了 `row.card_owner` 分支——而 Summary 提交的交易根本
+没有 `card_owner` 值（那是给真正 Bank Process 卡片交易用的字段），取到空值只能显示 `-`。手动交易
+`is_bank_process_transaction` 是 `false`，走的是 `row?.product` 分支，所以一直显示正常。
+
+**修复**：`productCell()`（同一文件，被 `buildReportDataRowHtml`〔Print/HTML 导出〕和 `rowToTableCells`
+〔jsPDF 直接下载〕两条路径共用）改成跟浏览器表格完全一致的取值顺序，不再按 `is_bank_process_transaction`
+分支：
+
+```js
+function productCell(row) {
+  return row?.product || row?.card_owner || "-";
+}
+```
+
+改这一个函数，两条导出路径（打印版 HTML、jsPDF 直接下载）同时修好；未改后端、未改 `product`/`card_owner`
+字段的来源。
+
+**关联 known issue**：`docs/known-issues-transaction.md` 第 2 项（Export PDF 幣別選單異常，含 2a 幣別選單
++ 2b Export 報錯 + 2c Id Product 欄位空白）已归档移除，本节（35a/35b/35c）是完整记录。
+
+---
+
+## 36. Data Capture Summary amount = 0.00 交易链路修复归档（2026-08-25 / 2026-08-26，已解决）
+
+`docs/known-issues-transaction.md` 原第 1 项，全部修复/验证完毕后从该文件删除，本节是归档记录。
+
+**原始现象**：Data Capture Summary 页面对某账号执行「执行帐单/结算」后，如果最终 amount 结果为 0，
+Transaction 页面查不到对应 history 记录。
+
+| 子项 | 状态 | 根因 / 结论 |
+|------|------|------|
+| 1a. 写入端 | ✅ 已修复（2026-08-25） | 后端在 amount = 0 时没有把交易写入 `transaction` 表；已修复（后端 Java 改动，未在此归档细节，需要时看该次提交 diff） |
+| 1b. Payment History 显示端 | ✅ 已修复（2026-08-25） | Payment History 列表对 amount = 0.00、但实际有对应 Data Capture 数据的记录会被过滤掉不显示；已修复 |
+| 1c. Transaction「Show all 0 balance」 | ✅ 已验证无误（2026-08-26） | 1a/1b 修复后实测该筛选查得到对应记录，无需再修。验证期间顺带新增「当日 0.00 balance 自动显示」功能，见 [§24](#24-transaction-list-filters--show-payment--show-winloss--show-all-0-balance) |
+
+---
+
+## 37. Process / Account / Currency 删除防护 — Transaction Amount 完整性专项（2026-08-26）
+
+配合 `docs/process-copy-from-and-delete-guards.md` 记录的 Games Process「Copy From」功能一起做的，
+但这批校验本身跟 Copy From 逻辑无关，是「删除 process / 删除 account / 解绑 account 的 tenant 访问权 /
+删除 currency」这四个会动到历史数据的操作上，统一加的一道 transaction 数据保护，独立成一个专项记录在这里。
+
+### 为什么要加这些限制
+
+**核心目的：防止 Transaction 页面的 amount 数据因为用户删除/解绑操作而跑掉。**
+
+- `transactions` 表的金额记录依赖 `process`（分类/来源）、`account`（付款方/转出方）、`currency`（币种）
+  三类主数据存在。
+- 如果一个 process/account/currency 名下已经有真实的 transaction 记录，还允许直接删除，
+  或者把 account 从某个 tenant 上解绑，会导致这些历史 amount 数据失去归属上下文（对账、报表、
+  流水追溯都会出问题），属于数据完整性风险，不是单纯的外键报错。
+- 所以这几个操作现在都要求：**先把相关的 transaction 数据处理（删除）掉，才允许执行删除/解绑**，
+  用业务层的明确报错代替裸的数据库外键异常（尤其是 `SET NULL` 类型的外键——数据库层面根本不会报错，
+  会直接静默把历史记录的关联字段清空，不做业务层检查完全发现不了）。
+
+### 排查过其他会不会有同样问题的地方（2026-08-26）
+
+除了 process/account/currency，还核查了 `transactions` 表其余几个外键指向的表：
+
+- **Data Capture（`data_captures`）** —— `data_capture_line.capture_id → data_captures.id` 是
+  CASCADE，理论上删一个 data capture 会级联删掉它的 `data_capture_line` 行，而这些行的
+  `transaction_id` 可能正指向真实 transaction，导致 transaction 留下但丢失上下文。
+  **但目前代码里没有任何删除 `data_captures` 的接口**（`DataCaptureDao`/`DataCaptureServiceImpl`
+  都没有对应方法），暂不需要处理，以后如果加了这个删除功能要记得补检查。
+- **Bank Process Posted（`bank_process_accounting_posted`）** —— `transactions.bank_process_posted_id`
+  是 `SET NULL`，删除一条 posted 批次记录会让相关 transaction 静默丢失"来自哪次银行处理批次过账"的
+  标记。**目前同样没有任何删除这张表的代码路径**，暂不需要处理。
+- **Tenant 删除** —— `DomainServiceImpl.deleteTenantDetails` 是唯一入口，靠
+  `transactions.tenant_id → tenant.id` 的 CASCADE 把整个租户数据一起清掉，这是"删掉整个公司"的
+  预期行为，不是几条记录跑掉的问题，不需要额外校验。
+
+### 1. 删除 Process
+
+`backend/src/main/java/com/eazycount/dao/TransactionDao.java` +
+`backend/src/main/resources/mybatis/TransactionMapper.xml` 新增：
+
+```sql
+<!-- transactions 本身没有 process_id，要经过 data_capture_line → data_captures 两层 join -->
+<select id="countTransactionsByProcessId" resultType="int">
+    SELECT COUNT(*)
+    FROM transactions t
+             INNER JOIN data_capture_line dcl ON dcl.transaction_id = t.id
+             INNER JOIN data_captures dc ON dc.id = dcl.capture_id
+    WHERE dc.process_id = #{processId}
+      AND t.tenant_id = #{tenantId}
+</select>
+```
+
+`ProcessServiceImpl.deleteProcessById`：在原有「必须先 INACTIVE 才能删」校验之后，新增
+
+```java
+if (transactionDao.countTransactionsByProcessId(id, tenantId) > 0) {
+    throw new BusinessException("Process has existing transaction data, please delete the related transactions before deleting this process!");
+}
+```
+
+Copy From 出来的新 process 走的是同一套删除方法，检查的是它自己名下有没有 transaction，
+和源 process 完全无关，不需要为它单独写逻辑。
+
+### 2. 删除 Account
+
+同一个 `TransactionMapper.xml` 里新增：
+
+```sql
+<!-- transactions 直接有 account_id / from_account_id，不用 join -->
+<select id="countTransactionsByAccountId" resultType="int">
+    SELECT COUNT(*)
+    FROM transactions t
+    WHERE t.tenant_id = #{tenantId}
+      AND (t.account_id = #{accountId} OR t.from_account_id = #{accountId})
+</select>
+```
+
+`UserServiceImpl.deleteUserByIdAndStatus`：在「必须先 INACTIVE」校验之后、真正执行任何删除动作
+（`deleteUserTenantAccessByAccountIdAndTenantId`、`currencyService.deleteByAccountIdAndTenantId`、
+以及可能的账号硬删除）之前：
+
+```java
+if (transactionDao.countTransactionsByAccountId(id, scopeTenantId) > 0) {
+    throw new BusinessException("This Account has existing transaction cannot be deleted!");
+}
+```
+
+（`User` 类虽然叫 `User`，实际映射的是 `account` 表，`User.id` 就是 `account.id`，跟
+`transactions.account_id`/`from_account_id` 是同一套 id 体系。）
+
+### 3. 解绑 Account 的 Tenant 访问权
+
+`UserServiceImpl.updateUser` 里，保存时如果某个 tenant 从 account 的 `tenantIds` 列表里被拿掉，
+会走 `toRemove` 循环解绑（`deleteUserTenantAccessByAccountIdAndTenantId` + 清理该 tenant 下的
+currency 关联）。这条路径之前没有任何 transaction 检查，加上：
+
+```java
+// 在真正执行任何解绑动作之前，把 toRemove 里每一个要解绑的 tenant 都先查一遍，
+// 避免"部分解绑成功、部分失败"的半吊子状态
+for (Integer targetTenantId : toRemove) {
+    if (transactionDao.countTransactionsByAccountId(userListDTO.getId(), targetTenantId) > 0) {
+        throw new BusinessException("This Account has existing transaction under tenant "
+                + targetTenantId + ", cannot unbind!");
+    }
+}
+```
+
+跟"删除 Account"用的是同一条 SQL、同一套判断逻辑，只是触发场景不同（解绑单个 tenant vs 硬删整个账号）。
+
+### 4. 删除 Currency
+
+同一个 `TransactionMapper.xml` 里新增：
+
+```sql
+<!-- transactions 直接有 currency_id，不用 join -->
+<select id="countTransactionsByCurrencyId" resultType="int">
+    SELECT COUNT(*)
+    FROM transactions t
+    WHERE t.tenant_id = #{tenantId}
+      AND t.currency_id = #{currencyId}
+</select>
+```
+
+**这是补的一个真实漏洞**：`CurrencyServiceImpl.deleteCurrencyByIdAndTenantId` 原来只检查
+`findLinkedAccountsByCurrencyIdAndTenantId`（有没有账户当前把这个币种配置为在用），完全没查
+`transactions.currency_id`。而 `transactions.currency_id → currency.id` 是 `ON DELETE SET NULL`——
+一个币种哪怕历史上已经有大量 transaction 记录，只要现在没有账户在用它做配置，就能被删掉，
+然后这些历史 transaction 行的 `currency_id` 会被静默清空，**这条 amount 记的到底是哪个币种直接丢了**，
+界面上不会有任何报错提示，比 process/account 那两个问题更隐蔽。
+
+修复：在原有的账户占用检查之后，新增
+
+```java
+if (transactionDao.countTransactionsByCurrencyId(id, tenantId) > 0) {
+    throw new BusinessException("Currency has existing transaction data, please delete the related transactions before deleting this currency!");
+}
+```
+
+### 涉及文件
+
+- `backend/src/main/java/com/eazycount/dao/TransactionDao.java`
+- `backend/src/main/resources/mybatis/TransactionMapper.xml`
+- `backend/src/main/java/com/eazycount/service/impl/ProcessServiceImpl.java`
+- `backend/src/main/java/com/eazycount/service/impl/UserServiceImpl.java`
+- `backend/src/main/java/com/eazycount/service/impl/CurrencyServiceImpl.java`
+
+四处都是纯后端内部校验，前端不需要任何改动，后端报错会走现有的
+`BusinessException → { success:false, message }` 响应格式，前端已有的错误提示逻辑会正常显示出来。
+
+---
