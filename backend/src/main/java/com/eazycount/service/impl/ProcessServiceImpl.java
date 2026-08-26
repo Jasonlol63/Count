@@ -3,7 +3,9 @@ package com.eazycount.service.impl;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.AdminDao;
 import com.eazycount.dao.CurrencyDao;
+import com.eazycount.dao.DataCaptureSummaryDao;
 import com.eazycount.dao.ProcessDao;
+import com.eazycount.dao.ProcessDescDao;
 import com.eazycount.dao.TransactionDao;
 import com.eazycount.dto.AdminDTO;
 import com.eazycount.dto.ProcessDTO;
@@ -28,6 +30,12 @@ public class ProcessServiceImpl implements ProcessService {
 
     @Autowired
     private ProcessDao processDao;
+
+    @Autowired
+    private ProcessDescDao processDescDao;
+
+    @Autowired
+    private DataCaptureSummaryDao dataCaptureSummaryDao;
 
     @Autowired
     private AdminDao adminDao;
@@ -144,7 +152,7 @@ public class ProcessServiceImpl implements ProcessService {
                     if (descriptionId == null || descriptionId <= 0 || !seenDesc.add(descriptionId)) {
                         continue;
                     }
-                    ProcessDescription desc = processDao.findDescriptionByIdAndTenantId(
+                    ProcessDescription desc = processDescDao.findDescriptionByIdAndTenantId(
                             descriptionId, processDTO.getTenantId());
                     if (desc == null) {
                         throw new BusinessException("Description not found: " + descriptionId);
@@ -183,29 +191,6 @@ public class ProcessServiceImpl implements ProcessService {
         processDTO.setId(process.getId());
         processDTO.setCategory(category);
         return processDTO;
-    }
-
-    //Copy From: resolve and validate the source process to duplicate.Re-reads from the DB rather than trusting so the copy is race-safe.
-    private Process resolveCopyFromSource(Integer copyFromProcessId, Integer tenantId) {
-        if (copyFromProcessId == null) {
-            return null;
-        }
-        Process source = processDao.findProcessByIdAndTenantId(copyFromProcessId, tenantId);
-        if (source == null) {
-            throw new BusinessException("Copy From source process not found!");
-        }
-        return source;
-    }
-
-    // Copy From: deep-copy the source process's description links / days / formulas onto the new process.
-    private void copyProcessChildData(Integer sourceProcessId, Integer newProcessId, Integer tenantId, String createdBy) {
-        try {
-            processDao.copyProcessDescriptionLinks(sourceProcessId, newProcessId);
-            processDao.copyProcessDays(sourceProcessId, newProcessId);
-            processDao.copyProcessFormulas(sourceProcessId, newProcessId, tenantId, createdBy);
-        } catch (Exception e) {
-            throw new BusinessException("Failed to copy data from source process!");
-        }
     }
 
     @Override
@@ -257,7 +242,7 @@ public class ProcessServiceImpl implements ProcessService {
                 if (descriptionId == null || descriptionId <= 0 || !seenDesc.add(descriptionId)) {
                     continue;
                 }
-                ProcessDescription desc = processDao.findDescriptionByIdAndTenantId(
+                ProcessDescription desc = processDescDao.findDescriptionByIdAndTenantId(
                         descriptionId, processDTO.getTenantId());
                 if (desc == null) {
                     throw new BusinessException("Description not found: " + descriptionId);
@@ -363,75 +348,29 @@ public class ProcessServiceImpl implements ProcessService {
         return result;
     }
 
-    @Override
-    public List<ProcessDescription> findDescriptionByTenantId(Integer tenantId) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
+    //Copy From: resolve and validate the source process to duplicate.Re-reads from the DB rather than trusting so the copy is race-safe.
+    private Process resolveCopyFromSource(Integer copyFromProcessId, Integer tenantId) {
+        if (copyFromProcessId == null) {
+            return null;
         }
-        if (tenantId == null) {
-            throw new BusinessException("tenant_id is required!");
+        Process source = processDao.findProcessByIdAndTenantId(copyFromProcessId, tenantId);
+        if (source == null) {
+            throw new BusinessException("Copy From source process not found!");
         }
-        return processDao.findDescriptionByTenantId(tenantId);
+        return source;
     }
 
-    @Override
-    @Transactional
-    public void insertNewProcessDescription(ProcessDescription processDescription) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
-        if (processDescription == null) {
-            throw new BusinessException("Request body is required!");
-        }
-        if (processDescription.getTenantId() == null) {
-            throw new BusinessException("tenant_id is required!");
-        }
-        if (processDescription.getName() == null || processDescription.getName().isBlank()) {
-            throw new BusinessException("Description name is required!");
-        }
-
-        processDescription.setName(processDescription.getName().trim().toUpperCase());
-
-        ProcessDescription existing = processDao.findDescriptionByName(
-                processDescription.getName(), processDescription.getTenantId());
-        if (existing != null) {
-            throw new BusinessException("Description name already exists!");
-        }
-
+    // Copy From: deep-copy the source process's description links / days / formulas onto the new process.
+    private void copyProcessChildData(Integer sourceProcessId, Integer newProcessId, Integer tenantId, String createdBy) {
         try {
-            processDao.insertNewProcessDescription(processDescription);
-        } catch (DuplicateKeyException e) {
-            throw new BusinessException("Description name already exists!");
+            processDao.copyProcessDescriptionLinks(sourceProcessId, newProcessId);
+            processDao.copyProcessDays(sourceProcessId, newProcessId);
+            dataCaptureSummaryDao.backfillFormulaGroupIds(sourceProcessId, tenantId);
+            dataCaptureSummaryDao.copyProcessFormulas(sourceProcessId, newProcessId, tenantId, createdBy);
         } catch (Exception e) {
-            throw new BusinessException("Insert failed. Please try again!");
+            throw new BusinessException("Failed to copy data from source process!");
         }
     }
 
-    @Override
-    @Transactional
-    public void deleteProcessDescriptionById(Integer id, Integer tenantId) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
-        if (id == null) {
-            throw new BusinessException("id is required!");
-        }
-        if (tenantId == null) {
-            throw new BusinessException("tenant_id is required!");
-        }
 
-        ProcessDescription processDescription = processDao.findDescriptionByIdAndTenantId(id, tenantId);
-        if (processDescription == null) {
-            throw new BusinessException("Description does not exist!");
-        }
-
-        try {
-            processDao.deleteProcessDescriptionById(id, tenantId);
-        } catch (Exception e) {
-            throw new BusinessException("Delete failed. Please try again!");
-        }
-    }
 }

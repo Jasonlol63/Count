@@ -807,6 +807,7 @@ CREATE TABLE `data_capture_formula` (
     `source_columns`        TEXT DEFAULT NULL COMMENT '公式引用的 Capture 列/格（如 $2,$3）',
     `columns_display`       TEXT DEFAULT NULL COMMENT 'Data 下拉展示文案',
     `formula`               TEXT DEFAULT NULL COMMENT '公式表达式（计算与展示唯一来源）',
+    `formula_group_id`      INT UNSIGNED DEFAULT NULL COMMENT 'Copy From 同步分组标签，非外键；同组的 formula 编辑时互相同步，删除不连带',
     `input_method`          VARCHAR(100) DEFAULT NULL COMMENT 'Input Method（可选）',
     `source_percent`        VARCHAR(255) NOT NULL DEFAULT '0',
     `enable_source_percent` TINYINT(1) NOT NULL DEFAULT 1,
@@ -829,6 +830,7 @@ CREATE TABLE `data_capture_formula` (
     KEY `idx_dcf_tenant_process` (`tenant_id`, `process_id`),
     KEY `idx_dcf_process_product` (`process_id`, `id_product`),
     KEY `idx_dcf_account` (`account_id`),
+    KEY `idx_data_capture_formula_group_id` (`formula_group_id`),
     CONSTRAINT `fk_dcf_tenant`
         FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_dcf_process`

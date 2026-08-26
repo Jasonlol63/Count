@@ -4,6 +4,7 @@ import com.eazycount.common.BusinessException;
 import com.eazycount.dto.ProcessDTO;
 import com.eazycount.entity.Process;
 import com.eazycount.entity.ProcessDescription;
+import com.eazycount.service.ProcessDescService;
 import com.eazycount.service.ProcessService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -22,6 +23,9 @@ public class ProcessController {
 
     @Autowired
     private ProcessService processService;
+
+    @Autowired
+    private ProcessDescService processDescService;
 
     @PostMapping("/process-list")
     public ResponseEntity<Map<String, Object>> getProcessList(@RequestBody Integer tenantId) {
@@ -116,7 +120,7 @@ public class ProcessController {
     @PostMapping("/list-description")
     public ResponseEntity<Map<String, Object>> getProcessDescriptionList(@RequestBody Integer tenantId) {
         try {
-            List<ProcessDescription> list = processService.findDescriptionByTenantId(tenantId);
+            List<ProcessDescription> list = processDescService.findDescriptionByTenantId(tenantId);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Process Description List retrieved successfully",
@@ -134,7 +138,7 @@ public class ProcessController {
     @PostMapping("/add-description")
     public ResponseEntity<Map<String, Object>> insertNewDescription(@RequestBody ProcessDescription processDescription) {
         try{
-            processService.insertNewProcessDescription(processDescription);
+            processDescService.insertNewProcessDescription(processDescription);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Process Description inserted successfully",
@@ -152,7 +156,7 @@ public class ProcessController {
     @PostMapping("/delete-description")
     public ResponseEntity<Map<String, Object>> deleteDescription(@RequestBody ProcessDescription desc) {
         try {
-            processService.deleteProcessDescriptionById(desc.getId(), desc.getTenantId());
+            processDescService.deleteProcessDescriptionById(desc.getId(), desc.getTenantId());
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", true);
             body.put("message", "Process Description deleted successfully");

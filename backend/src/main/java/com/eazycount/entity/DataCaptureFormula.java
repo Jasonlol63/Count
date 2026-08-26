@@ -17,6 +17,10 @@ import java.time.LocalDateTime;
 public class DataCaptureFormula {
 
     private Integer id;
+
+    /** Copy From 同步分组标签（非外键）：非空时，编辑本行会同步给同组的其它行；删除不连带。 */
+    private Integer formulaGroupId;
+
     private Integer tenantId;
     private Integer processId;
     private String idProduct;

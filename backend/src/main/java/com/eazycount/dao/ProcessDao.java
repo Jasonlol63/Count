@@ -3,7 +3,6 @@ package com.eazycount.dao;
 import com.eazycount.dto.ProcessDTO;
 import com.eazycount.entity.Process;
 import com.eazycount.entity.ProcessDay;
-import com.eazycount.entity.ProcessDescription;
 import com.eazycount.entity.ProcessDescriptionLink;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -15,10 +14,7 @@ public interface ProcessDao {
 
     List<ProcessDTO> findProcessByTenantId(@Param("tenantId") Integer tenantId);
 
-    Process findProcessCodeByTenantId(
-            @Param("tenantId") Integer tenantId,
-            @Param("category") Process.Category category,
-            @Param("code") String code);
+    Process findProcessCodeByTenantId(@Param("tenantId") Integer tenantId, @Param("category") Process.Category category, @Param("code") String code);
 
     Process findProcessById(@Param("id") Integer id);
 
@@ -36,12 +32,6 @@ public interface ProcessDao {
 
     void copyProcessDays(@Param("sourceProcessId") Integer sourceProcessId, @Param("newProcessId") Integer newProcessId);
 
-    void copyProcessFormulas(
-            @Param("sourceProcessId") Integer sourceProcessId,
-            @Param("newProcessId") Integer newProcessId,
-            @Param("tenantId") Integer tenantId,
-            @Param("createdBy") String createdBy);
-
     // Update process children: delete-all then re-insert (same batch inserts as add)
     void deleteProcessDescriptionLinkByProcessId(@Param("processId") Integer processId);
 
@@ -54,16 +44,5 @@ public interface ProcessDao {
 
     //Update Status of Process
     void updateProcessStatus(@Param("id") Integer id, @Param("tenantId") Integer tenantId, @Param("status") Process.Status status);
-
-    //CRUD for ProcessDescription
-    List<ProcessDescription> findDescriptionByTenantId(@Param("tenantId") Integer tenantId);
-
-    ProcessDescription findDescriptionByIdAndTenantId(@Param("id") Integer id, @Param("tenantId") Integer tenantId);
-
-    ProcessDescription findDescriptionByName(@Param("name") String name, @Param("tenantId") Integer tenantId);
-
-    void insertNewProcessDescription(ProcessDescription processDescription);
-
-    void deleteProcessDescriptionById(@Param("id") Integer id, @Param("tenantId") Integer tenantId);
 
 }

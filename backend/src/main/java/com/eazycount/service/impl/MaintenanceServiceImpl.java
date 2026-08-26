@@ -2,6 +2,7 @@ package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.BankProcessResendDao;
+import com.eazycount.dao.DataCaptureSummaryDao;
 import com.eazycount.dao.MaintenanceDao;
 import com.eazycount.dao.TransactionRateDao;
 import com.eazycount.dto.MaintenanceBankProcessDTO;
@@ -68,6 +69,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     @Autowired
     private MaintenanceDao maintenanceDao;
+
+    @Autowired
+    private DataCaptureSummaryDao dataCaptureSummaryDao;
 
     @Autowired
     private TransactionRateDao transactionRateDao;
@@ -174,17 +178,26 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         int tenantId = requireTenantId(ft != null ? ft.getTenantId() : null);
         int id = requireFormulaId(ft);
 
+        Integer accountId = ft.getAccountId();
+        String sourcePercent = normalizeSourcePercent(ft.getSourcePercent());
+        String inputMethod = normalizeQ(ft.getInputMethod());
+        String formula = normalizeQ(ft.getFormula());
+        String description = normalizeQ(ft.getDescription());
+        String updatedBy = session.login_id.trim();
+
         int updated = maintenanceDao.updateFormulaMaintenanceRow(
-                tenantId,
-                id,
-                ft.getAccountId(),
-                normalizeSourcePercent(ft.getSourcePercent()),
-                normalizeQ(ft.getInputMethod()),
-                normalizeQ(ft.getFormula()),
-                normalizeQ(ft.getDescription()),
-                session.login_id.trim());
+                tenantId, id, accountId, sourcePercent, inputMethod, formula, description, updatedBy);
         if (updated <= 0) {
             throw new BusinessException("Formula maintenance record not found");
+        }
+
+        // Copy From formula sync: mirror this edit onto every other formula sharing the same group
+        // tag (i.e. formulas copied from/to this one across processes). Delete is deliberately NOT
+        // synced — each process only ever removes its own row.
+        Integer groupId = dataCaptureSummaryDao.findFormulaGroupIdByIdAndTenantId(tenantId, id);
+        if (groupId != null) {
+            dataCaptureSummaryDao.propagateFormulaGroupUpdate(
+                    tenantId, groupId, id, accountId, sourcePercent, inputMethod, formula, description, updatedBy);
         }
     }
 

@@ -257,4 +257,56 @@
           AND tenant_id = #{tenantId}
     </delete>
 
+    <!-- Copy From: deep-copy a source process's formulas onto a new process id -->
+
+    <!-- Formula sync group: give the source formulas a group tag (self-id) the first time they get
+         copied, so the copy can inherit it. A no-op on rows that already have one (already grouped
+         from an earlier copy). Not a foreign key — see add_data_capture_formula_group_id.sql. -->
+    <update id="backfillFormulaGroupIds">
+        UPDATE data_capture_formula
+        SET formula_group_id = id
+        WHERE process_id = #{sourceProcessId}
+          AND tenant_id = #{tenantId}
+          AND formula_group_id IS NULL
+    </update>
+
+    <insert id="copyProcessFormulas">
+        INSERT INTO data_capture_formula (
+            tenant_id, process_id, product_type, id_product, parent_id_product,
+            formula_variant, sub_order, row_index, account_id, currency_id, description,
+            source_columns, columns_display, formula, formula_group_id, input_method, source_percent,
+            enable_source_percent, enable_input_method, created_by, created_at
+        )
+        SELECT
+            tenant_id, #{newProcessId}, product_type, id_product, parent_id_product,
+            formula_variant, sub_order, row_index, account_id, currency_id, description,
+            source_columns, columns_display, formula, formula_group_id, input_method, source_percent,
+            enable_source_percent, enable_input_method, #{createdBy}, NOW()
+        FROM data_capture_formula
+        WHERE process_id = #{sourceProcessId}
+          AND tenant_id = #{tenantId}
+    </insert>
+
+    <!-- Copy From formula sync: group tag of the row being edited (null if never copied). -->
+    <select id="findFormulaGroupIdByIdAndTenantId" resultType="java.lang.Integer">
+        SELECT formula_group_id
+        FROM data_capture_formula
+        WHERE id = #{id}
+          AND tenant_id = #{tenantId}
+    </select>
+
+    <!-- Copy From formula sync: mirror the same edit onto every other row sharing this group tag. -->
+    <update id="propagateFormulaGroupUpdate">
+        UPDATE data_capture_formula
+        SET source_percent = #{sourcePercent},
+            input_method = #{inputMethod},
+            formula = #{formula},
+            description = #{description},
+            account_id = #{accountId},
+            updated_by = #{updatedBy}
+        WHERE formula_group_id = #{groupId}
+          AND tenant_id = #{tenantId}
+          AND id != #{excludeId}
+    </update>
+
 </mapper>

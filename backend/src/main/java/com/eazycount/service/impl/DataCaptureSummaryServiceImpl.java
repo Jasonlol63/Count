@@ -330,6 +330,17 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         existing.setUpdatedBy(session.login_id != null ? session.login_id : "");
 
         dataCaptureSummaryDao.updateFormulaById(existing);
+
+        // Copy From formula sync: mirror this edit onto every other formula sharing the same group
+        // tag (i.e. formulas copied from/to this one across processes). Delete is deliberately NOT
+        // synced — each process only ever removes its own row.
+        Integer groupId = dataCaptureSummaryDao.findFormulaGroupIdByIdAndTenantId(tenantId, existing.getId());
+        if (groupId != null) {
+            dataCaptureSummaryDao.propagateFormulaGroupUpdate(
+                    tenantId, groupId, existing.getId(), existing.getAccountId(), existing.getSourcePercent(),
+                    existing.getInputMethod(), existing.getFormula(), existing.getDescription(), existing.getUpdatedBy());
+        }
+
         DataCaptureSummaryDTO saved = toResponse(existing, request);
         saved.setProcessCode(process.getCode());
         return saved;

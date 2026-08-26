@@ -45,4 +45,27 @@ public interface DataCaptureSummaryDao {
     void updateFormulaById(DataCaptureFormula formula);
 
     int deleteByIdAndTenantId(@Param("id") Integer id, @Param("tenantId") Integer tenantId);
+
+    // Copy From: deep-copy a source process's formulas onto a new process id.
+    // Formula sync group: tag the source formulas with a group id (self-id) before copying, if they
+    // don't already have one, so the copy below can inherit it.
+    void backfillFormulaGroupIds(@Param("sourceProcessId") Integer sourceProcessId, @Param("tenantId") Integer tenantId);
+
+    void copyProcessFormulas(@Param("sourceProcessId") Integer sourceProcessId, @Param("newProcessId") Integer newProcessId, @Param("tenantId") Integer tenantId, @Param("createdBy") String createdBy);
+
+    // Copy From formula sync: look up the group tag of the row being edited (null if never copied).
+    Integer findFormulaGroupIdByIdAndTenantId(@Param("tenantId") Integer tenantId, @Param("id") Integer id);
+
+    // Copy From formula sync: mirror the same edit onto every other row sharing this group tag
+    // (the row that was directly edited is excluded via id != #{excludeId}).
+    int propagateFormulaGroupUpdate(
+            @Param("tenantId") Integer tenantId,
+            @Param("groupId") Integer groupId,
+            @Param("excludeId") Integer excludeId,
+            @Param("accountId") Integer accountId,
+            @Param("sourcePercent") String sourcePercent,
+            @Param("inputMethod") String inputMethod,
+            @Param("formula") String formula,
+            @Param("description") String description,
+            @Param("updatedBy") String updatedBy);
 }

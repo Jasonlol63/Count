@@ -205,23 +205,6 @@
         WHERE process_id = #{sourceProcessId}
     </insert>
 
-    <insert id="copyProcessFormulas">
-        INSERT INTO data_capture_formula (
-            tenant_id, process_id, product_type, id_product, parent_id_product, formula_variant,
-            sub_order, row_index, account_id, currency_id, description, source_columns, columns_display,
-            formula, input_method, source_percent, enable_source_percent, enable_input_method,
-            created_by, created_at
-        )
-        SELECT
-            tenant_id, #{newProcessId}, product_type, id_product, parent_id_product, formula_variant,
-            sub_order, row_index, account_id, currency_id, description, source_columns, columns_display,
-            formula, input_method, source_percent, enable_source_percent, enable_input_method,
-            #{createdBy}, NOW()
-        FROM data_capture_formula
-        WHERE process_id = #{sourceProcessId}
-          AND tenant_id = #{tenantId}
-    </insert>
-
     <!-- Update Process Use -->
     <update id="updateProcessDetails">
         UPDATE process
@@ -260,52 +243,5 @@
         WHERE id = #{id}
         AND tenant_id = #{tenantId}
     </update>
-
-    <!-- CRUD For Description Use -->
-    <select id="findDescriptionByTenantId" resultType="com.eazycount.entity.ProcessDescription">
-        SELECT
-            d.id         AS id,
-            d.tenant_id  AS tenantId,
-            d.name       AS name,
-            d.created_at AS createdAt
-        FROM process_description d
-        WHERE d.tenant_id = #{tenantId}
-        ORDER BY d.name ASC
-    </select>
-
-    <select id="findDescriptionByName" resultType="com.eazycount.entity.ProcessDescription">
-        SELECT
-            d.id         AS id,
-            d.tenant_id  AS tenantId,
-            d.name       AS name,
-            d.created_at AS createdAt
-        FROM process_description d
-        WHERE d.name = #{name}
-          AND d.tenant_id = #{tenantId}
-        LIMIT 1
-    </select>
-
-    <select id="findDescriptionByIdAndTenantId" resultType="com.eazycount.entity.ProcessDescription">
-        SELECT
-            d.id         AS id,
-            d.tenant_id  AS tenantId,
-            d.name       AS name,
-            d.created_at AS createdAt
-        FROM process_description d
-        WHERE d.id = #{id}
-          AND d.tenant_id = #{tenantId}
-        LIMIT 1
-    </select>
-
-    <insert id="insertNewProcessDescription" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
-        INSERT INTO process_description (tenant_id, name, created_at)
-        VALUES (#{tenantId}, #{name}, NOW())
-    </insert>
-
-    <delete id="deleteProcessDescriptionById">
-        DELETE FROM process_description
-        WHERE id = #{id}
-          AND tenant_id = #{tenantId}
-    </delete>
 
 </mapper>
