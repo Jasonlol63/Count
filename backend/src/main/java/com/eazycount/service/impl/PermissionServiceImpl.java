@@ -33,7 +33,17 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public List<String> resolveAdminModuleKeys(Admin admin, Tenant tenant, List<FeatureModule> featureModules) {
-        if (admin == null || admin.getRoleId() == null) {
+        if (admin == null) {
+            return List.of();
+        }
+        if (admin.getPermissionMode() == Admin.PermissionMode.CUSTOM) {
+            if (admin.getId() == null) {
+                return List.of();
+            }
+            return resolveModuleKeysFromPermissions(
+                    permissionDao.findOverridePermissionsByUserId(admin.getId()), tenant, featureModules);
+        }
+        if (admin.getRoleId() == null) {
             return List.of();
         }
         return resolveModuleKeysForRoleId(admin.getRoleId(), tenant, featureModules);
@@ -78,9 +88,18 @@ public class PermissionServiceImpl implements PermissionService {
             Tenant tenant,
             List<FeatureModule> featureModules
     ) {
+        return resolveModuleKeysFromPermissions(permissionDao.findActivePermissionsByRoleId(roleId), tenant, featureModules);
+    }
+
+    // 角色默认路径和 CUSTOM override 路径共用的后处理（C168 extras + feature gate + 排序），两条路径不会同时用
+    private List<String> resolveModuleKeysFromPermissions(
+            List<Permission> basePermissions,
+            Tenant tenant,
+            List<FeatureModule> featureModules
+    ) {
         Map<String, Permission> effective = new LinkedHashMap<>();
 
-        for (Permission permission : permissionDao.findActivePermissionsByRoleId(roleId)) {
+        for (Permission permission : basePermissions) {
             putPermission(effective, permission);
         }
 

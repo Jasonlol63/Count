@@ -115,6 +115,7 @@
             u.status,
             u.created_by            AS createdBy,
             u.read_only             AS readOnly,
+            u.permission_mode       AS permissionMode,
             u.last_login            AS lastLogin
         FROM user u
         INNER JOIN user_role ur ON ur.id = u.role_id
@@ -204,8 +205,16 @@
 
     <!-- insert Admin Details Use -->
     <insert id="insertAdmin" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO user (login_id, name, email, password, secondary_password, role_id, status, created_by, read_only)
-        VALUES ( #{loginId}, #{name}, #{email}, #{password}, #{secondaryPassword}, #{roleId}, #{status}, #{createdBy}, #{readOnly})
+        INSERT INTO user (login_id, name, email, password, secondary_password, role_id, status, created_by, read_only, permission_mode)
+        VALUES ( #{loginId}, #{name}, #{email}, #{password}, #{secondaryPassword}, #{roleId}, #{status}, #{createdBy}, #{readOnly}, #{permissionMode})
+    </insert>
+
+    <insert id="insertOverridePermissionsBatch">
+        INSERT INTO user_permission_override (user_id, permission_id)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.userId}, #{item.permissionId})
+        </foreach>
     </insert>
 
     <insert id="insertAdminTenantAccess" useGeneratedKeys="true" keyProperty="id">
@@ -238,7 +247,8 @@
             secondary_password = #{secondaryPassword},
             role_id = #{roleId},
             status = #{status},
-            read_only = #{readOnly}
+            read_only = #{readOnly},
+            permission_mode = #{permissionMode}
         WHERE id = #{id}
     </update>
 
@@ -281,6 +291,11 @@
     <delete id="deleteProcessAccessByUserTenantAccessId">
         DELETE FROM user_tenant_process_access
         WHERE user_tenant_access_id = #{userTenantAccessId}
+    </delete>
+
+    <delete id="deleteOverridePermissionsByUserId">
+        DELETE FROM user_permission_override
+        WHERE user_id = #{userId}
     </delete>
 
     <!-- update status use -->

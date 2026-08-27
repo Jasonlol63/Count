@@ -13,6 +13,7 @@
         <result property="roleCode" column="role_code"/>
         <result property="status" column="status"/>
         <result property="readOnly" column="read_only"/>
+        <result property="permissionMode" column="permission_mode"/>
         <result property="lastLogin" column="last_login"/>
         <result property="createdBy" column="created_by"/>
         <result property="createdAt" column="created_at"/>
@@ -29,6 +30,7 @@
         ur.code AS role_code,
         u.status,
         u.read_only,
+        u.permission_mode,
         u.last_login,
         u.created_by,
         u.created_at

@@ -11,13 +11,19 @@ import java.util.Set;
  *
  * 角色层级（数值越小权限越高，对应 user_role.hierarchy_level）：
  * OWNER(1) > PARTNERSHIP(2) > ADMIN(3) > MANAGER(4) > SUPERVISOR(5) > ACCOUNTANT/AUDIT/CUSTOMER_SERVICE(6-8)。
- *
- * read_only 开关目前只在 Partnership、Audit 账号的界面上暴露，但只要账号被打上这个标记，后端一律拦截写操作，不区分角色。
  */
+//read_only 开关目前只在 Partnership、Audit 账号的界面上暴露，但只要账号被打上这个标记，后端一律拦截写操作，不区分角色。
 public final class AccessControlUtils {
 
-    /* 对 Admin（员工列表）页面有写权限的角色；OWNER 无限制单独处理，其余角色没有该页面入口。 */
-    private static final Set<String> ADMIN_PAGE_MANAGER_ROLES = Set.of("PARTNERSHIP", "ADMIN", "MANAGER", "SUPERVISOR");
+    /*
+     * 对 Admin（员工列表）页面有写权限的角色；OWNER 无限制单独处理。AUDIT / ACCOUNTANT / CUSTOMER_SERVICE
+     * 默认没有 Admin 页面入口，但账号级权限覆盖（user_permission_override）可以额外给某个账号开通菜单可见性，
+     * 一旦开通，写操作按统一规则走：read_only=1 时禁止任何修改，read_only=0 时按层级只能管理
+     * hierarchy_level 比自己大的角色（ACCOUNTANT=6 能管到 AUDIT=7/CUSTOMER_SERVICE=8；
+     * AUDIT=7 只能管到 CUSTOMER_SERVICE=8；CUSTOMER_SERVICE=8 是最低层级，实际管不到任何人）。
+     */
+    private static final Set<String> ADMIN_PAGE_MANAGER_ROLES =
+            Set.of("PARTNERSHIP", "ADMIN", "MANAGER", "SUPERVISOR", "AUDIT", "ACCOUNTANT", "CUSTOMER_SERVICE");
 
     private AccessControlUtils() {
     }
@@ -30,7 +36,7 @@ public final class AccessControlUtils {
         return "OWNER".equals(normalizeRole(role));
     }
 
-    /* 未登录或账号 read_only=1 时抛出异常；所有写操作方法的第一行都应调用此方法。 */
+    /* 未登录或账号 read_only=1 时抛出异常；所有写操作方法的第一行都应调用此方法。*/
     public static void requireWritable(SessionUser session) {
         if (session == null) {
             throw new BusinessException("Not logged in");

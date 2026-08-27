@@ -12,7 +12,9 @@ import com.eazycount.entity.AdminTenantAccess;
 import com.eazycount.entity.AdminTenantAccountAccess;
 import com.eazycount.entity.AdminTenantProcessAccess;
 import com.eazycount.entity.Owner;
+import com.eazycount.entity.Permission;
 import com.eazycount.entity.Tenant;
+import com.eazycount.entity.UserPermissionOverride;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AdminService;
@@ -24,8 +26,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 @Service
 public class AdminServiceImpl implements AdminService {
@@ -132,7 +136,7 @@ public class AdminServiceImpl implements AdminService {
         detail.setStatus(admin.getStatus() != null
                 ? admin.getStatus().name().toLowerCase(Locale.ROOT)
                 : "active");
-        detail.setReadOnly(admin.getReadOnly() != null ? admin.getReadOnly() : true);
+        detail.setReadOnly(admin.getReadOnly() != null ? admin.getReadOnly() : false);
         detail.setScopeTenantId(scopeTenantId);
 
         if (ownerShadow) {
@@ -140,7 +144,7 @@ public class AdminServiceImpl implements AdminService {
             detail.setTenantIds(List.of());
             detail.setAccountPermissions(null);
             detail.setProcessPermissions(null);
-            detail.setPermissions(resolveSidebarPermissionCodes(admin.getRoleId()));
+            detail.setPermissions(resolveEffectiveSidebarPermissionCodes(admin));
             return detail;
         }
 
@@ -148,7 +152,7 @@ public class AdminServiceImpl implements AdminService {
         detail.setTenantIds(adminDao.findAdminTenantIdsByUserId(userId));
         detail.setAccountPermissions(resolveAccountPermissions(scopedAccess));
         detail.setProcessPermissions(resolveProcessPermissions(scopedAccess));
-        detail.setPermissions(resolveSidebarPermissionCodes(admin.getRoleId()));
+        detail.setPermissions(resolveEffectiveSidebarPermissionCodes(admin));
         return detail;
     }
 
@@ -160,6 +164,53 @@ public class AdminServiceImpl implements AdminService {
                 .map(p -> p.getCode() == null ? "" : p.getCode().trim().toLowerCase(Locale.ROOT))
                 .filter(s -> !s.isEmpty())
                 .toList();
+    }
+
+    // CUSTOM 读账号自己的 override 表，否则退回角色默认
+    private List<String> resolveEffectiveSidebarPermissionCodes(Admin admin) {
+        if (admin.getPermissionMode() == Admin.PermissionMode.CUSTOM && admin.getId() != null) {
+            return permissionDao.findOverridePermissionsByUserId(admin.getId()).stream()
+                    .map(p -> p.getCode() == null ? "" : p.getCode().trim().toLowerCase(Locale.ROOT))
+                    .filter(s -> !s.isEmpty())
+                    .toList();
+        }
+        return resolveSidebarPermissionCodes(admin.getRoleId());
+    }
+
+    // 提交的清单跟角色默认完全一致（或没传）就是 ROLE_DEFAULT，否则 CUSTOM；CUSTOM 永远是完整清单，不是差集
+    private Admin.PermissionMode resolvePermissionMode(List<String> submittedPermissions, Integer roleId) {
+        if (submittedPermissions == null) {
+            return Admin.PermissionMode.ROLE_DEFAULT;
+        }
+        Set<String> submitted = normalizePermissionCodes(submittedPermissions);
+        Set<String> base = new HashSet<>(resolveSidebarPermissionCodes(roleId));
+        return submitted.equals(base) ? Admin.PermissionMode.ROLE_DEFAULT : Admin.PermissionMode.CUSTOM;
+    }
+
+    // 先删后插（跟 replaceAccountAcl/replaceProcessAcl 一个套路），切回 ROLE_DEFAULT 时顺带清掉旧的 CUSTOM 记录
+    private void persistPermissionOverrides(Integer userId, Admin.PermissionMode mode, List<String> submittedPermissions) {
+        adminDao.deleteOverridePermissionsByUserId(userId);
+        if (mode != Admin.PermissionMode.CUSTOM || submittedPermissions == null) {
+            return;
+        }
+        List<Permission> resolved = permissionDao.findActivePermissionsByCodes(submittedPermissions);
+        if (resolved.isEmpty()) {
+            return;
+        }
+        List<UserPermissionOverride> rows = resolved.stream()
+                .map(p -> new UserPermissionOverride(userId, p.getId()))
+                .toList();
+        adminDao.insertOverridePermissionsBatch(rows);
+    }
+
+    private static Set<String> normalizePermissionCodes(List<String> codes) {
+        Set<String> result = new HashSet<>();
+        for (String code : codes) {
+            if (code != null && !code.isBlank()) {
+                result.add(code.trim().toLowerCase(Locale.ROOT));
+            }
+        }
+        return result;
     }
 
     private List<AdminDTO.AccountPermissionItem> resolveAccountPermissions(AdminTenantAccess access) {
@@ -356,6 +407,7 @@ public class AdminServiceImpl implements AdminService {
     private Admin persistUserForCreate(AdminDTO dto) {
         Admin admin = mapDtoToAdmin(dto);
         admin.setRoleId(resolveRoleId(dto.getRole()));
+        admin.setPermissionMode(resolvePermissionMode(dto.getPermissions(), admin.getRoleId()));
 
         if (dto.getStatus() != null && !dto.getStatus().isBlank()) {
             admin.setStatus(Admin.UserStatus.valueOf(dto.getStatus().trim().toUpperCase(Locale.ROOT)));
@@ -363,7 +415,7 @@ public class AdminServiceImpl implements AdminService {
             admin.setStatus(Admin.UserStatus.ACTIVE);
         }
         if (admin.getReadOnly() == null) {
-            admin.setReadOnly(true);
+            admin.setReadOnly(false);
         }
 
         normalizeAdminFields(admin);
@@ -380,6 +432,7 @@ public class AdminServiceImpl implements AdminService {
         } catch (Exception e) {
             throw new BusinessException("Insert Admin Failed!");
         }
+        persistPermissionOverrides(admin.getId(), admin.getPermissionMode(), dto.getPermissions());
         return admin;
     }
 
@@ -429,6 +482,8 @@ public class AdminServiceImpl implements AdminService {
             admin.setReadOnly(existing.getReadOnly());
         }
 
+        admin.setPermissionMode(resolvePermissionMode(dto.getPermissions(), admin.getRoleId()));
+
         assertNoDuplicateEmail(admin.getEmail(), admin.getId());
 
         try {
@@ -436,6 +491,7 @@ public class AdminServiceImpl implements AdminService {
         } catch (Exception e) {
             throw new BusinessException("Update Admin Failed!");
         }
+        persistPermissionOverrides(admin.getId(), admin.getPermissionMode(), dto.getPermissions());
         return admin;
     }
 
@@ -620,7 +676,7 @@ public class AdminServiceImpl implements AdminService {
         admin.setEmail(dto.getEmail());
         admin.setPassword(dto.getPassword());
         admin.setSecondaryPassword(dto.getSecondaryPassword());
-        admin.setReadOnly(dto.getReadOnly() != null ? dto.getReadOnly() : true);
+        admin.setReadOnly(dto.getReadOnly() != null ? dto.getReadOnly() : false);
         admin.setRoleCode(dto.getRole());
         return admin;
     }
@@ -679,7 +735,7 @@ public class AdminServiceImpl implements AdminService {
         return staffRole;
     }
 
-    /** Resolves the acting session's own role to its {@code user_role} row (for hierarchy checks). */
+    // 拿操作者自己角色对应的 user_role 行，供层级校验用
     private AdminRole resolveActorRole(SessionUser session) {
         if (session == null) {
             throw new BusinessException("Not logged in");

@@ -6191,7 +6191,7 @@ flowchart LR
 |----|------|
 | HTTP CRUD + get + Owner profile | ✅ 已实现 |
 | 前端 Admin 页接 Spring | ✅ 已实现（Owner 编辑已脱离 PHP） |
-| 请求体 `permissions` 按人持久化 | ❌ 仍按 role；前端传的 `permissions` 被忽略 |
+| 请求体 `permissions` 按人持久化 | ✅ 2026-08-27，`user.permission_mode` + `user_permission_override`，详见 `docs/admin-permission-account-override.md` |
 | API 层校验 `permissions` 含 `admin` | ❌ 仅校验登录（注意：与下一行不是同一件事） |
 | Admin 页面按角色层级校验写操作（谁能改谁） | ✅ 2026-08-27，详见 `docs/admin-permission-rbac-hierarchy.md` |
 | Partnership / Audit `read_only` 全局写操作拦截 | ✅ 2026-08-27，不止 Admin 页面，覆盖了本节及第 4/6/7/8/9 节列出的绝大多数写接口 |
@@ -6898,5 +6898,46 @@ if (transactionDao.countTransactionsByCurrencyId(id, tenantId) > 0) {
 详见独立文档：
 - 后端：[`docs/admin-permission-rbac-hierarchy.md`](admin-permission-rbac-hierarchy.md)
 - 前端：`Count-frontend/docs/permission-rbac-frontend-alignment.md`
+
+---
+
+## 40. Admin 账号级侧边栏权限覆盖（Permission Override）（2026-08-27）
+
+紧接第 39 节。5.12 里「请求体 `permissions` 按人持久化 ❌ 仍按 role」这条缺口这次补上了——新增
+`user.permission_mode`（`ROLE_DEFAULT`/`CUSTOM` 二选一，不做合并）+ `user_permission_override` 表，
+可以在角色默认权限之外单独给某个账号加/减入口，按 `user_id` 精确隔离，不影响同角色其他账号。设计上
+故意没做成「角色默认 ∪ 账号级 ALLOW/DENY 差集」，而是复用了仓库里 `account_acl_mode`/`process_acl_mode`
+已经确立的二选一模式，避免每次读取都要合并两份数据。
+
+`getAdminDetailByUserId` 里有两处回显权限列表的调用点（Owner 影子行分支 + 真正被使用的普通账号分支），
+第一版改动漏改了后者，导致登录后侧边栏能正确显示额外权限，但编辑详情弹窗重新打开却看不到——已修复，
+详见独立文档里的踩坑记录。
+
+详见独立文档：`docs/admin-permission-account-override.md`（本次不需要改前端）。
+
+---
+
+## 41. Admin 权限体系收尾：白名单扩大、read_only 默认值、角色分隔符 bug（2026-08-27）
+
+紧接第 40 节，权限覆盖功能上线后实测暴露出的几个连带问题：
+
+- **`AccessControlUtils.ADMIN_PAGE_MANAGER_ROLES` 扩大到 `{PARTNERSHIP, ADMIN, MANAGER, SUPERVISOR,
+  AUDIT, ACCOUNTANT, CUSTOMER_SERVICE}`**：原来这三个角色被排除在外，理由是「默认没有 Admin 入口」，
+  但权限覆盖功能可以单独给某个账号开通菜单可见性，这时候旧白名单会导致「菜单能看到，写操作永远
+  No permission，且跟 read_only 状态无关」（角色白名单检查在 read_only 检查之前）。默认情况下这三个
+  角色仍然没有 Admin 菜单入口，白名单只是保证一旦开了权限覆盖，写操作不会被角色本身卡死。
+- **`user.read_only` 默认值从 1 改成 0**：`read_only` 的开关 UI 只对 Partnership/Audit 暴露，其余角色
+  的账号新建时一直被硬编码成 `read_only=true` 且没有 UI 能关掉——白名单扩大之后，这个默认值直接把
+  Accountant/Customer Service 卡死。确认过前端只有 Partnership/Audit 会显式传 `readOnly` 字段，改默认
+  值不影响这两个角色已有的「默认锁定、手动放开」模型。新增
+  `migrate_admin_read_only_default_false.sql`（幂等，含回填）。
+- **前端「customer service」vs「customer_service」分隔符不一致，同一个 bug 分散在 4 个文件**：角色码
+  是下划线，但 `ROLE_HIERARCHY`/i18n 查找表/C168 权限 Set/角色徽章 CSS 类名生成这四处各自的字符串
+  处理都假设是空格，导致 Customer Service 角色的层级比较、显示文案、CSS 样式先后失效——症状每次都不一样，
+  容易被当成互不相关的独立 bug，这次统一改成下划线并在 `normRole` 里做了分隔符归一化。
+
+详见独立文档：
+- 后端：`docs/admin-permission-rbac-hierarchy.md`「后续追加」章节
+- 前端：`Count-frontend/docs/permission-rbac-frontend-alignment.md` 第 5、6 节
 
 ---

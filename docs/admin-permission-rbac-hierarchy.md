@@ -33,7 +33,7 @@
 | ADMIN | MANAGER、SUPERVISOR、ACCOUNTANT、AUDIT、CUSTOMER_SERVICE | OWNER、PARTNERSHIP、ADMIN（含自己/同级） |
 | MANAGER | 自己（仅基础信息）、SUPERVISOR、ACCOUNTANT、AUDIT、CUSTOMER_SERVICE | ADMIN 及以上 |
 | SUPERVISOR | 自己（仅基础信息）、ACCOUNTANT、AUDIT、CUSTOMER_SERVICE | MANAGER 及以上 |
-| ACCOUNTANT / AUDIT / CUSTOMER_SERVICE | 无 Admin 页面入口 | — |
+| ACCOUNTANT / AUDIT / CUSTOMER_SERVICE | 默认无 Admin 页面入口；但账号级权限覆盖（见 `docs/admin-permission-account-override.md`）可以额外开通，开通后按 hierarchy_level 只能管理比自己层级数值更大的角色（ACCOUNTANT 能管 AUDIT/CUSTOMER_SERVICE；AUDIT 能管 CUSTOMER_SERVICE；CUSTOMER_SERVICE 是最低层级，实际管不到任何人）——2026-08-27 追加，见下方「后续追加」 | 层级数值 ≤ 自己的所有角色 |
 
 通用规则：任何角色编辑「自己」时，`role` 字段一律锁死，不能自我提权。
 
@@ -46,7 +46,7 @@
 - `requireWritable(SessionUser session)` — 未登录或 `read_only==1` 时抛 `BusinessException`。所有写方法的第一行都应调用。
 - `assertCanManageAdminTarget(actor, actorHierarchyLevel, isSelf, targetHierarchyLevel, roleFieldChanging)` — Admin 页面专属的层级校验：
   1. Owner 直接放行；
-  2. 操作者角色必须在 `{PARTNERSHIP, ADMIN, MANAGER, SUPERVISOR}` 集合内，否则直接拒绝（连自己都管不了，更管不了别人）；
+  2. 操作者角色必须在 `ADMIN_PAGE_MANAGER_ROLES` 集合内，否则直接拒绝（连自己都管不了，更管不了别人）；集合内容见下方「后续追加」，2026-08-27 之后是 `{PARTNERSHIP, ADMIN, MANAGER, SUPERVISOR, AUDIT, ACCOUNTANT, CUSTOMER_SERVICE}`；
   3. 调用 `requireWritable` 走 read_only 检查；
   4. 若是编辑自己：只挡 `roleFieldChanging`（改角色），其余放行；
   5. 否则按 `actorHierarchyLevel >= targetHierarchyLevel` 判断（数值必须严格小于目标才允许管理）。
@@ -101,6 +101,27 @@
 - 删除 `user_role_permission` 里 Customer Service 对应 `ADMIN`（员工列表）侧边栏权限的行（如果存在——实际检查下来 `schema.sql` 本身从未插入过这行，这条 DELETE 是防御性的，万一线上库有手动加的脏数据也能顺手清掉）。
 
 `schema.sql` 本身的基线也同步改了（新建库直接生效），`TABLE_MIGRATION.md` 索引表加了这条迁移脚本的说明行。
+
+## 后续追加（2026-08-27，同一天，紧接账号级权限覆盖功能之后）
+
+上线「账号级权限覆盖」（`docs/admin-permission-account-override.md`）之后，实测发现两个连带问题，一并修了：
+
+### 1. `ADMIN_PAGE_MANAGER_ROLES` 白名单扩大到 AUDIT / ACCOUNTANT / CUSTOMER_SERVICE
+
+最初这三个角色被排除在外，理由是「默认没有 Admin 页面入口」。但权限覆盖功能上线后，可以单独给某个账号开通 Admin 菜单可见性——这时候原来的白名单会导致「菜单能看到，写操作永远 No permission，跟 read_only 状态无关」，因为角色白名单检查（第 2 步）在 `requireWritable`（第 3 步）之前，AUDIT 等角色连第 2 步都过不去。
+
+跟用户确认后，改成：这三个角色也加进白名单，行为上没有特殊化，完全复用同一套判断顺序（先角色白名单 → 再 read_only → 再层级比较）。默认情况下这三个角色仍然没有 Admin 菜单入口（`user_role_permission` 没有 ADMIN 这一行），所以实际能不能写，还是取决于有没有单独给这个账号开权限覆盖——白名单只是「万一开了权限覆盖，写操作不要莫名其妙被角色本身卡住」。
+
+### 2. `user.read_only` 默认值从 1 改成 0
+
+这个问题是上一条的连带发现：`read_only` 的开关 UI（`roleHasReadOnlyToggle`）前端只对 Partnership / Audit 暴露，其余角色的账号新建时后端一直是硬编码默认 `read_only=true`，且没有任何 UI 能把它改回 `false`。在 `AccessControlUtils.requireWritable` 全局生效之前这个默认值无关紧要（没人检查它），但现在一旦生效，Accountant / Customer Service（以及任何没有开关 UI 的角色）即使被加进了 `ADMIN_PAGE_MANAGER_ROLES` 白名单，也会被这个永远搬不动的默认值卡死，白名单改了等于没改。
+
+确认过前端流程：只有 Partnership / Audit 的创建/编辑表单会显式传 `readOnly` 字段（默认 true，UI 上手动关掉），其余角色从来不传，完全由后端默认值决定。所以把默认值改成 `false` 只影响没有开关 UI 的角色，不影响 Partnership / Audit 已有的「默认锁定、手动放开」模型。
+
+改动：
+- `AdminServiceImpl.mapDtoToAdmin`/`persistUserForCreate`/`getAdminDetailByUserId` 三处兜底值从 `true` 改成 `false`。
+- `schema.sql`：`user.read_only` 列默认值改成 `0`。
+- 新增 [`migrate_admin_read_only_default_false.sql`](../backend/src/main/resources/sql/migrate_admin_read_only_default_false.sql)（幂等）：改列默认值 + 回填现有「角色不是 Partnership/Audit 但 read_only 还是 1」的账号成 0（这个 1 从来不是谁主动选的，只是旧默认值，回填是安全的）。
 
 ## 已知的、故意没在这次处理的点
 

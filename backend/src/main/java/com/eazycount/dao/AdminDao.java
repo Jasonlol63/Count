@@ -5,6 +5,7 @@ import com.eazycount.entity.Admin;
 import com.eazycount.entity.AdminTenantAccess;
 import com.eazycount.entity.AdminTenantAccountAccess;
 import com.eazycount.entity.AdminTenantProcessAccess;
+import com.eazycount.entity.UserPermissionOverride;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -46,6 +47,8 @@ public interface AdminDao {
 
     void insertAdminTenantAccess(AdminTenantAccess access);
 
+    void insertOverridePermissionsBatch(@Param("list") List<UserPermissionOverride> list);
+
     //update admin use
     void updateAdmin(Admin admin);
 
@@ -61,6 +64,8 @@ public interface AdminDao {
     void deleteAccountAccessByUserTenantAccessId(@Param("userTenantAccessId") long userTenantAccessId);
 
     void deleteProcessAccessByUserTenantAccessId(@Param("userTenantAccessId") long userTenantAccessId);
+
+    void deleteOverridePermissionsByUserId(@Param("userId") int userId);
 
     //update status of admin
     void updateStatusById(@Param("id") Integer id, @Param("status") Admin.UserStatus status);

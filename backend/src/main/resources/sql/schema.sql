@@ -42,6 +42,7 @@ DROP TABLE IF EXISTS `tenant_link`;
 DROP TABLE IF EXISTS `tenant_fee_share_allocation`;
 DROP TABLE IF EXISTS `tenant_feature_module`;
 DROP TABLE IF EXISTS `user_role_permission`;
+DROP TABLE IF EXISTS `user_permission_override`;
 DROP TABLE IF EXISTS `permission`;
 DROP TABLE IF EXISTS `feature_module`;
 -- password_reset_tac / password_reset_tac_owner: deprecated (password reset now Redis-based, see
@@ -240,7 +241,8 @@ CREATE TABLE `user` (
     `secondary_password`     VARCHAR(255)          DEFAULT NULL COMMENT 'BCrypt, C168 optional 6-digit PIN',
     `role_id`                TINYINT UNSIGNED NOT NULL COMMENT 'FK user_role.id',
     `status`                 ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
-    `read_only`              TINYINT(1)   NOT NULL DEFAULT 1,
+    `read_only`              TINYINT(1)   NOT NULL DEFAULT 0,
+    `permission_mode`        ENUM('ROLE_DEFAULT', 'CUSTOM') NOT NULL DEFAULT 'ROLE_DEFAULT' COMMENT 'ROLE_DEFAULT=按角色默认权限（user_role_permission）；CUSTOM=按 user_permission_override 的完整清单',
     `remember_token`         VARCHAR(64)           DEFAULT NULL,
     `remember_token_expires` DATETIME              DEFAULT NULL,
     `last_login`             DATETIME              DEFAULT NULL,
@@ -253,6 +255,17 @@ CREATE TABLE `user` (
     KEY `idx_user_role_id` (`role_id`),
 CONSTRAINT `fk_user_role` FOREIGN KEY (`role_id`) REFERENCES `user_role` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Admin / staff identity';
+
+-- 账号级额外/收回的侧边栏权限清单，仅在 user.permission_mode = 'CUSTOM' 时生效；与角色默认互斥，见上方注释。
+CREATE TABLE `user_permission_override` (
+    `user_id`       INT UNSIGNED NOT NULL,
+    `permission_id` SMALLINT UNSIGNED NOT NULL,
+    `created_at`    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`user_id`, `permission_id`),
+    KEY `idx_upo_permission_id` (`permission_id`),
+    CONSTRAINT `fk_upo_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_upo_permission` FOREIGN KEY (`permission_id`) REFERENCES `permission` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CUSTOM 模式账号的完整侧边栏权限清单';
 
 CREATE TABLE `tenant` (
   `id`                INT UNSIGNED NOT NULL AUTO_INCREMENT,

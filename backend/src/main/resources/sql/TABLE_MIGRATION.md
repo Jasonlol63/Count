@@ -298,6 +298,8 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 | `migrate_enums_to_uppercase.sql` | 枚举大写 |
 | `migrate_auto_renew_delete.sql` | 增量加 auto renew 关联流水表；**注意**：用的是旧名 `tenant_auto_renew_request_transaction`，与 `schema.sql` 里全新建库用的 `tenant_auto_renew_transaction` 不一致（见 §2.1 注） |
 | `migrate_role_hierarchy_and_admin_permission_fix.sql` | 修正 `user_role.hierarchy_level`（PARTNERSHIP 从 8 改为 2，紧排在 OWNER 之后）；移除 `CUSTOMER_SERVICE` 的 `ADMIN`（员工列表）侧边栏权限（如存在） |
+| `migrate_add_user_permission_override.sql` | 增量加 `user.permission_mode` 列 + `user_permission_override` 表——账号级侧边栏权限自定义（加/减角色默认之外的入口），与 `account_acl_mode`/`process_acl_mode` 同一套设计语言 |
+| `migrate_admin_read_only_default_false.sql` | `user.read_only` 默认值从 1 改成 0（只有 Partnership/Audit 前端有开关能手动设成 1，其余角色不该被默认锁死无法写入），并回填现有非 Partnership/Audit 账号 |
 | 其他 `migrate_*` / `add_*` / `seed_*` | 各子域增量与种子数据 |
 
 应用示例：

@@ -93,4 +93,14 @@
         ORDER BY p.sort_order ASC, p.id ASC
     </select>
 
+    <select id="findOverridePermissionsByUserId" resultMap="PermissionMap">
+        SELECT
+        <include refid="PermissionColumns"/>
+        FROM user_permission_override upo
+        INNER JOIN permission p ON p.id = upo.permission_id
+        WHERE upo.user_id = #{userId}
+          AND p.status = 'ACTIVE'
+        ORDER BY p.sort_order ASC, p.id ASC
+    </select>
+
 </mapper>

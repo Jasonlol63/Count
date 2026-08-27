@@ -55,6 +55,13 @@ public class Admin {
 
     private Boolean readOnly;
 
+    /**
+     * ROLE_DEFAULT（默认）：侧边栏权限完全按角色默认（{@code user_role_permission}）。
+     * CUSTOM：完全按 {@code user_permission_override} 里这个账号的完整清单（可比角色默认多也可以少），
+     * 两者互斥，不做合并。
+     */
+    private PermissionMode permissionMode;
+
     /** JSON field {@code role} for list/detail APIs (from joined {@code user_role.code}). */
     @JsonProperty("role")
     public String getRole() {
@@ -68,5 +75,11 @@ public class Admin {
     public enum UserStatus {
         ACTIVE,
         INACTIVE;
+    }
+
+    @Getter
+    public enum PermissionMode {
+        ROLE_DEFAULT,
+        CUSTOM;
     }
 }
