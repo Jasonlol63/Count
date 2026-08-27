@@ -452,7 +452,10 @@ Group 候选完全依赖 Spring `GET /api/ownership/available-accounts`。
 - **Member 页面登录报表查询功能 + Win/Loss 报表数据本体（含 mini grid）**：**已于 2026-08-26 全部迁移完成**（详见下方 §7.7，以及独立文档 `docs/member-account-link-report.md` 后端 /
   `Count-frontend/docs/member-winloss-springboot-migration.md` 前端）——不再是待迁移项
 - ~~真 AP/IG 纯 Group 账本 Data Capture 币种/草稿/提交/process 解析~~：**已于 2026-08-25 清理**。查 `testcount`（Spring 库）`tenant` 表确认 `id` 是 `NOT NULL AUTO_INCREMENT` 主键——"Group 没有自己 tenant.id"这种情况在当前数据模型下结构性不可能存在（不是概率低，是主键约束直接排除），旧文档记的"遗留边界"是延续 PHP 时代的过度兼容，不是真实存在的场景。实际清理时发现草稿（`dataCaptureGroupOnlyTableDraft.js`）、提交（`summarySubmitExecution.js`）、process 解析（`get_group_process_id`）三处**其实早就已经是纯 Spring**，代码注释里已经写明"no PHP endpoint involved"/"no PHP submit path left"，只有币种查询（`dataCaptureApi.js` 的 `fetchGroupCaptureCurrencies` → `get_scope_account_currencies_api.php`）还在用，本次已删除该函数及其唯一调用点（`useDataCaptureFormEngine.js` 的 `loadGroupOnlyCurrencies`），无 tenantId 时直接返回空列表
-- **Reset Password**（`resetPassword.js`）：仍调 PHP（用户已知、留到之后再做）
+- **Reset Password**（`resetPassword.js`）：**已于 2026-08-27 全部迁移完成**（admin/user 那一半；
+  owner 的 Reset Password 用户明确表示不需要，非待办）——不再是待迁移项。详见独立文档
+  `docs/reset-password-tac-implementation.md`（后端）/
+  `Count-frontend/docs/reset-password-tac-implementation.md`（前端）
 - **Auth 字段不匹配**（见 [§15.4](#154-已知仍未修复本次明确不处理超出仅-login-范围)）：`sidebarPermissions.js` / `loginScope.js` 仍读旧字段名（`company_has_gambling`/`company_has_bank`/`is_current_company_c168`），与 Spring 实际返回的 `tenant_has_game`/`tenant_has_bank`/`is_current_tenant_c168` 不匹配，可能影响登入后默认落地页路由判断
 
 > **提醒**：`companySessionSwitchCore.js` 注释明确写着"reverse proxy sends every unrewritten `/api/*` path to Spring"——没在 `apiUrl.js` 改写表里登记的旧 PHP 路径，现在打过去大概率直接 404，不只是"待迁移"。上面这几项都不在改写表里。本次未实际发请求验证 404，纯代码审查结论。

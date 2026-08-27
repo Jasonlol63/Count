@@ -43,8 +43,8 @@ DROP TABLE IF EXISTS `tenant_feature_module`;
 DROP TABLE IF EXISTS `user_role_permission`;
 DROP TABLE IF EXISTS `permission`;
 DROP TABLE IF EXISTS `feature_module`;
-DROP TABLE IF EXISTS `password_reset_tac`;
-DROP TABLE IF EXISTS `password_reset_tac_owner`;
+DROP TABLE IF EXISTS `password_reset_tac`;          //准备删除
+DROP TABLE IF EXISTS `password_reset_tac_owner`;   //准备删除
 DROP TABLE IF EXISTS `user_tenant_process_access`;
 DROP TABLE IF EXISTS `user_tenant_account_access`;
 DROP TABLE IF EXISTS `account_tenant_access`;
@@ -372,28 +372,6 @@ CREATE TABLE `account_link` (
     KEY `idx_al_account_1` (`account_id_1`),
 KEY `idx_al_account_2` (`account_id_2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Linking between member accounts';
-
-CREATE TABLE `password_reset_tac` (
-  `email`      VARCHAR(255) NOT NULL COMMENT 'Admin user email (FK user.email logically)',
-  `tenant_id`  INT UNSIGNED NOT NULL COMMENT 'FK tenant.id — reset scope for admin/staff',
-  `code`       VARCHAR(10)  NOT NULL COMMENT '6-digit verification code',
-  `expires_at` DATETIME     NOT NULL COMMENT 'Code expiry (typically 15 minutes)',
-  `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`email`, `tenant_id`),
-  KEY `idx_prt_tenant_id` (`tenant_id`),
-  KEY `idx_prt_expires_at` (`expires_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Password reset TAC for admin users per tenant';
-
-CREATE TABLE `password_reset_tac_owner` (
-    `email`      VARCHAR(255) NOT NULL COMMENT 'Owner email (FK owner.email logically)',
-    `tenant_id`  INT UNSIGNED NOT NULL COMMENT 'FK tenant.id — reset scope for domain owner',
-    `code`       VARCHAR(10)  NOT NULL COMMENT '6-digit verification code',
-    `expires_at` DATETIME     NOT NULL COMMENT 'Code expiry (typically 15 minutes)',
-    `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`email`, `tenant_id`),
-    KEY `idx_prto_tenant_id` (`tenant_id`),
-    KEY `idx_prto_expires_at` (`expires_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Password reset TAC for domain owners';
 
 -- Renewal period dictionary (shared by domain_list_fee_price and tenant_auto_renew_request)
 CREATE TABLE `renewal_period` (

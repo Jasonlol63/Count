@@ -5,6 +5,7 @@ import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.DomainDao;
 import com.eazycount.dao.DomainListFeePriceDao;
 import com.eazycount.dao.TenantFeeShareAllocateDao;
+import com.eazycount.dao.TransactionDao;
 import com.eazycount.dao.UserDao;
 import com.eazycount.dto.DomainDTO;
 import com.eazycount.dto.DomainFeeSettingsDTO;
@@ -48,6 +49,9 @@ public class DomainServiceImpl implements DomainService {
 
     @Autowired
     private TenantFeeShareAllocateDao feeShareAllocateDao;
+
+    @Autowired
+    private TransactionDao transactionDao;
 
     @Autowired
     private DomainListFeePriceDao domainListFeePriceDao;
@@ -481,10 +485,34 @@ public class DomainServiceImpl implements DomainService {
         }
 
         List<OwnerTenantDTO> tenants = domainDao.findAllTenantsByOwner(owner.getId());
+
+        Tenant c168Tenant = domainDao.findTenantByCodeAndOwnerId("C168", 1);
+        Integer c168TenantId = c168Tenant != null ? c168Tenant.getId() : null;
+
+        // Pre-check all tenants before touching any row: if even one C168 account has
+        // transaction history, abort the whole delete instead of deleting some and not others.
+        if (tenants != null && c168TenantId != null) {
+            for (OwnerTenantDTO dto : tenants) {
+                Tenant tenant = dto.getTenant();
+                if (tenant == null || tenant.getCode() == null) {
+                    continue;
+                }
+                Integer c168AccountId = userDao.findAccountIdByTenantIdAndCode(c168TenantId, tenant.getCode());
+                if (c168AccountId != null
+                        && transactionDao.countTransactionsByAccountId(c168AccountId, c168TenantId) > 0) {
+                    throw new BusinessException(tenant.getCode()
+                            + " has existing transaction records under C168, cannot delete this domain!");
+                }
+            }
+        }
+
         if (tenants != null && !tenants.isEmpty()) {
             for (OwnerTenantDTO dto : tenants) {
                 Tenant tenant = dto.getTenant();
                 if (tenant != null && tenant.getId() != null) {
+                    if (c168TenantId != null && tenant.getCode() != null) {
+                        this.deleteAccountTenantInC168(tenant.getCode(), c168TenantId);
+                    }
                     tenant.setOwnerId(owner.getId());
                     this.deleteTenantDetails(tenant);
                 }
@@ -812,6 +840,28 @@ public class DomainServiceImpl implements DomainService {
                 .filter(module -> module != null && module.getId() != null && module.getId() > 0)
                 .map(module -> new TenantFeatureModule(null, tenantId, module.getId(), null))
                 .collect(Collectors.toList());
+    }
+
+    private void deleteAccountTenantInC168(String tenantCode, Integer c168TenantId) {
+        Integer accountId = userDao.findAccountIdByTenantIdAndCode(c168TenantId, tenantCode);
+        if (accountId == null) {
+            return;
+        }
+
+        try {
+            UserListDTO account = userDao.findUserByIdAndTenantId(accountId, c168TenantId);
+
+            userDao.deleteUserTenantAccessByAccountIdAndTenantId(accountId, c168TenantId);
+            currencyDao.deleteByAccountIdAndTenantId(accountId, c168TenantId);
+
+            // Only hard-delete the shared account row once it has no remaining tenant access
+            List<Integer> remainingTenantIds = userDao.findTenantIdsByUserId(accountId);
+            if ((remainingTenantIds == null || remainingTenantIds.isEmpty()) && account != null) {
+                userDao.deleteUserByIdAndStatus(accountId, account.getStatus());
+            }
+        } catch (BusinessException e) {
+            throw new BusinessException("Auto Delete Account Failed for code: " + tenantCode);
+        }
     }
 
     private void createAccountTenantInC168(Tenant tenant, Integer c168TenantId) {
