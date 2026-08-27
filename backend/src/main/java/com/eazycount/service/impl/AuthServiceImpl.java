@@ -15,9 +15,11 @@ import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
 import com.eazycount.entity.User;
 import com.eazycount.jwt.JwtService;
+import com.eazycount.mail.PasswordResetMailService;
 import com.eazycount.security.AuthCookieHelper;
 import com.eazycount.security.AuthTokenStore;
 import com.eazycount.security.LoginUserPrincipal;
+import com.eazycount.security.PasswordResetTacStore;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AuthService;
@@ -35,6 +37,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -59,6 +62,13 @@ public class AuthServiceImpl implements AuthService {
     private AuthTokenStore authTokenStore;
     @Autowired
     private JwtService jwtService;
+    @Autowired
+    private PasswordResetTacStore passwordResetTacStore;
+    @Autowired
+    private PasswordResetMailService passwordResetMailService;
+
+    private static final String RESET_SCOPE_ADMIN = "admin";
+    private static final SecureRandom TAC_RANDOM = new SecureRandom();
 
     @Override
     public LoginResultDTO login(String tenantCode, String username, String password, LoginRole role) {
@@ -429,6 +439,63 @@ public class AuthServiceImpl implements AuthService {
         body.put("success", true);
         body.put("message", "Logged out");
         return body;
+    }
+
+    @Override
+    public void sendResetTac(String tenantCode, String email) {
+        String code = normalize(tenantCode);
+        String normalizedEmail = normalizeEmail(email);
+        if (code.isBlank() || normalizedEmail.isBlank()) {
+            throw new BusinessException("Group/Company ID and email are required");
+        }
+
+        String identity = code + ":" + normalizedEmail;
+        long remaining = passwordResetTacStore.tryClaimCooldown(RESET_SCOPE_ADMIN, identity);
+        if (remaining > 0) {
+            throw new BusinessException("Please wait " + remaining + "s before requesting another code");
+        }
+
+        // Never reveal whether the account exists — only send when it genuinely resolves.
+        Admin admin = authDao.findAdminByEmail(normalizedEmail);
+        if (admin != null && findAccessibleTenantsByAdminId(admin.getId(), code).size() > 0) {
+            String tac = generateTac();
+            passwordResetTacStore.saveCode(RESET_SCOPE_ADMIN, identity, tac);
+            passwordResetMailService.sendResetCode(admin.getEmail(), tac);
+        }
+    }
+
+    @Override
+    public void resetPassword(String tenantCode, String email, String tac, String newPassword) {
+        String code = normalize(tenantCode);
+        String normalizedEmail = normalizeEmail(email);
+        String trimmedTac = tac == null ? "" : tac.trim();
+
+        if (code.isBlank() || normalizedEmail.isBlank() || trimmedTac.isBlank()) {
+            throw new BusinessException("Group/Company ID, email and TAC are required");
+        }
+        if (newPassword == null || newPassword.isBlank()) {
+            throw new BusinessException("New password is required");
+        }
+
+        String identity = code + ":" + normalizedEmail;
+        if (!passwordResetTacStore.verifyAndConsume(RESET_SCOPE_ADMIN, identity, trimmedTac)) {
+            throw new BusinessException("Verification code is invalid or expired");
+        }
+
+        Admin admin = authDao.findAdminByEmail(normalizedEmail);
+        if (admin == null || findAccessibleTenantsByAdminId(admin.getId(), code).isEmpty()) {
+            throw new BusinessException("Account not found");
+        }
+
+        authDao.updateAdminPassword(admin.getId(), passwordEncoder.encode(newPassword));
+    }
+
+    private static String normalizeEmail(String email) {
+        return email == null ? "" : email.trim().toLowerCase();
+    }
+
+    private static String generateTac() {
+        return String.format("%06d", TAC_RANDOM.nextInt(1_000_000));
     }
 
     private LoginResultDTO buildLoginResult(UserDTO identity, Tenant loginTenant, Tenant sessionTenant) {

@@ -30,6 +30,19 @@ spring:
 #    host: localhost
 #    port: 6379
 
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: kunzzit02@gmail.com
+    password: etgdkiublobsczaz
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
   servlet:
     multipart:
       enabled: true
@@ -55,3 +68,7 @@ mybatis:
 
 file:
   image-dir: backend/src/main/resources/static/
+
+app:
+  mail:
+    from: kunzzit02@gmail.com

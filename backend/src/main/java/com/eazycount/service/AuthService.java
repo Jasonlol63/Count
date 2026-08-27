@@ -22,25 +22,12 @@ public interface AuthService {
 
     List<UserTenantDTO> findAccessibleTenantsByMemberId(Integer userId, String tenantCode);
 
-    /**
-     * All tenants (with feature modules) visible to the given identity.
-     *
-     * @param userType {@code member} | {@code user} (admin) | {@code owner}
-     * @param userId   primary key of account / user / owner
-     */
     List<TenantDTO> findAllTenantsByUserType(String userType, Integer userId);
 
     Map<String, Object> accessibleTenants(boolean all);
 
-    /** Resolve one accessible tenant's id by its code (group or company), always DB-fresh. */
     Map<String, Object> tenantByCode(String code);
 
-    /**
-     * Resolve a login identity by session/API user type.
-     *
-     * @param userType   {@code member} | {@code user} (admin) | {@code owner}
-     * @param identifier account id, admin login id, or owner code
-     */
     UserDTO requireIdentity(String userType, String identifier);
 
     List<Tenant> findActiveTenantsByLoginCode(String tenantCode);
@@ -56,4 +43,10 @@ public interface AuthService {
     Map<String, Object> logout(HttpServletRequest request, HttpServletResponse response);
 
     Map<String, Object> switchSessionTenant(int tenantId, SessionUser current, String jti, long ttlMillis);
+
+    //Sends a password reset TAC to the admin/user account's email, scoped to the given tenant.
+    void sendResetTac(String tenantCode, String email);
+
+    // Verifies the TAC (one-time use) and updates the admin/user's password.
+    void resetPassword(String tenantCode, String email, String tac, String newPassword);
 }

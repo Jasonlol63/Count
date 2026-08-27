@@ -28,6 +28,8 @@ public interface AuthDao {
 
     Admin findAdminByLoginId(@Param("loginId") String loginId);
 
+    Admin findAdminByEmail(@Param("email") String email);
+
     Owner findOwnerByOwnerCode(@Param("ownerCode") String ownerCode);
 
     User findMemberByAccountId(@Param("accountId") String accountId);
@@ -44,6 +46,8 @@ public interface AuthDao {
     Owner findOwnerSecondaryPasswordById(@Param("ownerId") Integer ownerId);
 
     void updateAdminLastLogin(@Param("adminId") Integer adminId);
+
+    void updateAdminPassword(@Param("adminId") Integer adminId, @Param("password") String password);
 
     void updateMemberLastLogin(@Param("memberId") Integer memberId);
 }

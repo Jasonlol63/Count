@@ -264,6 +264,17 @@
         LIMIT 1
     </select>
 
+    <select id="findAdminByEmail" resultMap="AdminMap">
+        SELECT
+        <include refid="AdminColumns"/>
+        FROM user u
+        INNER JOIN user_role ur ON ur.id = u.role_id
+        WHERE LOWER(TRIM(u.email)) = LOWER(TRIM(#{email}))
+          AND u.status = 'ACTIVE'
+          AND ur.status = 'ACTIVE'
+        LIMIT 1
+    </select>
+
     <select id="findOwnerByOwnerCode" resultType="com.eazycount.entity.Owner">
         SELECT id,
                owner_code             AS ownerCode,
@@ -364,6 +375,12 @@
     <update id="updateAdminLastLogin">
         UPDATE user
         SET last_login = NOW()
+        WHERE id = #{adminId}
+    </update>
+
+    <update id="updateAdminPassword">
+        UPDATE user
+        SET password = #{password}
         WHERE id = #{adminId}
     </update>
 

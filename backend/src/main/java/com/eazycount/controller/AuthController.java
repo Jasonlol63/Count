@@ -80,7 +80,6 @@ public class AuthController {
         return authService.toLoginResponse(result);
     }
 
-    /** SPA bootstrap — replaces legacy current_user API. */
     @GetMapping("/current-user")
     public ResponseEntity<Map<String, Object>> currentUser() {
         SessionUser user = SecurityUtils.currentUser();
@@ -99,7 +98,6 @@ public class AuthController {
         return ResponseEntity.ok(body);
     }
 
-    /** Switch active session tenant. */
     @PostMapping("/switch-tenant")
     public Map<String, Object> switchTenant(@RequestParam("tenant_id") int tenantId) {
         LoginUserPrincipal principal = SecurityUtils.currentPrincipal()
@@ -185,6 +183,20 @@ public class AuthController {
                 jwtService.getAccessTokenExpiration()
         );
         return Map.of("success", true, "message", "Verified");
+    }
+
+    // Always reports success regardless of whether the account exists (avoids enumeration).
+    @PostMapping("/send-reset-tac")
+    public Map<String, Object> sendResetTac(@RequestParam("tenant_code") String tenantCode, @RequestParam String email) {
+        authService.sendResetTac(tenantCode, email);
+        return Map.of("success", true, "message", "If this account exists, a verification code has been sent.");
+    }
+
+    @PostMapping("/reset-password")
+    public Map<String, Object> resetPassword(@RequestParam("tenant_code") String tenantCode, @RequestParam String email,
+                                             @RequestParam String tac, @RequestParam("new_password") String newPassword) {
+        authService.resetPassword(tenantCode, email, tac, newPassword);
+        return Map.of("success", true, "message", "Password has been reset");
     }
 
     @PostMapping("/logout")

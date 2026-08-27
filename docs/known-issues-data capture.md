@@ -22,13 +22,26 @@ bidirectional/unidirectional 帳號連結）
 
 ### 2. Reset Password 遷移 Spring Boot API 格式
 
-`pages/login/resetPassword.js` 仍調 `send_reset_tac_api.php` / `reset_password_api.php`；Spring 端
-已經有封裝好但**未接線**的 `authApi.sendResetTacRequest()` / `authApi.resetPasswordRequest()`
-（對應 `POST /auth/send-reset-tac` / `POST /auth/reset-password`），之後只需要把 `resetPassword.js`
-改成呼叫這兩個既有方法即可，不需要新建前端端點。用戶已知、留到之後再做（見
-frontend-springboot-migration.md 第 7 節）。
+**2026-08-27 更新：admin/user 這一半已實現並接線完畢**（owner 那一半留待之後）：
 
-**後端 TAC 發送/驗證這塊本次順帶討論了以下優化方案，後續實作時採納：**
+- 後端新增 `AuthController#sendResetTac` / `#resetPassword`（`POST /auth/send-reset-tac` /
+  `POST /auth/reset-password`），`AuthServiceImpl` 內以 `scope="admin"` 呼叫，只查 `user` 表
+  （`AuthDao.findAdminByEmail` / `updateAdminPassword`，SQL 見 `LoginMapper.xml`）
+- TAC 改用 Redis（`PasswordResetTacStore`，仿 `AuthTokenStore` 寫法），不用
+  `password_reset_tac` / `password_reset_tac_owner` 兩張表：`SET EX 15min` 存驗證碼、
+  `SET NX EX 60` 當重發冷卻鎖、失敗 5 次即讓該碼失效、驗證成功立刻刪除（一次性）
+- Email 發送走 `spring-boot-starter-mail` + `JavaMailSender`（新增 `PasswordResetMailService`），
+  `application.yml` 新增 `spring.mail.*`（本地預設指向 `localhost:1025`，需要本地跑
+  MailHog/smtp4dev 才能實際收信；SMTP 失敗只記 log，不拋給前端，避免洩漏帳號是否存在）
+- `send-reset-tac` 不論帳號存不存在都回同一句成功話術，只有冷卻鎖觸發時才回不同訊息
+- 前端 `resetPassword.js` 已改呼叫 `authApi.sendResetTacRequest()` /
+  `authApi.resetPasswordRequest()`，`ResetPasswordPage.jsx` 欄位從 `companyId` 改名
+  `tenantCode`，並用 `localizeAuthApiMessage()` 翻譯後端訊息
+- owner 那一套（`password_reset_tac_owner`／owner 登入頁的重置密碼）尚未實現，之後要做時可以把
+  `AuthServiceImpl` 的 `sendResetTac`/`resetPassword` 抽成帶 `scope` 參數的共用實作
+  （`RESET_SCOPE_ADMIN` 已經是一個獨立常數，之後加 `RESET_SCOPE_OWNER` 走 `Owner` 查詢即可）
+
+**後端 TAC 發送/驗證這塊本次順帶討論了以下優化方案，已在上面的實作中採納：**
 
 - **TAC 存儲改用 Redis，不用 DB**：`schema.sql` 已存在的 `password_reset_tac` /
   `password_reset_tac_owner` 兩張表（`PRIMARY KEY (email, tenant_id)`）設計本身沒問題，但 TAC 是
