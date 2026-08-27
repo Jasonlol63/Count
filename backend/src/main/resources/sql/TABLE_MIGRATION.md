@@ -3,7 +3,7 @@
 > **目标 schema**：`schema.sql`（本目录）  
 > **对照来源**：旧 PHP 库（`count168.org` / `easycount_schema.sql`、`games_schema.sql`；以及 `backend/src/main/resources/schema.sql` 残缺摘录）  
 > **运行库示例**：`testcount`  
-> **最后更新**：2026-07-29
+> **最后更新**：2026-08-27
 
 本文说明旧表在新租户模型（`tenant`）下如何 **迁移 / 拆分 / 合并 / 优化 / 弃用**。  
 **只谈表结构与设计意图**；业务 API 是否已切到 Spring 另见 `docs/frontend-springboot-migration.md` 第32节（Data Capture）。
@@ -40,8 +40,10 @@
 | `role` | `user_role` + `permission` + `user_role_permission` | 拆分 |
 | （无清晰等价） | `feature_module` + `tenant_feature_module` | 新增（Games/Bank 等模块开关） |
 | （group 互链） | `tenant_link` | 新增 |
-| `password_reset_tac` | `password_reset_tac`（`company_id`→`tenant_id`） | 迁移 |
-| `password_reset_tac_owner` | `password_reset_tac_owner` | 保留 |
+| `password_reset_tac` | **弃用**；密码重置改走 Redis TAC | 弃用（原表已从 schema.sql 移除） |
+| `password_reset_tac_owner` | **弃用**；同上 | 弃用（原表已从 schema.sql 移除） |
+
+> **注**：`testcount` 库当前实际表名仍是 `tenant_auto_renew_request` / `tenant_auto_renew_request_transaction`（早期建库时的命名，`AutoRenewMapper.xml`、`migrate_auto_renew_delete.sql` 也用这个名字），已存在的库不重命名。`schema.sql` 里"从零建库"用的新表名是 `tenant_auto_renew` / `tenant_auto_renew_transaction`（不含 `request` 字样）——**两者目前不一致，全新建库时以 schema.sql 为准，但 mapper/增量脚本尚未同步改名**，谁先动手改代码那边请一并同步。
 
 ### 2.2 Domain / 公告 / 币别 / Ownership
 
@@ -55,7 +57,7 @@
 | `account_currency_display_order` | **弃用**；顺序并入 `account_currency.sort_order` | 合并优化 |
 | `company_ownership` / `group_ownership` | `tenant_ownership` | 合并迁移 |
 | `company_ownership_history` / `group_ownership_history` | `tenant_ownership_history` | 合并迁移 |
-| （自动续期申请） | `tenant_auto_renew_request` | 新模型表 |
+| （自动续期申请） | `tenant_auto_renew` + `tenant_auto_renew_transaction` | 新模型表（表名不含 `request` 字样；`testcount` 中因历史原因仍叫 `tenant_auto_renew_request`/`_request_transaction`，不影响，见下方注记） |
 | （费用分成 JSON） | `tenant_fee_share_allocation` | 规范化 |
 | `account_link` | `account_link` | 保留 |
 
@@ -109,6 +111,7 @@
 |------|------|
 | `auto_login_credentials` | 自动登录/抓取凭证；新模型未实现则不建 |
 | `deleted_logs` | 通用删改审计 JSON；Payment 等已有 `transactions_deleted`，暂不迁 |
+| `fx_daily_rates` | 2026-08-27 备份中首次出现的每日汇率抓取记录表（`base_code`/`quote_code`/`rate_date`/`rate`/`source`）；新库暂无对应表，是否需要迁入待定 |
 
 ---
 
@@ -227,6 +230,22 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 
 参考：`migrate_rate_tables_optimized.sql`、`rate_tables_optimized_reference.sql`。
 
+### 3.8 2026-07-29 之后的结构性变更（本次补记）
+
+以下改动已落在 `schema.sql`，但截至本次更新前一直没写进本文档：
+
+| 表 | 变更 | 说明 |
+|----|------|------|
+| `process` | 新增 `copied_from_process_id` | Copy From 功能：记录来源 process.id，仅用于追溯排查，不影响业务逻辑 |
+| `data_capture_formula` | 删除 `formula_operators`；新增 `formula_group_id` | `formula` 成为计算与展示唯一来源；`formula_group_id` 是 Copy From 建立的同步分组标签（非外键，同组编辑互相同步，删除不连带） |
+| `data_capture_line_deleted`（新表） | Capture Maintenance 软删归档 | 删除单位是**整个 capture**（同 capture_id 下所有行一起删），不支持按行单删；`data_captures` header 永不清理 |
+| `process_submitted` | `user_id`(FK user) → `created_by`(VARCHAR login_id)；去掉 `(tenant_id, process_id, capture_date)` 唯一键；新增 `capture_id` FK → `data_captures` | GAME 当日去重改靠 service 层 `existsProcessSubmitted`，不再靠 DB 唯一键；BANK 现在也会写入本表（之前仅 GAME 用于过滤），允许同日多次提交 |
+| `bank_process` | 新增 `day_end_monthly_cap_enabled`、`expired_at_creation` | Accounting Due 月结逻辑：区分"每月1号"与"MONTHLY"两种频率下月结上限口径 |
+| `transactions_rate` | `middleman_amount` 语义变化（Service Fee 面值，不再做汇率换算）；新增 `middleman_rate_expression`、`platform_fee_amount` | Middle-Man 现分 Rate-Mul（乘/除模式）与 Service Fee 两种；Platform Fee 只冲减 Middle-Man 的 Win/Loss，不单独出账 |
+| `tenant_ownership_history` | `saved_by` INT(FK user.id) → VARCHAR(50) | 改存 login_id 字符串（admin=`user.login_id`；owner=`owner_code`），去掉外键约束，对齐 §1 总原则"审计用 login_id" |
+| `process_description` | 新增 `UNIQUE(tenant_id, name)` | 防止同租户下重复描述 |
+| `v_company_tenant` / `v_group_tenant`（新视图） | 按 `tenant_type` 拆分 `tenant` 的只读视图 | 供报表/查询按公司或集团单独取数 |
+
 ---
 
 ## 4. 明确弃用、新库不创建
@@ -256,7 +275,9 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 - `data_capture_formula`、`data_capture_line`、`data_capture_draft`、`data_capture_draft_cell`  
 - `bank_country`、`bank_option`、`bank_process_share`  
 - `domain_list_fee_price`（相对旧 settings JSON）  
-- `tenant_ownership` / `tenant_ownership_history` / `tenant_auto_renew_request`  
+- `tenant_ownership` / `tenant_ownership_history` / `tenant_auto_renew` / `tenant_auto_renew_transaction`  
+- `data_capture_line_deleted`（Capture Maintenance 软删归档；按整个 capture 归档，不支持单行删）  
+- `v_company_tenant` / `v_group_tenant`（`tenant` 按 `tenant_type` 拆分的只读视图）  
 
 （部分在旧库有「功能等价」表，但名称与形状已变，见 §2。）
 
@@ -275,6 +296,7 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 | `rate_tables_optimized_reference.sql` | RATE 优化参考说明 |
 | `migrate_account_id_unique_per_tenant.sql` | account_id 唯一性按 tenant |
 | `migrate_enums_to_uppercase.sql` | 枚举大写 |
+| `migrate_auto_renew_delete.sql` | 增量加 auto renew 关联流水表；**注意**：用的是旧名 `tenant_auto_renew_request_transaction`，与 `schema.sql` 里全新建库用的 `tenant_auto_renew_transaction` 不一致（见 §2.1 注） |
 | 其他 `migrate_*` / `add_*` / `seed_*` | 各子域增量与种子数据 |
 
 应用示例：
@@ -286,14 +308,15 @@ Get-Content backend\src\main\resources\sql\migrate_datacapture_line.sql -Raw |
 
 ---
 
-## 7. Schema 完成度（截至 2026-07-29）
+## 7. Schema 完成度（截至 2026-08-27）
 
 | 状态 | 内容 |
 |------|------|
-| ✅ 核心业务表 | Login、权限、Domain、Ownership、Currency、Process、Bank Process、Transactions/RATE、Data Capture（含 formula / line / draft）DDL 已就绪 |
-| ✅ 故意不建 | `submit_queue`、`summary_state`、RATE 旧明细/分录、backup 表等（§4） |
-| ⚪ 可选未建 | `auto_login_credentials`、`deleted_logs` |
+| ✅ 核心业务表 | Login、权限、Domain、Ownership、Currency、Process（含 Copy From）、Bank Process、Transactions/RATE（含 Platform Fee）、Data Capture（含 formula / line / line_deleted / draft）DDL 已就绪 |
+| ✅ 故意不建 | `submit_queue`、`summary_state`、RATE 旧明细/分录、`password_reset_tac*`、backup 表等（§4） |
+| ⚪ 可选未建 | `auto_login_credentials`、`deleted_logs`、`fx_daily_rates`（旧库 8/27 备份新出现，待定） |
 | ⚠️ 非 schema 缺口 | 部分业务仍走 PHP 旧表（如 Summary Submit 仍可能写 `data_capture_details`）。属 **API 迁移**，不是缺 DDL |
+| ⚠️ 命名不一致（待修） | `tenant_auto_renew*`：`schema.sql` 用不含 `request` 的新名，`testcount` 实际库 + `AutoRenewMapper.xml` + `migrate_auto_renew_delete.sql` 仍用旧名 `tenant_auto_renew_request*`（见 §2.1 注） |
 
 ---
 

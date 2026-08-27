@@ -29,7 +29,8 @@ DROP TABLE IF EXISTS `bank_option`;
 DROP TABLE IF EXISTS `bank_country`;
 DROP TABLE IF EXISTS `tenant_ownership_history`;
 DROP TABLE IF EXISTS `tenant_ownership`;
-DROP TABLE IF EXISTS `tenant_auto_renew_request`;
+DROP TABLE IF EXISTS `tenant_auto_renew_transaction`;
+DROP TABLE IF EXISTS `tenant_auto_renew`;
 DROP TABLE IF EXISTS `account_currency`;
 DROP TABLE IF EXISTS `currency`;
 DROP TABLE IF EXISTS `maintenance_marquee`;
@@ -43,8 +44,10 @@ DROP TABLE IF EXISTS `tenant_feature_module`;
 DROP TABLE IF EXISTS `user_role_permission`;
 DROP TABLE IF EXISTS `permission`;
 DROP TABLE IF EXISTS `feature_module`;
-DROP TABLE IF EXISTS `password_reset_tac`;          //准备删除
-DROP TABLE IF EXISTS `password_reset_tac_owner`;   //准备删除
+-- password_reset_tac / password_reset_tac_owner: deprecated (password reset now Redis-based, see
+-- PasswordReset* Spring components); dropped here for cleanup, no longer recreated below.
+DROP TABLE IF EXISTS `password_reset_tac`;
+DROP TABLE IF EXISTS `password_reset_tac_owner`;
 DROP TABLE IF EXISTS `user_tenant_process_access`;
 DROP TABLE IF EXISTS `user_tenant_account_access`;
 DROP TABLE IF EXISTS `account_tenant_access`;
@@ -373,7 +376,7 @@ CREATE TABLE `account_link` (
 KEY `idx_al_account_2` (`account_id_2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Linking between member accounts';
 
--- Renewal period dictionary (shared by domain_list_fee_price and tenant_auto_renew_request)
+-- Renewal period dictionary (shared by domain_list_fee_price and tenant_auto_renew)
 CREATE TABLE `renewal_period` (
   `code`       VARCHAR(20)  NOT NULL COMMENT 'Machine code e.g. 7days, 1month, 1year',
   `sort_order` SMALLINT UNSIGNED NOT NULL,
@@ -497,13 +500,13 @@ CREATE TABLE `tenant_auto_renew` (
 
 CREATE TABLE `tenant_auto_renew_transaction` (
  `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
- `request_id`     INT UNSIGNED NOT NULL COMMENT 'FK tenant_auto_renew_request.id',
+ `request_id`     INT UNSIGNED NOT NULL COMMENT 'FK tenant_auto_renew.id',
  `transaction_id` INT UNSIGNED NOT NULL COMMENT 'FK transactions.id — approve 时 chargeDomainFee 生成的其中一条流水（付款/佣金/净利润，一个 request 可对应多条）',
  `created_at`     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
  UNIQUE KEY `uk_tart_request_transaction` (`request_id`, `transaction_id`),
  KEY `idx_tart_request` (`request_id`),
  KEY `idx_tart_transaction` (`transaction_id`),
- CONSTRAINT `fk_tart_request` FOREIGN KEY (`request_id`) REFERENCES `tenant_auto_renew_request` (`id`) ON DELETE CASCADE,
+ CONSTRAINT `fk_tart_request` FOREIGN KEY (`request_id`) REFERENCES `tenant_auto_renew` (`id`) ON DELETE CASCADE,
  CONSTRAINT `fk_tart_transaction` FOREIGN KEY (`transaction_id`) REFERENCES `transactions` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Auto Renew approve 时生成的 transactions 关联记录，供 delete/revert 时精确定位并删除';
