@@ -33,6 +33,26 @@ bidirectional/unidirectional 帳號連結。2026-08-27 更新：原「Reset Pass
 bidirectional 和 unidirectional 帳號連結」可以在同一次操作內完成，而不是分開多次點擊/多次請求。尚未
 實現，待排期。
 
+## 3. `user_permission_override` 没有审计记录
+
+**现状：** [`user_permission_override`](../backend/src/main/resources/sql/migrate_add_user_permission_override.sql)
+（配合 `user.permission_mode`，详见 `docs/admin-permission-account-override.md`）只存某个账号
+**当前**的 CUSTOM 权限清单，没有任何历史表——查不到「这个账号的额外权限是谁在什么时候加上的」「加之前是什么状态」。
+
+**为什么可能是个问题：** 这张表控制的是账号能不能看到/管理 Admin 页面这类敏感入口，一旦出现误操作
+（比如误把 Admin 入口开给了不该开的账号），现在只能看到「当前是什么状态」，没办法回溯是谁、什么时候、
+从什么状态改成现在这样的。仓库里对同样敏感的 `tenant_ownership` 数据已经有 `tenant_ownership_history`
+按月留痕，权限这块目前没有对应的东西。
+
+**可能的方向（未设计，仅记录思路）：**
+- 加一张 `user_permission_override_history`，参考 `tenant_ownership_history` 的做法：每次
+  `persistPermissionOverrides` 落库前，把变更前后的完整清单 + 操作人（`created_by`/session login_id）+
+  时间存一份快照。
+- 或者更轻量：只记录「谁在什么时候把某账号的 `permission_mode` 从 ROLE_DEFAULT 切到 CUSTOM（或反过来）」
+  这个动作本身，不存完整清单差异，成本更低但信息量也更少。
+
+**状态：** 尚未排期，先记录下来，等以后有需要（比如真的发生过一次权限误操作、或者有合规/审计要求）再回来做。
+
 ## 優先級原則
 
 後端功能與前端功能對齊、確認完全沒有遺留問題之後，才考慮單純的前端代碼優化/清理（殘留死代碼、重構

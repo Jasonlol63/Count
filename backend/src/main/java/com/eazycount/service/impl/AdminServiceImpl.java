@@ -482,7 +482,10 @@ public class AdminServiceImpl implements AdminService {
             admin.setReadOnly(existing.getReadOnly());
         }
 
-        admin.setPermissionMode(resolvePermissionMode(dto.getPermissions(), admin.getRoleId()));
+        boolean permissionsSubmitted = dto.getPermissions() != null;
+        admin.setPermissionMode(permissionsSubmitted
+                ? resolvePermissionMode(dto.getPermissions(), admin.getRoleId())
+                : existing.getPermissionMode());
 
         assertNoDuplicateEmail(admin.getEmail(), admin.getId());
 
@@ -491,7 +494,9 @@ public class AdminServiceImpl implements AdminService {
         } catch (Exception e) {
             throw new BusinessException("Update Admin Failed!");
         }
-        persistPermissionOverrides(admin.getId(), admin.getPermissionMode(), dto.getPermissions());
+        if (permissionsSubmitted) {
+            persistPermissionOverrides(admin.getId(), admin.getPermissionMode(), dto.getPermissions());
+        }
         return admin;
     }
 
