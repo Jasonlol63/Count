@@ -10,6 +10,7 @@ import com.eazycount.entity.Process;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.DataCaptureService;
+import com.eazycount.util.AccessControlUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -79,6 +80,7 @@ public class DataCaptureServiceImpl implements DataCaptureService {
     @Transactional
     public DataCaptureBankDTO saveBankDraft(DataCaptureBankDTO request) {
         SessionUser session = requireLogin();
+        AccessControlUtils.requireWritable(session);
         if (request == null) {
             throw new BusinessException("Request body is required");
         }

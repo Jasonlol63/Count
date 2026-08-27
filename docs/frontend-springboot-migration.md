@@ -6192,7 +6192,9 @@ flowchart LR
 | HTTP CRUD + get + Owner profile | ✅ 已实现 |
 | 前端 Admin 页接 Spring | ✅ 已实现（Owner 编辑已脱离 PHP） |
 | 请求体 `permissions` 按人持久化 | ❌ 仍按 role；前端传的 `permissions` 被忽略 |
-| API 层校验 `permissions` 含 `admin` | ❌ 仅校验登录 |
+| API 层校验 `permissions` 含 `admin` | ❌ 仅校验登录（注意：与下一行不是同一件事） |
+| Admin 页面按角色层级校验写操作（谁能改谁） | ✅ 2026-08-27，详见 `docs/admin-permission-rbac-hierarchy.md` |
+| Partnership / Audit `read_only` 全局写操作拦截 | ✅ 2026-08-27，不止 Admin 页面，覆盖了本节及第 4/6/7/8/9 节列出的绝大多数写接口 |
 | Account/Process 列表按 Admin ACL 过滤 | ❌ |
 | Admin 列表对 **Admin 角色** 展示 Owner 行 | ❌ 仅 Owner 登录时注入 |
 
@@ -6503,7 +6505,9 @@ flowchart LR
 
 #### 11.5 主要缺口汇总
 
-- API 层缺少 permission 模块校验（含 Admin `/api/userlist`）
+- API 层缺少通用的「permission 模块」校验（例如 Process 接口要求 `session.permissions` 含 `process`）——**这个仍然缺**，跟下面已解决的两条不是同一件事
+- ~~Admin `/api/userlist` 写操作无角色/层级校验~~ ✅ 2026-08-27 已按角色层级补上（`AccessControlUtils.assertCanManageAdminTarget`）
+- ~~Partnership/Audit `read_only` 只在 Maintenance/Transaction 生效，其余写接口无防护~~ ✅ 2026-08-27 已用 `AccessControlUtils.requireWritable` 覆盖到 Admin/Domain/Currency/Process/BankProcess/Announcement/AutoRenew/Ownership/DataCapture 等模块的全部写方法——详见 `docs/admin-permission-rbac-hierarchy.md`
 - Admin 请求体 `permissions` 未按人持久化（仅 role 模板）
 - Auto Renew Delete / 交易回滚未对接多笔 Domain Fee
 - Process / Account 缺 ACL 过滤
@@ -6870,5 +6874,29 @@ if (transactionDao.countTransactionsByCurrencyId(id, tenantId) > 0) {
 `memberWinLossApi.js`），并经真实账号实测、修了几个实测才暴露出来的 bug。详见独立文档：
 - 后端：[`docs/member-account-link-report.md`](member-account-link-report.md)
 - 前端：`Count-frontend/docs/member-winloss-springboot-migration.md`
+
+---
+
+## 39. Admin 权限层级 + Read-Only 全局校验（2026-08-27）
+
+对应第 5 节（Admin 页面）5.12 与第 11 节 11.1/11.5 里列出的「API 层缺少角色/层级校验」「read_only
+只在 Maintenance/Transaction 生效」这两个缺口。核心改动：
+
+- 新增 `AccessControlUtils`（`backend/.../util/`），统一实现 read_only 拦截 + Admin 页面的角色层级
+  校验（`OWNER > PARTNERSHIP > ADMIN > MANAGER > SUPERVISOR > ACCOUNTANT/AUDIT/CUSTOMER_SERVICE`）。
+- `AdminServiceImpl` 的 create/update/updateStatus/delete 四个方法接入层级校验：Owner 无限制，
+  其余角色只能管理层级数值严格大于自己的角色，自己编辑自己时 `role` 字段锁死。
+- `read_only` 检查从原来只有 Maintenance/Transaction 两处，扩展到 Admin/Domain/Currency/Process/
+  BankProcess/Announcement/AutoRenew/Ownership/DataCapture 等模块的**全部写方法**。
+- `user_role.hierarchy_level`（DB）与前端 `ROLE_HIERARCHY`（JS）此前互相矛盾，这次以 DB 为准点修正
+  （`migrate_role_hierarchy_and_admin_permission_fix.sql`），前端 `ROLE_HIERARCHY` 经核对其实已经是
+  正确顺序，未改；但 `computeRowCapabilities`/`getUserEditFieldLocks` 里两处「按钮能点、提交却被后端
+  拒绝」的体验缺口做了修正，另外 Ownership 入口的角色白名单补上了 `admin`（与 `user_role_permission`
+  的默认配置对齐）。
+- `SecurityConfig` 的 `/api/**` 从 `permitAll()` 改成 `authenticated()`，堵住完全匿名请求的口子。
+
+详见独立文档：
+- 后端：[`docs/admin-permission-rbac-hierarchy.md`](admin-permission-rbac-hierarchy.md)
+- 前端：`Count-frontend/docs/permission-rbac-frontend-alignment.md`
 
 ---

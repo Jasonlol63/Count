@@ -297,6 +297,7 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 | `migrate_account_id_unique_per_tenant.sql` | account_id 唯一性按 tenant |
 | `migrate_enums_to_uppercase.sql` | 枚举大写 |
 | `migrate_auto_renew_delete.sql` | 增量加 auto renew 关联流水表；**注意**：用的是旧名 `tenant_auto_renew_request_transaction`，与 `schema.sql` 里全新建库用的 `tenant_auto_renew_transaction` 不一致（见 §2.1 注） |
+| `migrate_role_hierarchy_and_admin_permission_fix.sql` | 修正 `user_role.hierarchy_level`（PARTNERSHIP 从 8 改为 2，紧排在 OWNER 之后）；移除 `CUSTOMER_SERVICE` 的 `ADMIN`（员工列表）侧边栏权限（如存在） |
 | 其他 `migrate_*` / `add_*` / `seed_*` | 各子域增量与种子数据 |
 
 应用示例：

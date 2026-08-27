@@ -16,6 +16,7 @@ import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.CurrencyService;
 import com.eazycount.service.UserService;
+import com.eazycount.util.AccessControlUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -143,6 +144,7 @@ public class UserServiceImpl implements UserService {
         if (session == null || session.user_id == null) {
             throw new com.eazycount.common.BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(session);
         if (userListDTO == null) {
             throw new BusinessException("Invalid request");
         }
@@ -232,6 +234,7 @@ public class UserServiceImpl implements UserService {
         if (session == null || session.user_id == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(session);
         if (userListDTO == null
                 || userListDTO.getId() == null || userListDTO.getId() <= 0
                 || userListDTO.getScopeTenantId() == null || userListDTO.getScopeTenantId() <= 0) {
@@ -343,6 +346,7 @@ public class UserServiceImpl implements UserService {
         if (session == null || session.user_id == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(session);
         if (userId == null || userId <= 0 || scopeTenantId == null || scopeTenantId <= 0) {
             throw new BusinessException("Invalid request");
         }
@@ -394,6 +398,7 @@ public class UserServiceImpl implements UserService {
         if (session == null || session.user_id == null) {
             throw new com.eazycount.common.BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(session);
 
         if (id == null || id <= 0 || scopeTenantId == null || scopeTenantId <= 0) {
             throw new BusinessException("Invalid request");
@@ -437,6 +442,7 @@ public class UserServiceImpl implements UserService {
         if (session == null || session.user_id == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(session);
         if (userLink == null) {
             throw new BusinessException("Invalid request");
         }
@@ -504,6 +510,7 @@ public class UserServiceImpl implements UserService {
         if (session == null || session.user_id == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(session);
         if (id <= 0) {
             throw new BusinessException("Invalid link id");
         }
@@ -522,6 +529,7 @@ public class UserServiceImpl implements UserService {
         if (session == null || session.user_id == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(session);
         if (accountId <= 0 || tenantId <= 0) {
             throw new BusinessException("Invalid request");
         }
@@ -542,6 +550,7 @@ public class UserServiceImpl implements UserService {
         if (session == null || session.user_id == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(session);
         if (userLink == null) {
             throw new BusinessException("Invalid request");
         }
@@ -577,6 +586,7 @@ public class UserServiceImpl implements UserService {
         SessionUser session = SecurityUtils.currentUser();
         if (session == null)
             throw new BusinessException("Not logged in");
+        AccessControlUtils.requireWritable(session);
         if (tenantId != session.tenant_id)
             throw new BusinessException("Unauthorized tenant access");
 

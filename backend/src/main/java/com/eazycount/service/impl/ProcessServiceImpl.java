@@ -14,6 +14,7 @@ import com.eazycount.entity.Process;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.ProcessService;
+import com.eazycount.util.AccessControlUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -97,6 +98,7 @@ public class ProcessServiceImpl implements ProcessService {
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
         if (processDTO == null) {
             throw new BusinessException("Request body is required!");
         }
@@ -200,6 +202,7 @@ public class ProcessServiceImpl implements ProcessService {
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
         if (processDTO == null) {
             throw new BusinessException("Request body is required!");
         }
@@ -287,6 +290,7 @@ public class ProcessServiceImpl implements ProcessService {
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
         if (id == null) {
             throw new BusinessException("id is required!");
         }
@@ -320,6 +324,7 @@ public class ProcessServiceImpl implements ProcessService {
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
         if (id == null) {
             throw new BusinessException("id is required!");
         }

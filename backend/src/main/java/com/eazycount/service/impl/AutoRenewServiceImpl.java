@@ -21,6 +21,7 @@ import com.eazycount.security.SessionUser;
 import com.eazycount.service.AutoRenewService;
 import com.eazycount.service.DomainFeeChargeService;
 import com.eazycount.service.DomainService;
+import com.eazycount.util.AccessControlUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -207,6 +208,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
     @Override
     public void rejectRequest(Integer requestId) {
         SessionUser session = requireSession();
+        AccessControlUtils.requireWritable(session);
         requireValidRequestId(requestId);
 
         AutoRenewDTO request = autoRenewDao.selectRequestById(requestId);
@@ -226,6 +228,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
     @Transactional
     public AutoRenewDTO approveRequest(Integer requestId, String periodRaw) {
         SessionUser session = requireSession();
+        AccessControlUtils.requireWritable(session);
         requireValidRequestId(requestId);
 
         String period = periodRaw != null ? periodRaw.trim() : "";
@@ -286,7 +289,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
     @Override
     @Transactional
     public void deleteRequest(Integer requestId) {
-        requireSession();
+        AccessControlUtils.requireWritable(requireSession());
         requireValidRequestId(requestId);
 
         AutoRenewDTO request = autoRenewDao.selectRequestById(requestId);

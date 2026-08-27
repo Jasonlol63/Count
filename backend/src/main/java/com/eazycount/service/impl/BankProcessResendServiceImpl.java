@@ -10,6 +10,7 @@ import com.eazycount.entity.BkProcessAccountingPosted;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.BankProcessResendService;
+import com.eazycount.util.AccessControlUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +34,7 @@ public class    BankProcessResendServiceImpl implements BankProcessResendService
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
         if (request == null) {
             throw new BusinessException("Invalid Resend request!");
         }

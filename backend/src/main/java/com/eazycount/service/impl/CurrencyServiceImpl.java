@@ -10,6 +10,7 @@ import com.eazycount.entity.UserCurrency;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.CurrencyService;
+import com.eazycount.util.AccessControlUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -80,6 +81,7 @@ public class CurrencyServiceImpl implements CurrencyService {
         if (session == null || session.user_id == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(session);
         if (currency == null || currency.getTenantId() == null) {
             throw new BusinessException("Invalid tenant id");
         }
@@ -117,6 +119,7 @@ public class CurrencyServiceImpl implements CurrencyService {
         if (session == null || session.user_id == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(session);
 
         if (id == null || id <= 0 || tenantId == null || tenantId <= 0) {
             throw new BusinessException("Invalid request");
@@ -246,6 +249,7 @@ public class CurrencyServiceImpl implements CurrencyService {
         if (session == null || session.user_id == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(session);
 
         Integer tenantId = request.getTenantId();
         Integer currencyId = request.getCurrencyId();

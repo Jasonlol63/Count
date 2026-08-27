@@ -14,6 +14,7 @@ import com.eazycount.entity.User;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.TransactionSubmitService;
+import com.eazycount.util.AccessControlUtils;
 import com.eazycount.util.RateMulCalculator;
 import com.eazycount.util.TransactionDateParse;
 import com.eazycount.util.TransactionMoneyFormat;
@@ -55,12 +56,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
     @Transactional
     public TransactionSubmitDTO submit(TransactionSubmitDTO request) {
         SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
-        if (session.read_only == 1) {
-            throw new BusinessException("Read-only access cannot submit transactions");
-        }
+        AccessControlUtils.requireWritable(session);
         if (request == null) {
             throw new BusinessException("Invalid request");
         }

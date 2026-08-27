@@ -14,6 +14,7 @@ import com.eazycount.entity.Transaction;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.MaintenanceService;
+import com.eazycount.util.AccessControlUtils;
 import com.eazycount.util.TransactionDateParse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -552,12 +553,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     private static SessionUser requireWritableSession() {
         SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
-        if (session.read_only == 1) {
-            throw new BusinessException("Read-only access cannot delete transactions");
-        }
+        AccessControlUtils.requireWritable(session);
         if (session.login_id == null || session.login_id.isBlank()) {
             throw new BusinessException("Invalid session login id");
         }

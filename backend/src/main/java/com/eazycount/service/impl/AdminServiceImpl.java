@@ -17,6 +17,7 @@ import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AdminService;
 import com.eazycount.service.DomainService;
+import com.eazycount.util.AccessControlUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -310,6 +311,12 @@ public class AdminServiceImpl implements AdminService {
             throw new BusinessException("Invalid Admin");
         }
 
+        SessionUser session = SecurityUtils.currentUser();
+        AdminRole actorRole = resolveActorRole(session);
+        AdminRole targetRole = resolveRole(dto.getRole());
+        AccessControlUtils.assertCanManageAdminTarget(
+                session, actorRole.getHierarchyLevel(), false, targetRole.getHierarchyLevel(), false);
+
         Admin admin = persistUserForCreate(dto);
         AdminTenantAccess primaryAccess = syncTenantGrants(admin, dto, true);
         return buildResult(admin, primaryAccess);
@@ -322,7 +329,8 @@ public class AdminServiceImpl implements AdminService {
         if (dto == null) {
             throw new BusinessException("Invalid Admin");
         }
-        if (resolveUserId(dto) == null) {
+        Integer userId = resolveUserId(dto);
+        if (userId == null) {
             throw new BusinessException("Invalid Admin");
         }
         if (dto.getScopeTenantId() == null || dto.getScopeTenantId() <= 0) {
@@ -330,6 +338,16 @@ public class AdminServiceImpl implements AdminService {
         }
 
         Admin existing = loadExistingAdmin(dto);
+
+        SessionUser session = SecurityUtils.currentUser();
+        boolean isSelf = session.user_id != null && session.user_id.equals(userId);
+        boolean roleChanging = dto.getRole() != null && !dto.getRole().isBlank()
+                && !normalizeStaffRoleCode(dto.getRole()).equals(normalizeStaffRoleCode(existing.getRoleCode()));
+        AdminRole actorRole = resolveActorRole(session);
+        AdminRole targetRole = roleChanging ? resolveRole(dto.getRole()) : resolveRole(existing.getRoleCode());
+        AccessControlUtils.assertCanManageAdminTarget(
+                session, actorRole.getHierarchyLevel(), isSelf, targetRole.getHierarchyLevel(), roleChanging);
+
         Admin admin = persistUserForUpdate(dto, existing);
         AdminTenantAccess primaryAccess = syncTenantGrants(admin, dto, false);
         return buildResult(admin, primaryAccess);
@@ -647,6 +665,10 @@ public class AdminServiceImpl implements AdminService {
     }
 
     private Integer resolveRoleId(String role) {
+        return resolveRole(role).getId();
+    }
+
+    private AdminRole resolveRole(String role) {
         if (role == null || role.isBlank()) {
             throw new BusinessException("Invalid role");
         }
@@ -654,7 +676,15 @@ public class AdminServiceImpl implements AdminService {
         if (staffRole == null || staffRole.getId() == null) {
             throw new BusinessException("Invalid role");
         }
-        return staffRole.getId();
+        return staffRole;
+    }
+
+    /** Resolves the acting session's own role to its {@code user_role} row (for hierarchy checks). */
+    private AdminRole resolveActorRole(SessionUser session) {
+        if (session == null) {
+            throw new BusinessException("Not logged in");
+        }
+        return resolveRole(session.role);
     }
 
     private AclModes resolveAclModes(
@@ -750,6 +780,11 @@ public class AdminServiceImpl implements AdminService {
             throw new BusinessException("User not found!");
         }
 
+        AdminRole actorRole = resolveActorRole(session);
+        AdminRole targetRole = resolveRole(scoped.getAdmin().getRoleCode());
+        AccessControlUtils.assertCanManageAdminTarget(
+                session, actorRole.getHierarchyLevel(), false, targetRole.getHierarchyLevel(), false);
+
         Admin admin = scoped.getAdmin();
         Admin.UserStatus current = admin.getStatus() != null ? admin.getStatus() : Admin.UserStatus.ACTIVE;
         Admin.UserStatus newStatus = current == Admin.UserStatus.ACTIVE
@@ -790,6 +825,11 @@ public class AdminServiceImpl implements AdminService {
         if (scoped.getAdmin().getStatus() == Admin.UserStatus.ACTIVE) {
             throw new BusinessException("User is not inactive, cannot be deleted!");
         }
+
+        AdminRole actorRole = resolveActorRole(session);
+        AdminRole targetRole = resolveRole(scoped.getAdmin().getRoleCode());
+        AccessControlUtils.assertCanManageAdminTarget(
+                session, actorRole.getHierarchyLevel(), false, targetRole.getHierarchyLevel(), false);
 
         try {
             adminDao.deleteTenantAccessByUserIdAndTenantId(userId, scopeTenantId);

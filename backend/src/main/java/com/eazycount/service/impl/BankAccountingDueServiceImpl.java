@@ -19,6 +19,7 @@ import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AccountingDueService;
 import com.eazycount.service.BankProcessResendService;
+import com.eazycount.util.AccessControlUtils;
 import com.eazycount.util.TransactionMoneyFormat;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -159,6 +160,7 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
         }
 
         if (restoreSkipped) {
+            AccessControlUtils.requireWritable(sessionUser);
             accountingDueDao.deleteSkippedInRange(tenantId, fromDate, toDate);
         }
 
@@ -181,6 +183,7 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
         Integer tenantId = sessionUser.tenant_id;
         if (tenantId == null) {
             throw new BusinessException("Invalid Tenant Id!");
@@ -204,6 +207,7 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
         Integer tenantId = sessionUser.tenant_id;
         if (tenantId == null) {
             throw new BusinessException("Invalid Tenant Id!");

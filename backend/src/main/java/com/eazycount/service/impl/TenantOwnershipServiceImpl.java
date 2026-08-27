@@ -12,6 +12,7 @@ import com.eazycount.entity.TenantOwnershipHistory;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.TenantOwnershipService;
+import com.eazycount.util.AccessControlUtils;
 import com.eazycount.util.TenantDtoHelper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -162,6 +163,7 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
 
         if (!canModifyOwnership(sessionUser)) {
             throw new BusinessException("Read-only: only owner or accounts with Ownership permission can modify ownership");
@@ -365,6 +367,7 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
         if(sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
 
         if (!canModifyOwnership(sessionUser)) {
             throw new BusinessException("Read-only: only owner or accounts with Ownership permission can modify ownership");
@@ -418,6 +421,7 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
         if (!canModifyOwnership(sessionUser)) {
             throw new BusinessException("Read-only: only owner or accounts with Ownership permission can modify ownership");
         }

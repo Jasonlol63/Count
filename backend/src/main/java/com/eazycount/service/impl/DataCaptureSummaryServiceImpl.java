@@ -18,6 +18,7 @@ import com.eazycount.entity.Transaction;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.DataCaptureSummaryService;
+import com.eazycount.util.AccessControlUtils;
 import com.eazycount.util.SummaryAmountFormat;
 import com.eazycount.util.TransactionMoneyFormat;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,6 +58,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
     @Transactional
     public DataCaptureSummaryDTO saveAddFormula(DataCaptureSummaryDTO request) {
         SessionUser session = requireLogin();
+        AccessControlUtils.requireWritable(session);
         if (request == null) {
             throw new BusinessException("Request body is required");
         }
@@ -244,6 +246,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
     @Transactional
     public DataCaptureSummaryDTO updateFormula(DataCaptureSummaryDTO request) {
         SessionUser session = requireLogin();
+        AccessControlUtils.requireWritable(session);
         if (request == null) {
             throw new BusinessException("Request body is required");
         }
@@ -349,7 +352,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
     @Override
     @Transactional
     public DataCaptureSummaryDTO deleteFormulas(DataCaptureSummaryDTO request) {
-        requireLogin();
+        AccessControlUtils.requireWritable(requireLogin());
         if (request == null) {
             throw new BusinessException("Request body is required");
         }
@@ -390,6 +393,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
     @Transactional
     public DataCaptureSummarySubmitDTO submit(DataCaptureSummarySubmitDTO request) {
         SessionUser session = requireLogin();
+        AccessControlUtils.requireWritable(session);
         if (request == null) {
             throw new BusinessException("Request body is required");
         }

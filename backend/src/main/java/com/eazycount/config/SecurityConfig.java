@@ -57,8 +57,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(PUBLIC_URLS).permitAll()
-                        .requestMatchers("/auth/**").authenticated()
-                        .anyRequest().permitAll())
+                        // Defense in depth: every other endpoint at minimum requires a valid session.
+                        // Role/hierarchy/read-only enforcement itself happens at the service layer
+                        // (AccessControlUtils) and via ReadOnlyGuardInterceptor for @WriteOperation
+                        // endpoints — this line only closes the "no session at all" gap.
+                        .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthTokenFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

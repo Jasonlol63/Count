@@ -11,6 +11,7 @@ import com.eazycount.entity.BankProcessShare;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.BankProcessService;
+import com.eazycount.util.AccessControlUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -72,6 +73,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
 
         BankProcess bankProcess = insertNewBankProcess(bankProcessDTO, sessionUser);
         List<BankProcessShare> shares = insertProfitSharing(bankProcess.getId(), bankProcessDTO.getShares());
@@ -91,6 +93,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
         if (bankProcessDTO == null) {
             throw new BusinessException("Invalid request");
         }
@@ -122,6 +125,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
         if (id == null || id <= 0) {
             throw new BusinessException("Invalid Bank Process ID!");
         }
@@ -154,6 +158,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
         if (id == null) {
             throw new BusinessException("Invalid Bank Process ID!");
         }
@@ -190,6 +195,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         if (sessionUser == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(sessionUser);
         if (id == null || id <= 0) {
             throw new BusinessException("Invalid Bank Process ID!");
         }

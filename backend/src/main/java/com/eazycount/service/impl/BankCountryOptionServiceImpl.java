@@ -7,6 +7,7 @@ import com.eazycount.entity.BankOption;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.BankCountryOptionService;
+import com.eazycount.util.AccessControlUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,6 +54,7 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
     @Override
     public void insertNewCountry(BankCountry bankCountry) {
         requireLogin();
+        AccessControlUtils.requireWritable(SecurityUtils.currentUser());
         if (bankCountry == null) {
             throw new BusinessException("Bank Country is required!");
         }
@@ -83,6 +85,7 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
     @Override
     public void insertNewBankOption(BankOption bankOption) {
         requireLogin();
+        AccessControlUtils.requireWritable(SecurityUtils.currentUser());
 
         if (bankOption == null) {
             throw new BusinessException("Bank Option is required!");
@@ -123,6 +126,7 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
     @Override
     public void deleteCountryByIdAndTenantId(Integer id, Integer tenantId) {
         requireLogin();
+        AccessControlUtils.requireWritable(SecurityUtils.currentUser());
 
         if (id == null) {
             throw new BusinessException("Country ID is required!");
@@ -147,6 +151,7 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
     @Override
     public void deleteBankOptionByIdAndTenantId(Integer id, Integer tenantId, Integer countryId) {
         requireLogin();
+        AccessControlUtils.requireWritable(SecurityUtils.currentUser());
 
         if (id == null) {
             throw new BusinessException("Bank Option ID is required!");

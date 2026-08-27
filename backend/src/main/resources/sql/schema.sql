@@ -97,7 +97,8 @@ CREATE TABLE `account` (
 
 -- =============================================================================
 -- Admin / staff role dictionary
--- hierarchy_level: lower value = higher privilege (aligned with frontend ROLE_HIERARCHY)
+-- hierarchy_level: lower value = higher privilege. This is the single source of truth —
+-- frontend ROLE_HIERARCHY must be kept in sync with these values, not the other way round.
 -- =============================================================================
 CREATE TABLE `user_role` (
  `id`              TINYINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -113,15 +114,16 @@ CREATE TABLE `user_role` (
  KEY `idx_role_hierarchy` (`hierarchy_level`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Admin / staff role dictionary';
 
+-- hierarchy_level: OWNER(1) > PARTNERSHIP(2) > ADMIN(3) > MANAGER(4) > SUPERVISOR(5) > ACCOUNTANT/AUDIT/CUSTOMER_SERVICE(6-8)
 INSERT INTO `user_role` (`id`, `code`, `name`, `hierarchy_level`, `status`) VALUES
 (1, 'OWNER',            'Owner',             1, 'ACTIVE'),
-(2, 'ADMIN',            'Admin',             2, 'ACTIVE'),
-(3, 'MANAGER',          'Manager',           3, 'ACTIVE'),
-(4, 'SUPERVISOR',       'Supervisor',        4, 'ACTIVE'),
-(5, 'ACCOUNTANT',       'Accountant',        5, 'ACTIVE'),
-(6, 'AUDIT',            'Audit',             6, 'ACTIVE'),
-(7, 'CUSTOMER_SERVICE', 'Customer Service',  7, 'ACTIVE'),
-(8, 'PARTNERSHIP',      'Partnership',       8, 'ACTIVE');
+(2, 'ADMIN',            'Admin',             3, 'ACTIVE'),
+(3, 'MANAGER',          'Manager',           4, 'ACTIVE'),
+(4, 'SUPERVISOR',       'Supervisor',        5, 'ACTIVE'),
+(5, 'ACCOUNTANT',       'Accountant',        6, 'ACTIVE'),
+(6, 'AUDIT',            'Audit',             7, 'ACTIVE'),
+(7, 'CUSTOMER_SERVICE', 'Customer Service',  8, 'ACTIVE'),
+(8, 'PARTNERSHIP',      'Partnership',       2, 'ACTIVE');
 
 CREATE TABLE `feature_module` (
   `id`         SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -220,6 +222,7 @@ FROM `user_role` r
          JOIN `permission` p ON p.code IN ('PAYMENT', 'REPORT', 'MAINTENANCE')
 WHERE r.code = 'AUDIT';
 
+-- CUSTOMER_SERVICE has no ADMIN entry (never supposed to see/manage the staff list)
 INSERT INTO `user_role_permission` (`role_id`, `permission_id`)
 SELECT r.id, p.id
 FROM `user_role` r

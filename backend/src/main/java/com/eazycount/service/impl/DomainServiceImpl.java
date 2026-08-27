@@ -16,6 +16,7 @@ import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.DomainFeeChargeService;
 import com.eazycount.service.DomainService;
+import com.eazycount.util.AccessControlUtils;
 import com.eazycount.util.DomainFeeSettingsMapper;
 
 import org.springframework.beans.BeanUtils;
@@ -424,6 +425,7 @@ public class DomainServiceImpl implements DomainService {
         if (session == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(session);
         if (tenant == null) {
             throw new BusinessException("Invalid Tenant");
         }
@@ -480,6 +482,7 @@ public class DomainServiceImpl implements DomainService {
         if (session == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(session);
         if (owner == null) {
             throw new BusinessException("Invalid Owner");
         }
@@ -556,6 +559,7 @@ public class DomainServiceImpl implements DomainService {
     @Transactional
     @Override
     public DomainDTO createDomain(DomainDTO domainDTO) {
+        AccessControlUtils.requireWritable(SecurityUtils.currentUser());
 
         Owner owner = new Owner();
         BeanUtils.copyProperties(domainDTO, owner);
@@ -608,6 +612,7 @@ public class DomainServiceImpl implements DomainService {
         if (session == null) {
             throw new BusinessException("Not logged in");
         }
+        AccessControlUtils.requireWritable(session);
         if (domainDTO == null) {
             throw new BusinessException("Invalid Domain");
         }
@@ -760,6 +765,7 @@ public class DomainServiceImpl implements DomainService {
     @Override
     @Transactional
     public DomainFeeSettingsDTO updateDomainFeeSettings(DomainFeeSettingsDTO settings) {
+        AccessControlUtils.requireWritable(SecurityUtils.currentUser());
         if (settings == null) {
             throw new BusinessException("Invalid Domain Fee");
         }

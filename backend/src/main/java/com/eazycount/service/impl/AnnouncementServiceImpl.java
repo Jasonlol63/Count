@@ -7,6 +7,7 @@ import com.eazycount.entity.Maintenance;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AnnouncementService;
+import com.eazycount.util.AccessControlUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -43,7 +44,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     @Override
     public void addMaintenance(Maintenance maintenance) {
         final SessionUser current = SecurityUtils.currentUser();
-        if (current == null || current.user_id == null) {
+        AccessControlUtils.requireWritable(current);
+        if (current.user_id == null) {
             throw new BusinessException("User not logged in");
         }
 
@@ -82,7 +84,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     @Override
     public void addAnnouncement(Announcements announcements) {
         final SessionUser current = SecurityUtils.currentUser();
-        if (current == null || current.user_id == null) {
+        AccessControlUtils.requireWritable(current);
+        if (current.user_id == null) {
             throw new BusinessException("User not logged in");
         }
 
@@ -122,7 +125,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     @Override
     public void updateAnnouncement(Announcements announcements) {
         final SessionUser current = SecurityUtils.currentUser();
-        if (current == null || current.user_id == null) {
+        AccessControlUtils.requireWritable(current);
+        if (current.user_id == null) {
             throw new BusinessException("User not logged in");
         }
 
@@ -142,7 +146,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     @Override
     public void updateMaintenance(Maintenance maintenance) {
         final SessionUser current = SecurityUtils.currentUser();
-        if (current == null || current.user_id == null) {
+        AccessControlUtils.requireWritable(current);
+        if (current.user_id == null) {
             throw new BusinessException("User not logged in");
         }
 
@@ -162,7 +167,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     @Override
     public void deleteAnnouncement(Announcements announcements) {
         final SessionUser current = SecurityUtils.currentUser();
-        if (current == null || current.user_id == null) {
+        AccessControlUtils.requireWritable(current);
+        if (current.user_id == null) {
             throw new BusinessException("User not logged in");
         }
 
@@ -179,7 +185,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     @Override
     public void deleteMaintenance(Maintenance maintenance) {
         final SessionUser current = SecurityUtils.currentUser();
-        if (current == null || current.user_id == null) {
+        AccessControlUtils.requireWritable(current);
+        if (current.user_id == null) {
             throw new BusinessException("User not logged in");
         }
 
