@@ -4,7 +4,7 @@
 
     <!-- 扫描临期租户，自动生成待审批申请 -->
     <insert id="syncWindowRequests">
-        INSERT IGNORE INTO tenant_auto_renew_request 
+        INSERT IGNORE INTO tenant_auto_renew
             (tenant_id, expiration_snapshot, status, created_at, updated_at)
         SELECT 
             t.id, 
@@ -18,8 +18,8 @@
           AND DATEDIFF(t.expiration_date, CURDATE()) &lt;= #{windowDays}
           AND NOT EXISTS (
               SELECT 1 
-              FROM tenant_auto_renew_request r 
-              WHERE r.tenant_id = t.id 
+              FROM tenant_auto_renew r
+              WHERE r.tenant_id = t.id
                 AND r.expiration_snapshot = t.expiration_date
           )
     </insert>
@@ -42,7 +42,7 @@
             t.expiration_date     AS expirationDate,
             DATEDIFF(t.expiration_date, CURDATE()) AS daysUntilExpiration,
             COALESCE(o.name, '')  AS ownerName
-        FROM tenant_auto_renew_request r
+        FROM tenant_auto_renew r
         INNER JOIN tenant t ON t.id = r.tenant_id
         LEFT JOIN tenant parent_t ON parent_t.id = t.parent_id
         LEFT JOIN owner o ON o.id = t.owner_id
@@ -84,7 +84,7 @@
             t.owner_id            AS ownerId,
             t.code                AS companyCode,
             t.expiration_date     AS expirationDate
-        FROM tenant_auto_renew_request r
+        FROM tenant_auto_renew r
         INNER JOIN tenant t ON t.id = r.tenant_id
         WHERE r.id = #{requestId}
     </select>
@@ -92,7 +92,7 @@
     <!-- 根据状态统计数量 -->
     <select id="countRequestsByStatus" resultType="int">
         SELECT COUNT(*)
-        FROM tenant_auto_renew_request r
+        FROM tenant_auto_renew r
         INNER JOIN tenant t ON t.id = r.tenant_id
         <where>
             <if test="status != null and status != ''">
@@ -110,7 +110,7 @@
     <!-- 根据租户类型统计待处理数量 -->
     <select id="countPendingByTenantType" resultType="int">
         SELECT COUNT(*)
-        FROM tenant_auto_renew_request r
+        FROM tenant_auto_renew r
         INNER JOIN tenant t ON t.id = r.tenant_id
         WHERE r.status = 'pending'
           AND t.tenant_type = #{tenantType}
@@ -119,7 +119,7 @@
 
     <!-- 审批同意：状态 + period/price + 新到期日 -->
     <update id="approveRequest">
-        UPDATE tenant_auto_renew_request
+        UPDATE tenant_auto_renew
         SET status = 'approved',
             period = #{period},
             price = #{price},
@@ -140,7 +140,7 @@
     </update>
 
     <update id="rejectRequest">
-        UPDATE tenant_auto_renew_request
+        UPDATE tenant_auto_renew
         SET status = 'rejected',
             processed_by = #{processedBy},
             processed_at = NOW(),
@@ -150,7 +150,7 @@
 
     <!-- 记录 approve 时 chargeDomainFee 生成的某一条 transaction，供后续 delete 精确回滚 -->
     <insert id="insertRequestTransactionLink">
-        INSERT INTO tenant_auto_renew_request_transaction (request_id, transaction_id, created_at)
+        INSERT INTO tenant_auto_renew_transaction (request_id, transaction_id, created_at)
         VALUES (#{requestId}, #{transactionId}, NOW())
     </insert>
 
@@ -161,7 +161,7 @@
             request_id     AS requestId,
             transaction_id AS transactionId,
             created_at     AS createdAt
-        FROM tenant_auto_renew_request_transaction
+        FROM tenant_auto_renew_transaction
         WHERE request_id = #{requestId}
     </select>
 
@@ -176,7 +176,7 @@
 
     <!-- delete：approved 打回 pending，清空 approve 时写入的痕迹（transaction 关联行随 FK CASCADE 一并清掉） -->
     <update id="revertApprovedToPending">
-        UPDATE tenant_auto_renew_request
+        UPDATE tenant_auto_renew
         SET status = 'pending',
             period = NULL,
             price = NULL,
@@ -190,7 +190,7 @@
 
     <!-- delete：rejected 打回 pending（reject 从未动过 transaction/到期日，无需额外回滚） -->
     <update id="revertRejectedToPending">
-        UPDATE tenant_auto_renew_request
+        UPDATE tenant_auto_renew
         SET status = 'pending',
             processed_by = NULL,
             processed_at = NULL,
