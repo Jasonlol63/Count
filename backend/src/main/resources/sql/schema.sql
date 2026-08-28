@@ -591,7 +591,7 @@ CREATE TABLE `process` (
    `created_at`        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
    `updated_at`        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
    PRIMARY KEY (`id`),
-   UNIQUE KEY `uk_process_tenant_category_code` (`tenant_id`, `category`, `code`),
+   KEY `idx_process_tenant_category_code` (`tenant_id`, `category`, `code`),
    CONSTRAINT `fk_process_tenant` FOREIGN KEY (`tenant_id`) REFERENCES `tenant` (`id`) ON DELETE CASCADE,
    CONSTRAINT `fk_process_currency` FOREIGN KEY (`currency_id`) REFERENCES `currency` (`id`),
    CONSTRAINT `fk_process_copied_from` FOREIGN KEY (`copied_from_process_id`) REFERENCES `process` (`id`) ON DELETE SET NULL,
@@ -628,6 +628,77 @@ CREATE TABLE `process_description_link` (
     CONSTRAINT `fk_pdl_process` FOREIGN KEY (`process_id`) REFERENCES `process` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_pdl_description` FOREIGN KEY (`description_id`) REFERENCES `process_description` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='process ↔ description 多对多（替代 description_ids JSON）';
+
+-- Enforce "same (tenant, category, code) may repeat across multiple `process` rows, but no two of
+-- those rows may share the same linked description" at the DB layer (not just Service-layer checks,
+-- which a race condition or a future code path could bypass). `uk_proc_desc` above already stops one
+-- process from linking the same description twice; these triggers stop TWO DIFFERENT processes with
+-- the same code from each linking that description.
+DELIMITER $$
+
+CREATE TRIGGER `trg_pdl_bi_unique_code_desc`
+BEFORE INSERT ON `process_description_link`
+FOR EACH ROW
+BEGIN
+    DECLARE conflict_count INT DEFAULT 0;
+    SELECT COUNT(*) INTO conflict_count
+    FROM `process_description_link` l
+    JOIN `process` p1 ON p1.id = l.process_id
+    JOIN `process` p2 ON p2.id = NEW.process_id
+    WHERE l.description_id = NEW.description_id
+      AND l.process_id <> NEW.process_id
+      AND p1.tenant_id = p2.tenant_id
+      AND p1.category = p2.category
+      AND p1.code = p2.code;
+    IF conflict_count > 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Duplicate process code + description: another process with the same tenant/category/code already has this description linked';
+    END IF;
+END$$
+
+CREATE TRIGGER `trg_pdl_bu_unique_code_desc`
+BEFORE UPDATE ON `process_description_link`
+FOR EACH ROW
+BEGIN
+    DECLARE conflict_count INT DEFAULT 0;
+    SELECT COUNT(*) INTO conflict_count
+    FROM `process_description_link` l
+    JOIN `process` p1 ON p1.id = l.process_id
+    JOIN `process` p2 ON p2.id = NEW.process_id
+    WHERE l.description_id = NEW.description_id
+      AND l.process_id <> NEW.process_id
+      AND l.id <> NEW.id
+      AND p1.tenant_id = p2.tenant_id
+      AND p1.category = p2.category
+      AND p1.code = p2.code;
+    IF conflict_count > 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Duplicate process code + description: another process with the same tenant/category/code already has this description linked';
+    END IF;
+END$$
+
+CREATE TRIGGER `trg_process_bu_unique_code_desc`
+BEFORE UPDATE ON `process`
+FOR EACH ROW
+BEGIN
+    DECLARE conflict_count INT DEFAULT 0;
+    IF NEW.code <> OLD.code OR NEW.tenant_id <> OLD.tenant_id OR NEW.category <> OLD.category THEN
+        SELECT COUNT(*) INTO conflict_count
+        FROM `process_description_link` l1
+        JOIN `process_description_link` l2 ON l2.description_id = l1.description_id AND l2.process_id <> l1.process_id
+        JOIN `process` p2 ON p2.id = l2.process_id
+        WHERE l1.process_id = NEW.id
+          AND p2.tenant_id = NEW.tenant_id
+          AND p2.category = NEW.category
+          AND p2.code = NEW.code;
+        IF conflict_count > 0 THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Duplicate process code + description: renaming this process would collide with an existing description link under the same tenant/category/code';
+        END IF;
+    END IF;
+END$$
+
+DELIMITER ;
 
 CREATE TABLE `process_day` (
    `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -918,6 +989,7 @@ CREATE TABLE `bank_process` (
     `day_end`              DATE                  DEFAULT NULL COMMENT 'Optional; UI may derive from day_start+contract',
     `day_end_monthly_cap_enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1st of every month only: 1=last month DAY_END_TAIL to day_end; 0=last month FULL_MONTH to month end',
     `expired_at_creation`  TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'FIRST_OF_EVERY_MONTH/MONTHLY only: set once at insert; 1=day_end''s month was already before the creation month, so ACTIVE never extends billing past day_end',
+    `due_generation_floor` DATE                  DEFAULT NULL COMMENT 'Optional override for the due-backfill floor month; when set, Inbox generation starts here instead of created_at (used to stop old/migrated records from regenerating stale past-month dues without altering created_at)',
     `frequency`            ENUM( 'FIRST_OF_EVERY_MONTH', 'MONTHLY', 'ONCE', 'DAY', 'WEEK') NOT NULL DEFAULT 'FIRST_OF_EVERY_MONTH',
 
     `supplier_account_id`  INT UNSIGNED          DEFAULT NULL COMMENT 'FK account.id — Supplier',

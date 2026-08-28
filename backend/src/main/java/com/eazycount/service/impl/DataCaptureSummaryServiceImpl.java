@@ -137,11 +137,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
             if (BANK_PROCESS_CODES.contains(code)) {
                 return ensureBankProcess(tenantId, code, currencyId, session);
             }
-            Process game = processDao.findProcessCodeByTenantId(tenantId, Process.Category.GAME, code);
-            if (game != null && game.getId() != null) {
-                return game;
-            }
-            throw new BusinessException("Process not found: " + code);
+            return resolveUniqueGameProcessByCode(tenantId, code);
         }
 
         throw new BusinessException("Process Id is required");
@@ -625,14 +621,25 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
                 }
                 throw new BusinessException("Process not found: " + code);
             }
-            Process game = processDao.findProcessCodeByTenantId(tenantId, Process.Category.GAME, code);
-            if (game != null && game.getId() != null) {
-                return game;
-            }
-            throw new BusinessException("Process not found: " + code);
+            return resolveUniqueGameProcessByCode(tenantId, code);
         }
 
         throw new BusinessException("Process Id is required");
+    }
+
+    // code may repeat within a tenant -- there's no description here to disambiguate by, so >1 match must be a hard error, not a silent LIMIT-1
+    // pick that could attribute a submission to the wrong process.
+    private Process resolveUniqueGameProcessByCode(Integer tenantId, String code) {
+        List<Process> matches = processDao.findProcessesCodeByTenantId(tenantId, Process.Category.GAME, code);
+        if (matches.isEmpty()) {
+            throw new BusinessException("Process not found: " + code);
+        }
+        if (matches.size() > 1) {
+            throw new BusinessException(
+                    "Process code \"" + code + "\" is ambiguous (matches " + matches.size()
+                            + " processes) -- please re-select the process instead of submitting by code alone");
+        }
+        return matches.get(0);
     }
 
     /* Prefer formula id; Bank UI often loses templateId after refresh — fall back to a business key. */

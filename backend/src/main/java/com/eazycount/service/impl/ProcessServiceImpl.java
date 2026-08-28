@@ -117,8 +117,12 @@ public class ProcessServiceImpl implements ProcessService {
             throw new BusinessException("Currency not found!");
         }
 
-        if (processDao.findProcessCodeByTenantId(processDTO.getTenantId(), category, code) != null) {
-            throw new BusinessException("Process code already exists!");
+        // `code` is allowed to repeat within a tenant (e.g. one vendor code split into several report
+        // sections, each with its own parsing rule) -- what must not repeat is (code, description).
+        // copyFrom carries its own description set over via copyProcessChildData below, so this only
+        // needs to check the manually-picked descriptionIds path.
+        if (copySource == null) {
+            assertNoCodeDescriptionConflict(processDTO.getTenantId(), category, code, processDTO.getDescriptionIds(), null);
         }
 
         Process process = new Process();
@@ -221,6 +225,10 @@ public class ProcessServiceImpl implements ProcessService {
         if (currencyDao.findByIdAndTenantId(processDTO.getCurrencyId(), processDTO.getTenantId()) == null) {
             throw new BusinessException("Currency not found!");
         }
+
+        assertNoCodeDescriptionConflict(
+                existed.getTenantId(), existed.getCategory(), existed.getCode(),
+                processDTO.getDescriptionIds(), existed.getId());
 
         Process process = new Process();
         process.setId(processDTO.getId());
@@ -377,5 +385,19 @@ public class ProcessServiceImpl implements ProcessService {
         }
     }
 
+    private void assertNoCodeDescriptionConflict(
+            Integer tenantId, Process.Category category, String code,
+            List<Integer> descriptionIds, Integer excludeProcessId) {
+        if (descriptionIds == null || descriptionIds.isEmpty()) {
+            return;
+        }
+        List<Integer> conflicts = processDao.findConflictingDescriptionIds(
+                tenantId, category, code, descriptionIds, excludeProcessId);
+        if (conflicts != null && !conflicts.isEmpty()) {
+            throw new BusinessException(
+                    "This Process ID already has the following Description(s) used by another process: "
+                            + conflicts);
+        }
+    }
 
 }

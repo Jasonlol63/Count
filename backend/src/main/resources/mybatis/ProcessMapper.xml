@@ -143,8 +143,9 @@
           AND tenant_id = #{tenantId}
     </select>
 
-    <!-- Duplicate check: same category + code under one tenant -->
-    <select id="findProcessCodeByTenantId" resultMap="ProcessEntityMap">
+    <!-- code may repeat within a tenant - deliberately no LIMIT 1; callers must check size() and
+         treat >1 as ambiguous (no description available here to disambiguate by). -->
+    <select id="findProcessesCodeByTenantId" resultMap="ProcessEntityMap">
         SELECT
             id,
             tenant_id,
@@ -165,7 +166,24 @@
         WHERE tenant_id = #{tenantId}
           AND category = #{category}
           AND code = #{code}
-        LIMIT 1
+    </select>
+
+    <!-- code may repeat within a tenant; this narrows to which of the given descriptionIds are
+         already linked to some OTHER process sharing the same tenant/category/code. -->
+    <select id="findConflictingDescriptionIds" resultType="java.lang.Integer">
+        SELECT DISTINCT l.description_id
+        FROM process_description_link l
+        INNER JOIN process p ON p.id = l.process_id
+        WHERE p.tenant_id = #{tenantId}
+          AND p.category = #{category}
+          AND p.code = #{code}
+        <if test="excludeProcessId != null">
+            AND p.id != #{excludeProcessId}
+        </if>
+        AND l.description_id IN
+        <foreach collection="descriptionIds" item="descriptionId" open="(" separator="," close=")">
+            #{descriptionId}
+        </foreach>
     </select>
 
     <!-- Insert Process Use -->

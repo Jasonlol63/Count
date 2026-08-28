@@ -14,7 +14,14 @@ public interface ProcessDao {
 
     List<ProcessDTO> findProcessByTenantId(@Param("tenantId") Integer tenantId);
 
-    Process findProcessCodeByTenantId(@Param("tenantId") Integer tenantId, @Param("category") Process.Category category, @Param("code") String code);
+    List<Process> findProcessesCodeByTenantId(@Param("tenantId") Integer tenantId, @Param("category") Process.Category category, @Param("code") String code);
+
+    List<Integer> findConflictingDescriptionIds(
+            @Param("tenantId") Integer tenantId,
+            @Param("category") Process.Category category,
+            @Param("code") String code,
+            @Param("descriptionIds") List<Integer> descriptionIds,
+            @Param("excludeProcessId") Integer excludeProcessId);
 
     Process findProcessById(@Param("id") Integer id);
 
