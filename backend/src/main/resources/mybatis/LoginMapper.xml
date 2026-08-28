@@ -386,6 +386,30 @@
         WHERE id = #{adminId}
     </update>
 
+    <update id="updateAdminSecondaryPassword">
+        UPDATE user
+        SET secondary_password = #{secondaryPassword}
+        WHERE id = #{adminId}
+    </update>
+
+    <update id="updateOwnerPassword">
+        UPDATE owner
+        SET password = #{password}
+        WHERE id = #{ownerId}
+    </update>
+
+    <update id="updateOwnerSecondaryPassword">
+        UPDATE owner
+        SET secondary_password = #{secondaryPassword}
+        WHERE id = #{ownerId}
+    </update>
+
+    <update id="updateMemberPassword">
+        UPDATE account
+        SET password = #{password}
+        WHERE id = #{memberId}
+    </update>
+
     <update id="updateMemberLastLogin">
         UPDATE account
         SET last_login = NOW()

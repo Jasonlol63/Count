@@ -33,6 +33,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -58,6 +59,8 @@ public class AuthServiceImpl implements AuthService {
     private PermissionService permissionService;
     @Autowired
     private PasswordEncoder passwordEncoder;
+    @Autowired
+    private Argon2PasswordEncoder argon2PasswordEncoder;
     @Autowired
     private AuthTokenStore authTokenStore;
     @Autowired
@@ -95,6 +98,9 @@ public class AuthServiceImpl implements AuthService {
             if (member == null || !verifyPassword(password, member.getPassword())) {
                 throw new BusinessException("Account ID, Company ID or password is incorrect");
             }
+            if (isArgon2Hash(member.getPassword())) {
+                authDao.updateMemberPassword(member.getId(), passwordEncoder.encode(password));
+            }
             List<UserTenantDTO> access = findAccessibleTenantsByMemberId(member.getId(), code);
             if (access.isEmpty()) {
                 throw new BusinessException("You do not have access to this Company or Group");
@@ -112,6 +118,9 @@ public class AuthServiceImpl implements AuthService {
             if (!verifyPassword(password, admin.getPassword())) {
                 throw new BusinessException("Username or password is incorrect");
             }
+            if (isArgon2Hash(admin.getPassword())) {
+                authDao.updateAdminPassword(admin.getId(), passwordEncoder.encode(password));
+            }
             List<AdminTenantDTO> access = findAccessibleTenantsByAdminId(admin.getId(), code);
             if (access.isEmpty()) {
                 throw new BusinessException("You do not have access to this Company or Group");
@@ -128,6 +137,9 @@ public class AuthServiceImpl implements AuthService {
         if (owner != null) {
             if (!verifyPassword(password, owner.getPassword())) {
                 throw new BusinessException("Username or password is incorrect");
+            }
+            if (isArgon2Hash(owner.getPassword())) {
+                authDao.updateOwnerPassword(owner.getId(), passwordEncoder.encode(password));
             }
             List<OwnerTenantDTO> access = findAccessibleTenantsByOwnerId(owner.getId(), code);
             if (access.isEmpty()) {
@@ -551,8 +563,19 @@ public class AuthServiceImpl implements AuthService {
             storedHash = row != null ? row.getSecondaryPassword() : null;
         }
 
-        if (storedHash != null && !storedHash.isBlank() && !verifyPassword(pin, storedHash)) {
+        if (storedHash == null || storedHash.isBlank()) {
+            return;
+        }
+        if (!verifyPassword(pin, storedHash)) {
             throw new BusinessException("Secondary password is incorrect");
+        }
+        if (isArgon2Hash(storedHash)) {
+            String rehashed = passwordEncoder.encode(pin);
+            if (owner) {
+                authDao.updateOwnerSecondaryPassword(userId, rehashed);
+            } else {
+                authDao.updateAdminSecondaryPassword(userId, rehashed);
+            }
         }
     }
 
@@ -654,7 +677,14 @@ public class AuthServiceImpl implements AuthService {
         if (stored.startsWith("$2a$") || stored.startsWith("$2b$") || stored.startsWith("$2y$")) {
             return passwordEncoder.matches(raw, stored);
         }
+        if (isArgon2Hash(stored)) {
+            return argon2PasswordEncoder.matches(raw, stored);
+        }
         return raw.equals(stored);
+    }
+
+    private static boolean isArgon2Hash(String stored) {
+        return stored != null && stored.startsWith("$argon2");
     }
 
     private void assertTenantNotExpired(Tenant tenant) {

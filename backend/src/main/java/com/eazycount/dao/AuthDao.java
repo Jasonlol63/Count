@@ -49,5 +49,13 @@ public interface AuthDao {
 
     void updateAdminPassword(@Param("adminId") Integer adminId, @Param("password") String password);
 
+    void updateAdminSecondaryPassword(@Param("adminId") Integer adminId, @Param("secondaryPassword") String secondaryPassword);
+
+    void updateOwnerPassword(@Param("ownerId") Integer ownerId, @Param("password") String password);
+
+    void updateOwnerSecondaryPassword(@Param("ownerId") Integer ownerId, @Param("secondaryPassword") String secondaryPassword);
+
+    void updateMemberPassword(@Param("memberId") Integer memberId, @Param("password") String password);
+
     void updateMemberLastLogin(@Param("memberId") Integer memberId);
 }
