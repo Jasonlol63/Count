@@ -519,6 +519,9 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
 
 
     private static LocalDate creationMonthFloor(BankProcess bp, LocalDate dayStart) {
+        if (bp.getDueGenerationFloor() != null) {
+            return YearMonth.from(bp.getDueGenerationFloor()).atDay(1);
+        }
         if (bp.getCreatedAt() != null) {
             return YearMonth.from(bp.getCreatedAt()).atDay(1);
         }

@@ -37,6 +37,8 @@ public class BankProcess {
 
     private Boolean expiredAtCreation;
 
+    private LocalDate dueGenerationFloor;
+
     private Frequency frequency;
 
     private Integer supplierAccountId;

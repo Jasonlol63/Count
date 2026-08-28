@@ -13,6 +13,7 @@
         <result property="dayEnd" column="day_end"/>
         <result property="dayEndMonthlyCapEnabled" column="day_end_monthly_cap_enabled"/>
         <result property="expiredAtCreation" column="expired_at_creation"/>
+        <result property="dueGenerationFloor" column="due_generation_floor"/>
         <result property="frequency" column="frequency"/>
         <result property="supplierAccountId" column="supplier_account_id"/>
         <result property="supplierPrice" column="supplier_price"/>
@@ -59,6 +60,7 @@
             <result property="dayEnd" column="bp_day_end"/>
             <result property="dayEndMonthlyCapEnabled" column="bp_day_end_monthly_cap_enabled"/>
             <result property="expiredAtCreation" column="bp_expired_at_creation"/>
+            <result property="dueGenerationFloor" column="bp_due_generation_floor"/>
             <result property="frequency" column="bp_frequency"/>
             <result property="supplierAccountId" column="bp_supplier_account_id"/>
             <result property="supplierPrice" column="bp_supplier_price"/>
@@ -107,6 +109,7 @@
             bp.day_end              AS bp_day_end,
             bp.day_end_monthly_cap_enabled AS bp_day_end_monthly_cap_enabled,
             bp.expired_at_creation  AS bp_expired_at_creation,
+            bp.due_generation_floor AS bp_due_generation_floor,
             bp.frequency            AS bp_frequency,
             bp.supplier_account_id  AS bp_supplier_account_id,
             bp.supplier_price       AS bp_supplier_price,
@@ -156,6 +159,7 @@
             day_end,
             day_end_monthly_cap_enabled,
             expired_at_creation,
+            due_generation_floor,
             frequency,
             supplier_account_id,
             supplier_price,

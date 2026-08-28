@@ -245,6 +245,7 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 | `tenant_ownership_history` | `saved_by` INT(FK user.id) → VARCHAR(50) | 改存 login_id 字符串（admin=`user.login_id`；owner=`owner_code`），去掉外键约束，对齐 §1 总原则"审计用 login_id" |
 | `process_description` | 新增 `UNIQUE(tenant_id, name)` | 防止同租户下重复描述 |
 | `v_company_tenant` / `v_group_tenant`（新视图） | 按 `tenant_type` 拆分 `tenant` 的只读视图 | 供报表/查询按公司或集团单独取数 |
+| `bank_process` | 新增 `due_generation_floor`（可空，`migrate_add_due_generation_floor.sql`） | Accounting Due 生成默认从 `created_at` 所在月往前回补；迁移/补录写入的 `created_at` 不代表真实合同起始日，会把中间月份重新算成待处理 due。此字段可覆盖回补起点（不改 `created_at` 本身语义），仅对仍在合同期内的记录一次性设置；已过期的纯记录合同不受影响 |
 
 ---
 
@@ -300,6 +301,8 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 | `migrate_role_hierarchy_and_admin_permission_fix.sql` | 修正 `user_role.hierarchy_level`（PARTNERSHIP 从 8 改为 2，紧排在 OWNER 之后）；移除 `CUSTOMER_SERVICE` 的 `ADMIN`（员工列表）侧边栏权限（如存在） |
 | `migrate_add_user_permission_override.sql` | 增量加 `user.permission_mode` 列 + `user_permission_override` 表——账号级侧边栏权限自定义（加/减角色默认之外的入口），与 `account_acl_mode`/`process_acl_mode` 同一套设计语言 |
 | `migrate_admin_read_only_default_false.sql` | `user.read_only` 默认值从 1 改成 0（只有 Partnership/Audit 前端有开关能手动设成 1，其余角色不该被默认锁死无法写入），并回填现有非 Partnership/Audit 账号 |
+| `migrate_process_code_allow_duplicate.sql` | `process.code` 去掉 `UNIQUE(tenant_id, category, code)`，改成允许同一 tenant 下 code 重复（真实业务场景：一个业务码拆成几个报表区块，各自不同的解析规则/公式，靠不同的 description 区分）；真正不能重复的是 `(tenant, category, code, description)`，靠触发器（`trg_pdl_bi/bu_unique_code_desc`、`trg_process_bu_unique_code_desc`）在数据库层强制，不只是 Service 层校验（避免并发竞态绕过）。配套改了 `ProcessServiceImpl`/`ProcessDao`：新建改用 description 感知的冲突检查；`DataCaptureSummaryServiceImpl` 里"只有 code 没有 processId"这条兜底路径，从 `LIMIT 1` 随便挑一条改成查出多条就直接报错（避免静默算错账） |
+| `migrate_add_due_generation_floor.sql` | 增量加 `bank_process.due_generation_floor` 列，并对指定 id 一次性设为当日——修正迁移写入的 `created_at` 导致 Accounting Due Inbox 把当月之前的月份重新算成待处理的问题（详见 §3.8） |
 | 其他 `migrate_*` / `add_*` / `seed_*` | 各子域增量与种子数据 |
 
 应用示例：
