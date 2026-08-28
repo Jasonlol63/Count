@@ -310,7 +310,14 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         boolean isRateMiddlemanFee = Boolean.TRUE.equals(line.getRateMiddlemanFee());
         // Platform Fee: the only single-sided (no fromAccountId) Rate-Mul/Fee-kind row — Cr/Dr,
         // product "Fee", never Win/Loss (unlike Rate-Mul/Service Fee shown on middleman's own view).
-        boolean isPlatformFee = isRateMiddlemanFee && line.getFromAccountId() == null;
+        // fromAccountId==null alone isn't enough to detect it: migrated legacy Middle-Man fee rows
+        // (raw "Rate charge (xN) from CCY amount" text) are ALSO structurally single-sided — they
+        // predate the two-sided from_account_id design and never get one — but they're a Service Fee
+        // equivalent, not a genuine Platform Fee, so they must still land on "RATE"/Win-Loss like a
+        // normal middleman markup row. Require the actual "PLATFORM FEE" wording too.
+        boolean isPlatformFee = isRateMiddlemanFee
+                && line.getFromAccountId() == null
+                && trimToEmpty(line.getDescription()).toUpperCase(Locale.ROOT).contains("PLATFORM FEE");
 
         TransactionHistoryResult.Row row = new TransactionHistoryResult.Row();
         row.setId(line.getId());
@@ -409,6 +416,9 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             return "PROFIT";
         }
         if (d.startsWith("EXCH RATE ")) {
+            return "RATE";
+        }
+        if (d.startsWith("RATE CHARGE")) {
             return "RATE";
         }
 

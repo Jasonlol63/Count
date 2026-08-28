@@ -10,7 +10,10 @@
       (see docs/frontend-springboot-migration.md 第25节).
     -->
 
-    <!-- Manual transfer Cr/Dr types: PAYMENT / CLAIM / CLEAR / CONTRA / RATE (To −, From +); bank_process_posted_id IS NULL -->
+    <!-- Manual transfer Cr/Dr types: PAYMENT / CLAIM / CLEAR / CONTRA (To −, From +); RATE is the
+         mirror image (To +, From −), matching legacy PHP's RATE-specific sign convention. Every
+         place this fragment is used pairs it with a `CASE WHEN transaction_type = 'RATE' THEN ... END`
+         flip, don't drop that when reusing this list. bank_process_posted_id IS NULL -->
     <sql id="manualCrDrTransactionTypes">
         'PAYMENT', 'CLAIM', 'CLEAR', 'CONTRA', 'RATE'
     </sql>
@@ -36,6 +39,47 @@
             t.description = 'RATE_MIDDLEMAN_FEE'
             OR t.description LIKE 'MARKUP X %'
             OR t.description LIKE 'CHARGE % PLATFORM FEE'
+        )
+    </sql>
+
+    <!-- Migrated legacy Middle-Man fee credit: single-sided (from_account_id NULL), description is
+         the raw legacy text "Rate charge (xN) from CCY amount", identical on BOTH the middleman's
+         credit row and the payer's debit row (same tenant/date/description), so description text
+         alone can't tell them apart. Structural check instead: this row's account_id is the
+         registered middleman_account_id for some RATE group that tenant submitted the same day. Only
+         the credit row's account_id will ever match this. -->
+    <sql id="legacyRateMiddlemanFeeCredit">
+        (
+            t.transaction_type = 'RATE'
+            AND t.from_account_id IS NULL
+            AND EXISTS (
+                SELECT 1
+                FROM transactions_rate tr
+                JOIN transactions l1 ON l1.id = tr.leg1_transaction_id
+                WHERE tr.tenant_id = t.tenant_id
+                  AND tr.middleman_account_id = t.account_id
+                  AND DATE(l1.transaction_date) = DATE(t.transaction_date)
+            )
+        )
+    </sql>
+
+    <!-- The other half of the same migrated legacy pair: the payer's debit row. Same raw text as the
+         credit row above, so distinguished only by NOT being a registered middleman account.
+         Duplicated in TransactionSearchMapper.xml, keep both in sync. -->
+    <sql id="legacyRateMiddlemanFeeDebit">
+        (
+            t.transaction_type = 'RATE'
+            AND t.from_account_id IS NULL
+            AND t.rate_group_id IS NULL
+            AND t.description LIKE 'Rate charge (x%'
+            AND NOT EXISTS (
+                SELECT 1
+                FROM transactions_rate tr
+                JOIN transactions l1 ON l1.id = tr.leg1_transaction_id
+                WHERE tr.tenant_id = t.tenant_id
+                  AND tr.middleman_account_id = t.account_id
+                  AND DATE(l1.transaction_date) = DATE(t.transaction_date)
+            )
         )
     </sql>
 
@@ -108,7 +152,7 @@
         FROM (
             SELECT
                 UPPER(c.code) AS currencyCode,
-                -t.amount AS bfPart
+                CASE WHEN t.transaction_type = 'RATE' THEN t.amount ELSE -t.amount END AS bfPart
             FROM transactions t
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
             WHERE t.tenant_id = #{tenantId}
@@ -129,7 +173,7 @@
 
             SELECT
                 UPPER(c.code) AS currencyCode,
-                t.amount AS bfPart
+                CASE WHEN t.transaction_type = 'RATE' THEN -t.amount ELSE t.amount END AS bfPart
             FROM transactions t
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
             WHERE t.tenant_id = #{tenantId}
@@ -235,11 +279,13 @@
             CASE
                 WHEN t.account_id = #{accountId}
                  AND t.from_account_id IS NULL
-                 AND <include refid="rateMiddlemanFeeDescription"/>
+                 AND (<include refid="rateMiddlemanFeeDescription"/> OR <include refid="legacyRateMiddlemanFeeCredit"/>)
                 THEN t.amount
                 WHEN t.account_id = #{accountId} AND t.from_account_id = #{accountId} THEN 0
-                WHEN t.account_id = #{accountId} THEN -t.amount
-                ELSE t.amount
+                WHEN t.account_id = #{accountId} THEN
+                    CASE WHEN t.transaction_type = 'RATE' AND t.rate_group_id IS NOT NULL THEN t.amount ELSE -t.amount END
+                ELSE
+                    CASE WHEN t.transaction_type = 'RATE' AND t.rate_group_id IS NOT NULL THEN -t.amount ELSE t.amount END
             END AS signedAmount,
             t.transaction_date AS transactionDate,
             t.description AS description,
@@ -265,6 +311,14 @@
                 WHEN tr.middleman_account_id IS NOT NULL
                  AND t.id &lt;&gt; tr.leg1_transaction_id
                  AND t.id &lt;&gt; tr.leg2_transaction_id
+                THEN TRUE
+                <!-- Migrated legacy Middle-Man fee credit row only (the payer's debit row is left
+                     alone here, it must NOT get this flag; see domainProductFromDescription in
+                     TransactionHistoryServiceImpl for how its "RATE" product label is produced
+                     instead). Reuses the same structural match as legacyRateMiddlemanFeeCredit
+                     above: this row's own account_id is a registered middleman_account_id for a RATE
+                     group the tenant submitted the same day. -->
+                WHEN <include refid="legacyRateMiddlemanFeeCredit"/>
                 THEN TRUE
                 ELSE FALSE
             END AS rateMiddlemanFee,
@@ -470,11 +524,13 @@
             WHERE t.tenant_id = #{tenantId}
               AND t.account_id = #{accountId}
               AND t.from_account_id IS NULL
-              AND <include refid="rateMiddlemanFeeDescription"/>
               AND t.bank_process_posted_id IS NULL
               AND t.approval_status = 'APPROVED'
               AND t.transaction_type = 'RATE'
-              AND <include refid="rateMiddlemanFeeLeg"/>
+              AND (
+                    (<include refid="rateMiddlemanFeeDescription"/> AND <include refid="rateMiddlemanFeeLeg"/>)
+                    OR <include refid="legacyRateMiddlemanFeeCredit"/>
+                  )
               AND t.transaction_date &lt; #{dateFrom}
             <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
                 AND UPPER(c.code) IN
@@ -497,6 +553,28 @@
               AND t.approval_status = 'APPROVED'
               AND t.transaction_type = 'RATE'
               AND <include refid="rateMiddlemanFeeLeg"/>
+              AND t.transaction_date &lt; #{dateFrom}
+            <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
+                AND UPPER(c.code) IN
+                <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
+                    UPPER(#{code})
+                </foreach>
+            </if>
+
+            UNION ALL
+
+            SELECT
+                UPPER(c.code) AS currencyCode,
+                -t.amount AS bfPart
+            FROM transactions t
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.account_id = #{accountId}
+              AND t.from_account_id IS NULL
+              AND t.bank_process_posted_id IS NULL
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_type = 'RATE'
+              AND <include refid="legacyRateMiddlemanFeeDebit"/>
               AND t.transaction_date &lt; #{dateFrom}
             <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
                 AND UPPER(c.code) IN

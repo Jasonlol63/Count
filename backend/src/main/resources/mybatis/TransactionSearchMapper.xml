@@ -2,7 +2,10 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.eazycount.dao.TransactionSearchDao">
 
-    <!-- Manual transfer Cr/Dr types: PAYMENT / CLAIM / CLEAR / CONTRA / RATE (To −, From +); bank_process_posted_id IS NULL -->
+    <!-- Manual transfer Cr/Dr types: PAYMENT / CLAIM / CLEAR / CONTRA (To −, From +); RATE is the
+         mirror image (To +, From −), matching legacy PHP's RATE-specific sign convention. Every
+         place this fragment is used pairs it with a `CASE WHEN transaction_type = 'RATE' THEN ... END`
+         flip, don't drop that when reusing this list. bank_process_posted_id IS NULL -->
     <sql id="manualCrDrTransactionTypes">
         'PAYMENT', 'CLAIM', 'CLEAR', 'CONTRA', 'RATE'
     </sql>
@@ -26,6 +29,45 @@
         (
             t.description = 'RATE_MIDDLEMAN_FEE'
             OR t.description LIKE 'MARKUP X %'
+        )
+    </sql>
+
+    <!-- Migrated legacy Middle-Man fee credit row: single-sided (from_account_id NULL), account_id is
+         a registered middleman_account_id for a RATE group the tenant submitted the same day. These
+         rows never carry rate_group_id, so rateMiddlemanFeeLeg (which requires it) never matches
+         them; this is the structural stand-in used instead. Duplicated in
+         TransactionHistoryMapper.xml, keep both in sync. -->
+    <sql id="legacyRateMiddlemanFeeCredit">
+        (
+            t.transaction_type = 'RATE'
+            AND t.from_account_id IS NULL
+            AND EXISTS (
+                SELECT 1
+                FROM transactions_rate tr
+                JOIN transactions l1 ON l1.id = tr.leg1_transaction_id
+                WHERE tr.tenant_id = t.tenant_id
+                  AND tr.middleman_account_id = t.account_id
+                  AND DATE(l1.transaction_date) = DATE(t.transaction_date)
+            )
+        )
+    </sql>
+
+    <!-- The other half of the same migrated legacy pair: the payer's debit row. Same raw text as the
+         credit row above, so distinguished only by NOT being a registered middleman account. -->
+    <sql id="legacyRateMiddlemanFeeDebit">
+        (
+            t.transaction_type = 'RATE'
+            AND t.from_account_id IS NULL
+            AND t.rate_group_id IS NULL
+            AND t.description LIKE 'Rate charge (x%'
+            AND NOT EXISTS (
+                SELECT 1
+                FROM transactions_rate tr
+                JOIN transactions l1 ON l1.id = tr.leg1_transaction_id
+                WHERE tr.tenant_id = t.tenant_id
+                  AND tr.middleman_account_id = t.account_id
+                  AND DATE(l1.transaction_date) = DATE(t.transaction_date)
+            )
         )
     </sql>
 
@@ -147,7 +189,7 @@
         ORDER BY currencyCode ASC, accountCode ASC
     </select>
 
-    <!-- Domain Fee / manual transfer: To (−) + From (+) legs -->
+    <!-- Domain Fee / manual transfer: To (−) + From (+) legs; RATE legs are mirrored (To +, From −) -->
     <select id="aggregateDomainPaymentCrDr" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
         SELECT
             x.accountDbId AS accountDbId,
@@ -166,12 +208,14 @@
                 a.role AS role,
                 UPPER(c.code) AS currencyCode,
                 CASE
-                    WHEN t.transaction_date &lt; #{dateFrom} THEN -t.amount
+                    WHEN t.transaction_date &lt; #{dateFrom} THEN
+                        CASE WHEN t.transaction_type = 'RATE' THEN t.amount ELSE -t.amount END
                     ELSE 0
                 END AS bfPart,
                 CASE
                     WHEN t.transaction_date &gt;= #{dateFrom}
-                     AND t.transaction_date &lt;= #{dateTo} THEN -t.amount
+                     AND t.transaction_date &lt;= #{dateTo} THEN
+                        CASE WHEN t.transaction_type = 'RATE' THEN t.amount ELSE -t.amount END
                     ELSE 0
                 END AS crPart,
                 CASE
@@ -209,12 +253,14 @@
                 a.role AS role,
                 UPPER(c.code) AS currencyCode,
                 CASE
-                    WHEN t.transaction_date &lt; #{dateFrom} THEN t.amount
+                    WHEN t.transaction_date &lt; #{dateFrom} THEN
+                        CASE WHEN t.transaction_type = 'RATE' THEN -t.amount ELSE t.amount END
                     ELSE 0
                 END AS bfPart,
                 CASE
                     WHEN t.transaction_date &gt;= #{dateFrom}
-                     AND t.transaction_date &lt;= #{dateTo} THEN t.amount
+                     AND t.transaction_date &lt;= #{dateTo} THEN
+                        CASE WHEN t.transaction_type = 'RATE' THEN -t.amount ELSE t.amount END
                     ELSE 0
                 END AS crPart,
                 CASE
@@ -440,8 +486,10 @@
               AND t.approval_status = 'APPROVED'
               AND t.transaction_type = 'RATE'
               AND t.from_account_id IS NULL
-              AND <include refid="rateMiddlemanFeeDescription"/>
-              AND <include refid="rateMiddlemanFeeLeg"/>
+              AND (
+                    (<include refid="rateMiddlemanFeeDescription"/> AND <include refid="rateMiddlemanFeeLeg"/>)
+                    OR <include refid="legacyRateMiddlemanFeeCredit"/>
+                  )
             <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
                 AND UPPER(c.code) IN
                 <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
@@ -457,7 +505,7 @@
 
             UNION ALL
 
-            <!-- Rate multiplier / legacy: From/middleman (+) -->
+            <!-- Rate multiplier legacy: From/middleman (+) -->
             SELECT
                 a.id AS accountDbId,
                 a.account_id AS accountCode,
@@ -539,8 +587,10 @@
           AND t.bank_process_posted_id IS NULL
           AND t.approval_status = 'APPROVED'
           AND t.transaction_type = 'RATE'
-          AND t.from_account_id IS NOT NULL
-          AND <include refid="rateMiddlemanFeeLeg"/>
+          AND (
+                (t.from_account_id IS NOT NULL AND <include refid="rateMiddlemanFeeLeg"/>)
+                OR <include refid="legacyRateMiddlemanFeeDebit"/>
+              )
         <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
             AND UPPER(c.code) IN
             <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
