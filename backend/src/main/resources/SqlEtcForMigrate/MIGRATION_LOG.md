@@ -751,3 +751,43 @@ BC009 (BILLION PAY SGD) 账户的 Payment History 里，一条 "RATE CHARGE (X0.
 - WIN/LOSE 分布：40339 WIN + 34895 LOSE = 75234，加总正确
 
 至此 Data Capture 域才算真正补完整——Payment History 现在能正确显示所有历史 Data Capture 收入/支出记录了。
+
+---
+
+## 19. 补做：细粒度账号/流程 ACL（`user_tenant_account_access`/`user_tenant_process_access`）
+
+延续 §2 当时留下的口子——那时候 MariaDB 10.4 没有 `JSON_TABLE` 展不开 JSON，`process_permissions` 又要等 Process 域迁完才能对上号。现在两个阻塞都解除了，补上。
+
+### JSON 结构
+
+旧库 `user_company_permissions.account_permissions`/`process_permissions` 都是对象数组：
+- `account_permissions`: `[{"id":4594,"account_id":"AG"}, ...]`——`id` 就是旧库 `account.id`（迁移时 1:1 保留过），不需要再按业务码反查
+- `process_permissions`: `[{"id":4250,"process_id":"SALARY","description":"SALARY"}, ...]`——`id` 是旧库 `process.id`，`process_id` 这个字段名容易误导，实际存的是业务码文本，不是数字 id，忽略不用；`id` 需要跟其他所有引用过 `process.id` 的地方一样，走 `process_duplicate_merge_map` 解析
+
+没有 `JSON_TABLE`，用固定 0..499 的数字表展开（这批 JSON 数组最长 416 个元素，够用），跟草稿迁移那次用的同一套手法。
+
+### 处理规则
+
+- `account_acl_mode`/`process_acl_mode`：数组非空 → `CUSTOM`；数组是空的 `[]` → `NONE`（核实过这是真实的"故意设成零可见"，不是占位——这一行数据存在本身就说明有人专门给这个用户+公司存过一条自定义权限记录）。`NONE` 和"`CUSTOM` 但关联表 0 行"在代码里效果完全一样（`UserServiceImpl` 里 `NONE` 直接短路返回空列表，`CUSTOM` 走 join 结果也是空），选 `NONE` 只是因为它把意图说得更明确，顺便省一次 join，不是瞎猜。
+
+### 排查到的孤儿
+
+42 条 `user_company_permissions` 里 5 条完全对不上任何 `user_tenant_access`：
+- **3 条**（`user_id=523/524/525`，登录名 `IT_JK`/`IT_JS`/`IT_MS`）——这 3 个用户从来没有被搬进 `count_real.user`（旧库 95 个用户，新库当时只有 92 个，正好差这 3 个；核对过是 `system_it_allowlist` 那 3 条"IT 运维白名单"账号，`created_by=system-maintenance`，2026-07-10 创建，在这次备份范围内，理论上该被迁移脚本捞到但没有）。**已经跟你确认过：这 3 个账号你之前就说过要整个删掉，不需要，所以这次没有补，直接跳过。**
+- **2 条**（`user_id=280`/公司 95，`user_id=299`/公司 CX）——这两个用户是真实存在的，公司也能解析到真实 tenant，但压根没有对应的 `user_tenant_access`（旧库 `user_company_map` 里也没有这两笔）——跟这次迁移里反复出现的"历史孤儿"是同一种模式（权限记录还在，但对应的访问授权已经被拿掉了），没有编一条 `user_tenant_access` 出来硬接上。
+
+37 条可解析的行内部，还有零星失效引用：process 侧 5696 条条目里 62 条指向的 `process.id`（连 merge-map 都解析不出来）已经不存在，account 侧 5687 条条目里 172 条指向的 `account.id` 已经不存在——都是"整条权限列表基本有效、个别几条过期"的情况，跟这次迁移里其它域处理"列表里零星脏引用"的方式一致，直接跳过那几条，不影响列表里其它有效的条目。
+
+### 迁移结果
+
+| 项目 | 结果 |
+|---|---|
+| 触碰到的 `user_tenant_access` 行 | 37（跟可解析的行数一致） |
+| `account_acl_mode` | 37 条全部 `CUSTOM`（这批用户的 account_permissions 都非空） |
+| `process_acl_mode` | 28 条 `CUSTOM` + 9 条 `NONE` |
+| `user_tenant_account_access` | 5515 行 |
+| `user_tenant_process_access` | 5605 行 |
+
+抽查了 `user_id=284`（在 CX 公司）：旧库 JSON 里 38 个账号，新库落地 37 条（1 条指向的账号已经不存在，跳过），跟预期完全对上。
+
+脚本：[migrate_data_user_acl_from_legacy.sql](migrate_data_user_acl_from_legacy.sql)。

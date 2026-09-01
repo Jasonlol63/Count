@@ -14,7 +14,7 @@ public class Maintenance {
     private String content;
     private String companyCode;
     private Status status;
-    private Integer createdBy;
+    private String createdBy;
     private User userType;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

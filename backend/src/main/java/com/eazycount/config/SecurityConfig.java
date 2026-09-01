@@ -34,6 +34,7 @@ public class SecurityConfig {
             "/auth/logout",
             "/auth/send-reset-tac",
             "/auth/reset-password",
+            "/api/announcement/getMaintenanceInLogin",
     };
 
     @Bean
@@ -41,7 +42,6 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    /** Verifies legacy $argon2id$ hashes only — new/rehashed passwords always use {@link #passwordEncoder()} (bcrypt). */
     @Bean
     public Argon2PasswordEncoder argon2PasswordEncoder() {
         return Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8();

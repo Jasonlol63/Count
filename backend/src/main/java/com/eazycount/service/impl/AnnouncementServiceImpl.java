@@ -10,6 +10,7 @@ import com.eazycount.service.AnnouncementService;
 import com.eazycount.util.AccessControlUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -20,16 +21,10 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     private AnnouncementDao announcementDao;
 
     @Override
-    public List<Announcements> findAllAnnouncement() {
-
-        return announcementDao.findAllAnnouncement();
-    }
+    public List<Announcements> findAllAnnouncement() {return announcementDao.findAllAnnouncement();}
 
     @Override
-    public List<Maintenance> findAllMaintenance() {
-
-        return announcementDao.findAllMaintenance();
-    }
+    public List<Maintenance> findAllMaintenance() {return announcementDao.findAllMaintenance();}
 
     @Override
     public List<Announcements> findDashboardAnnouncements(){
@@ -42,6 +37,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     }
 
     @Override
+    @Transactional
     public void addMaintenance(Maintenance maintenance) {
         final SessionUser current = SecurityUtils.currentUser();
         AccessControlUtils.requireWritable(current);
@@ -49,8 +45,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             throw new BusinessException("User not logged in");
         }
 
-        if (maintenance.getCreatedBy() == null) {
-            maintenance.setCreatedBy(current.user_id);
+        if (maintenance.getCreatedBy() == null || maintenance.getCreatedBy().isBlank()) {
+            maintenance.setCreatedBy(current.login_id);
         }
 
         if (maintenance.getUserType() == null) {
@@ -82,6 +78,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
 
     @Override
+    @Transactional
     public void addAnnouncement(Announcements announcements) {
         final SessionUser current = SecurityUtils.currentUser();
         AccessControlUtils.requireWritable(current);
@@ -89,8 +86,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             throw new BusinessException("User not logged in");
         }
 
-        if (announcements.getCreatedBy() == null) {
-            announcements.setCreatedBy(current.user_id);
+        if (announcements.getCreatedBy() == null || announcements.getCreatedBy().isBlank()) {
+            announcements.setCreatedBy(current.login_id);
         }
 
         if (announcements.getUserType() == null) {
@@ -123,6 +120,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     }
 
     @Override
+    @Transactional
     public void updateAnnouncement(Announcements announcements) {
         final SessionUser current = SecurityUtils.currentUser();
         AccessControlUtils.requireWritable(current);
@@ -144,6 +142,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     }
 
     @Override
+    @Transactional
     public void updateMaintenance(Maintenance maintenance) {
         final SessionUser current = SecurityUtils.currentUser();
         AccessControlUtils.requireWritable(current);
@@ -165,6 +164,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     }
 
     @Override
+    @Transactional
     public void deleteAnnouncement(Announcements announcements) {
         final SessionUser current = SecurityUtils.currentUser();
         AccessControlUtils.requireWritable(current);
@@ -183,6 +183,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     }
 
     @Override
+    @Transactional
     public void deleteMaintenance(Maintenance maintenance) {
         final SessionUser current = SecurityUtils.currentUser();
         AccessControlUtils.requireWritable(current);

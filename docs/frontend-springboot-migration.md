@@ -88,7 +88,7 @@ res.success === true || res.status === "success"
 | **Admin (User List)** | ✅ 已迁移 | `/api/userlist/*` | `userListApi.js` |
 | **Account (Member)** | ✅ 全量已迁移 | `/api/account/*` + `/api/currency/*` | `accountListApi.js` + `currencyApi.js`；`AccountListPage` 直调 Spring |
 | **Currency** | ✅ 已迁移 | `/api/currency/*` | `currencyApi.js` |
-| **Announcement / Maintenance** | ✅ 已迁移 | `/api/announcement/*` | `apiUrl.js` 重写（页面仍写 PHP 路径） |
+| **Announcement / Maintenance** | ✅ 已迁移（2026-09-01 复核：请求体改 JSON，`created_by` 改存 login_id） | `/api/announcement/*` | 前端页面直接写 Spring 路径（`announcementApi.js`），`apiUrl.js` 里的 PHP 改写表已删除；create/update/delete 全部改用 `JSON.stringify` body（原本仍在发 `FormData`，打到 `@RequestBody` 端点必挂）；`created_by` 由 `INT`(user_id) 改为 `VARCHAR(50)`(login_id)，前端不再显示裸数字 id；`getMaintenanceInLogin` 加入 `SecurityConfig.PUBLIC_URLS`（原本要求登录，但登录页在有 session 前调它必 401）；维护模式开关（`mode_api.php`）无 Spring 对应，本次已从前端移除，见第 7 节 |
 | **Auto Renew** | ✅ 已迁移（2026-08-25 复核，无残留 PHP 调用） | `/api/auto-renew/*` + Domain Comm | 列表 / reject / approve 直调 Spring；Comm 用 `domain/list` + `update-setting` |
 | **Ownership** | ✅ API 已迁移 + **数据层已对齐 Spring** | `/api/ownership/*` | `apiUrl.js` 重写 + `ownershipRowHelpers` normalize |
 | **Process** | ✅ 已迁移（2026-08-25 复核：第 17 节的列表加载 PHP + 死代码 bug 已修） | `/api/process/*` + `/api/currency/list` | Add/Update/Status/Delete/description CRUD 及列表加载均直调 Spring；`processRoutePrefetch.js` 已改用 `fetchProcessListByTenantId`/`fetchProcessFormMeta`，不再打 `processlist_api.php`。页内仍有一处硬编码 `session/update_company_session_api.php`（公司切换），未跟着迁移，见第 7 节 |
@@ -246,9 +246,17 @@ PHP——`domainApi.js`/`domainHelpers.js` 虽然内容和本节一致，但实�
 
 ### 4.6 Announcement
 
+> **2026-09-01 复核**：此前"已迁移"的判定只看 `apiUrl.js` 的 URL 改写表是否覆盖，没查请求体格式是否匹配 Spring 的 `@RequestBody` —— 实际上 create/update/delete 六个写接口一直在发 `multipart/form-data`（`FormData`），打到只接受 JSON 的 Spring controller 上会直接 415/绑定失败，功能其实是坏的。本次全部改正：
+
 | 文件 | 改动 |
 |------|------|
-| `pages/announcement/AnnouncementPage.jsx` | 仍写 PHP 文件名，经 `apiUrl.js` 转到 `api/announcement/*` |
+| `pages/announcement/announcementApi.js`（新增） | 集中封装 list/create/update/delete，统一走 `fetch(..., {headers:{"Content-Type":"application/json"}, body: JSON.stringify(...)})`，与 `domainApi.js` 的 `postJson` 写法一致；直接写 Spring 路径（`api/announcement/listAnnouncement` 等），不再经 `apiUrl.js` 的 PHP 改写表 |
+| `pages/announcement/AnnouncementPage.jsx` / `components/AnnouncementPanels.jsx` | 全部改调 `announcementApi.js`；`created_by`/`created_at` 改用 `item.createdBy`/`item.createdAt`（Spring 字段是 camelCase），`created_at` 用新增的 `formatAnnouncementTimestamp()` 格式化（Spring `LocalDateTime` 序列化出来是 ISO 字符串，不是 PHP 那种预格式化字符串）；**移除**维护模式开关 UI/state（`maintenanceMode`/`canManageMaintenanceMode`/`toggleMaintenanceMode` 等），因为 `maintenance/mode_api.php` 无 Spring 对应端点（无表、无字段记录"当前生效的维护公告"），用户确认本次先移除，之后要做再补后端 |
+| `components/AuthenticatedLayout.jsx`、`pages/member/useMemberPageShell.js` | 通知铃铛的 dashboard announcement 请求改为直接调 `api/announcement/getDashboardAnnouncements`（不再经 PHP 改写表），并同样用 `formatAnnouncementTimestamp()` 格式化 `created_at` |
+| `utils/core/apiUrl.js` | 删除 Announcement/Maintenance 相关的 PHP→Spring 改写条目（9 条），因为已经没有代码再写 PHP 路径了 |
+| `translateFile/pages/announcementTranslate.js` | 删除维护模式开关相关的、不再被引用的翻译 key（`modeEnableButton` 等 11 个） |
+| 后端 `Announcements.java` / `Maintenance.java` / `AnnouncementServiceImpl.java` / `AnnouncementsMapper.xml` | `createdBy` 字段类型从 `Integer`（`user_id`，无法在前端还原成用户名）改为 `String`（`login_id`，与 `process_submitted`/`data_captures` 等表的 `created_by(login_id)` 惯例对齐）；`SecurityConfig.PUBLIC_URLS` 加入 `/api/announcement/getMaintenanceInLogin`（登录页在拿到 session 前调用该接口，此前要求登录会 401，导致登录页维护公告条一直不显示） |
+| `backend/src/main/resources/sql/migrate_announcement_maintenance_created_by_login_id.sql`（新增） | 现有库的迁移脚本：`announcements.created_by`/`maintenance_marquee.created_by` 从 `INT UNSIGNED` 改 `VARCHAR(50)`，并按 `user_type` 把旧的数字 id 回填成 `user.login_id`/`owner.owner_code`（需手动执行，本项目 SQL 迁移脚本无自动 runner） |
 
 ### 4.7 Auto Renew
 
@@ -445,7 +453,7 @@ Group 候选完全依赖 Spring `GET /api/ownership/available-accounts`。
 - **User Access 页面**（`UserAccessPage.jsx`）：**已于 2026-08-25 全部改为 Spring**（本条历史记录见下方补充说明），不再是待迁移项
 - **Deleted Log 页面**：**已于 2026-08-25 整体下线**（用户确认"不需要了"）。删除了 `pages/deletedlog/DeletedLogPage.jsx`、`public/css/deleted-log.css`，并清掉 `App.jsx` / `pageRoutes.js`（`PAGE_PATHS`、`PAGE_ROUTE_UUIDS`、`SPA_READABLE_ROUTE_PATTERN`）/ `routePrefetch.js` / `AuthenticatedLayout.jsx`（`onAccountLike` 分支）/ `LoginPage.jsx`（body class 清理列表）里的路由注册和引用；核实过应用内没有任何侧边栏入口指向这个页面（只能靠直接输 URL 到达），故不需要额外处理跳转/引导。`public/css/modal-close-unified.css` 里还残留几行 `.deleted-log-json-modal` 选择器，纯死 CSS（没有任何组件再用这个 class 名），未清——不影响功能，之后顺手清一次即可
 - **Maintenance 公司权限校验**：**已于 2026-08-25 移除**（本条历史记录见下方 §7.2）
-- **Announcement 维护模式开关**（`AnnouncementPage.jsx` 的 `maintenance/mode_api.php`）：Announcement 模块其余接口（list/create/update/delete、含维护公告）都已在 `apiUrl.js` 改写到 Spring，唯独这一个 mode 开关端点漏了
+- **Announcement 维护模式开关**（原 `AnnouncementPage.jsx` 的 `maintenance/mode_api.php`）：**已于 2026-09-01 从前端移除**（用户确认）。Spring 端完全没有 enable/disable 开关的对应接口、也没有表/字段记录"当前生效的维护公告"，这不是遗漏的改写条目，是真实的功能空白；之后要恢复这个功能需要新增后端设计（起码要一个字段/表存"哪条 maintenance 是当前生效状态"，加一个 toggle 接口）
 - **Currency 删除**：**已于 2026-08-25 清理**（本条历史记录见下方 §7.3）——不再是待迁移/待清理项
 - **Process List / Bank Process List 页内的公司切换**：**已于 2026-08-25 修复**（本条历史记录见下方 §7.4）——不再是待迁移项。**Dashboard**（`useDashboardPage.js`）里还有一处同样硬编码调 `update_company_session_api.php` 的代码，用户已知未迁移、留到之后再做，本次不处理。**Member Win/Loss**（`useMemberWinLoss.js`）的同款问题**已于 2026-08-26 一并修复**，见下方 §7.7 —— 不再是待迁移项
 - **Games Process List — Copy From**：**已于 2026-08-26 实现**（本条历史记录见下方 §7.6）——不再是待迁移项
