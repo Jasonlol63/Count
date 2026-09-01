@@ -19,7 +19,8 @@ public interface AutoRenewDao {
 
     AutoRenewDTO selectRequestById(@Param("requestId") Integer requestId);
 
-    int countRequestsByStatus(@Param("status") String status, @Param("tenantType") String tenantType, @Param("windowDays") int windowDays);
+    int countRequestsByStatus(@Param("status") String status, @Param("tenantType") String tenantType, @Param("windowDays") int windowDays,
+                               @Param("dateFrom") LocalDate dateFrom, @Param("dateTo") LocalDate dateTo);
 
     int countPendingByTenantType(@Param("tenantType") String tenantType, @Param("windowDays") int windowDays);
 

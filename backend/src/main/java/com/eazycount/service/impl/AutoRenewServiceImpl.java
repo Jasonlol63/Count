@@ -66,12 +66,12 @@ public class AutoRenewServiceImpl implements AutoRenewService {
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     @Override
-    public AutoRenewDTO getAutoRenewCounts(String tenantType, int windowDays) {
+    public AutoRenewDTO getAutoRenewCounts(String tenantType, int windowDays, LocalDate dateFrom, LocalDate dateTo) {
         autoRenewDao.syncWindowRequests(windowDays);
 
-        int pendingCnt = autoRenewDao.countRequestsByStatus("pending", tenantType, windowDays);
-        int approvedCnt = autoRenewDao.countRequestsByStatus("approved", tenantType, windowDays);
-        int rejectedCnt = autoRenewDao.countRequestsByStatus("rejected", tenantType, windowDays);
+        int pendingCnt = autoRenewDao.countRequestsByStatus("pending", tenantType, windowDays, null, null);
+        int approvedCnt = autoRenewDao.countRequestsByStatus("approved", tenantType, windowDays, dateFrom, dateTo);
+        int rejectedCnt = autoRenewDao.countRequestsByStatus("rejected", tenantType, windowDays, dateFrom, dateTo);
         int totalCnt = pendingCnt + approvedCnt + rejectedCnt;
 
         AutoRenewDTO.Counts counts = new AutoRenewDTO.Counts();
@@ -192,7 +192,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
         }
 
         DomainFeeSettingsDTO feeSettings = domainService.findDomainFeeSettings();
-        AutoRenewDTO stats = this.getAutoRenewCounts(tenantTypeFilter, WINDOW_DAYS);
+        AutoRenewDTO stats = this.getAutoRenewCounts(tenantTypeFilter, WINDOW_DAYS, dateFrom, dateTo);
 
         AutoRenewListResponseDTO responseData = new AutoRenewListResponseDTO();
         responseData.setRows(rows);

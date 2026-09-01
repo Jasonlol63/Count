@@ -2,6 +2,7 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.eazycount.dao.AutoRenewDao">
 
+    <!-- &lt; = < , &gt; = > -->
     <!-- 扫描临期租户，自动生成待审批申请 -->
     <insert id="syncWindowRequests">
         INSERT IGNORE INTO tenant_auto_renew
@@ -47,23 +48,40 @@
         LEFT JOIN tenant parent_t ON parent_t.id = t.parent_id
         LEFT JOIN owner o ON o.id = t.owner_id
         <where>
-            <if test="status != null and status != ''">
-                AND r.status = #{status}
-            </if>
             <if test="tenantType != null and tenantType != ''">
                 AND t.tenant_type = #{tenantType}
             </if>
-            <if test="status != 'pending'">
-                <if test="dateFrom != null">
-                    AND DATE(r.processed_at) &gt;= #{dateFrom}
-                </if>
-                <if test="dateTo != null">
-                    AND DATE(r.processed_at) &lt;= #{dateTo}
-                </if>
-            </if>
-            <if test="status == 'pending'">
-                AND DATEDIFF(t.expiration_date, CURDATE()) &lt;= #{windowDays}
-            </if>
+            <choose>
+                <when test="status != null and status != ''">
+                    AND r.status = #{status}
+                    <choose>
+                        <when test="status == 'pending'">
+                            AND DATEDIFF(t.expiration_date, CURDATE()) &lt;= #{windowDays}
+                        </when>
+                        <otherwise>
+                            <if test="dateFrom != null">
+                                AND DATE(r.processed_at) &gt;= #{dateFrom}
+                            </if>
+                            <if test="dateTo != null">
+                                AND DATE(r.processed_at) &lt;= #{dateTo}
+                            </if>
+                        </otherwise>
+                    </choose>
+                </when>
+                <otherwise>
+                    AND (
+                        (r.status = 'pending' AND DATEDIFF(t.expiration_date, CURDATE()) &lt;= #{windowDays})
+                        OR (r.status IN ('approved', 'rejected')
+                            <if test="dateFrom != null">
+                                AND DATE(r.processed_at) &gt;= #{dateFrom}
+                            </if>
+                            <if test="dateTo != null">
+                                AND DATE(r.processed_at) &lt;= #{dateTo}
+                            </if>
+                        )
+                    )
+                </otherwise>
+            </choose>
         </where>
         ORDER BY r.created_at DESC
     </select>
@@ -89,7 +107,7 @@
         WHERE r.id = #{requestId}
     </select>
 
-    <!-- 根据状态统计数量 -->
+    <!-- 根据状态统计数量：pending 按到期窗口过滤，approved/rejected 按 processed_at 落在所选日期区间过滤 -->
     <select id="countRequestsByStatus" resultType="int">
         SELECT COUNT(*)
         FROM tenant_auto_renew r
@@ -100,6 +118,14 @@
             </if>
             <if test="status == 'pending'">
                 AND DATEDIFF(t.expiration_date, CURDATE()) &lt;= #{windowDays}
+            </if>
+            <if test="status != 'pending'">
+                <if test="dateFrom != null">
+                    AND DATE(r.processed_at) &gt;= #{dateFrom}
+                </if>
+                <if test="dateTo != null">
+                    AND DATE(r.processed_at) &lt;= #{dateTo}
+                </if>
             </if>
             <if test="tenantType != null and tenantType != ''">
                 AND t.tenant_type = #{tenantType}

@@ -31,7 +31,7 @@ public class AutoRenewController {
 
             if ("pending_count".equalsIgnoreCase(request.getAction())) {
                 // 在统计侧栏/页签数字时，不按特定的租户类型过滤 counts，从而返回全部的 pending_count 总数
-                AutoRenewDTO stats = autoRenewService.getAutoRenewCounts(null, 30);
+                AutoRenewDTO stats = autoRenewService.getAutoRenewCounts(null, 30, null, null);
                 Integer pendingCount = stats.getCounts() != null ? stats.getCounts().getPending() : null;
 
                 Map<String, Object> data = new LinkedHashMap<>();
