@@ -21,6 +21,12 @@ import java.time.YearMonth;
 @Service
 public class    BankProcessResendServiceImpl implements BankProcessResendService {
 
+    private static final java.util.Set<BankProcess.Status> RESEND_ELIGIBLE_STATUS = java.util.EnumSet.of(
+            BankProcess.Status.ACTIVE,
+            BankProcess.Status.OFFICIAL,
+            BankProcess.Status.E_INVOICE,
+            BankProcess.Status.BLOCK);
+
     @Autowired
     private BankProcessDao bankProcessDao;
 
@@ -52,8 +58,8 @@ public class    BankProcessResendServiceImpl implements BankProcessResendService
         if (existing == null) {
             throw new BusinessException("Bank process not found!");
         }
-        if (existing.getStatus() != BankProcess.Status.ACTIVE) {
-            throw new BusinessException("Only ACTIVE Bank Process can use Resend!");
+        if (!RESEND_ELIGIBLE_STATUS.contains(existing.getStatus())) {
+            throw new BusinessException("This Bank Process status does not allow Resend!");
         }
 
         BankProcess.Frequency frequency = parseFrequency(request.getFrequency(), existing.getFrequency());
