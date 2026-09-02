@@ -234,7 +234,8 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         lines.addAll(winLoss.lines());
         lines.addAll(domain.lines());
         lines.sort(Comparator
-                .comparing(TransactionHistoryLineRow::getCreatedAt, Comparator.nullsLast(LocalDateTime::compareTo))
+                .comparing(TransactionHistoryLineRow::getTransactionDate, Comparator.nullsLast(LocalDate::compareTo))
+                .thenComparing(TransactionHistoryLineRow::getCreatedAt, Comparator.nullsLast(LocalDateTime::compareTo))
                 .thenComparing(TransactionHistoryLineRow::getId, Comparator.nullsLast(Integer::compareTo)));
 
         Set<String> currencyOrder = new LinkedHashSet<>();
@@ -257,7 +258,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             BigDecimal bf = balanceByCurrency.getOrDefault(currency, BigDecimal.ZERO);
             TransactionHistoryResult.Row bfRow = new TransactionHistoryResult.Row();
             bfRow.setRowType("bf");
-            bfRow.setDate(formatHistoryDate(dateFrom));
+            bfRow.setDate("B/F");
             bfRow.setCurrency(currency);
             bfRow.setRate("-");
             bfRow.setWinLoss(TransactionMoneyFormat.formatMoney(BigDecimal.ZERO));

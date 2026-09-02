@@ -4,6 +4,7 @@ import com.eazycount.common.BusinessException;
 import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.DomainDao;
 import com.eazycount.dao.DomainListFeePriceDao;
+import com.eazycount.dao.TenantDao;
 import com.eazycount.dao.TenantFeeShareAllocateDao;
 import com.eazycount.dao.TransactionDao;
 import com.eazycount.dao.UserDao;
@@ -37,6 +38,9 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
 
     @Autowired
     private DomainDao domainDao;
+
+    @Autowired
+    private TenantDao tenantDao;
 
     @Autowired
     private DomainListFeePriceDao domainListFeePriceDao;
@@ -95,7 +99,7 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
         }
         domainFeeAmount = scaleMoney(domainFeeAmount);
 
-        Tenant c168Tenant = domainDao.findTenantByCodeAndOwnerId("C168", 1);
+        Tenant c168Tenant = tenantDao.findTenantByCode("C168");
         if (c168Tenant == null || c168Tenant.getId() == null) {
             throw new BusinessException("C168 ledger tenant not found");
         }

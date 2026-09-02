@@ -846,3 +846,441 @@ BC009 (BILLION PAY SGD) 账户的 Payment History 里，一条 "RATE CHARGE (X0.
 | user_tenant_access（本次新增的 3 行） | — | +3（532/533/534 各新增 1 行 GROUP 权限，原有公司权限行不受影响） |
 
 两个脚本均由 Claude 直接连接本地 `count_real`（`127.0.0.1:3306`，root）执行，执行前已用只读查询预演过 `SELECT` 部分确认结果集正确，执行后逐行核对落库结果与预演一致。
+
+---
+
+## 21. 诊断（未修复）：Payment History 页面 4 处应用层展示 bug——数据本身是对的，问题在 `TransactionHistoryMapper.xml`/`TransactionHistoryServiceImpl.java`
+
+用户拿 `C168` 公司下 `AG`（APEX GAMING，`account.id=4839`，`role=COMPANY`）这个账户的 Payment History 页面（旧版 `count168.site` vs 新版 `localhost:5173`）逐行对比，发现好几处对不上，怀疑是迁移数据错了。逐条核对下来：**底层 `transactions`/`data_capture_line` 数据本身完全正确**（跟旧库逐字段比对一致），问题全部出在新版应用层的展示计算逻辑——是代码缺口，不是数据缺口。这里只记录诊断结论，代码本身按用户要求暂不修改。
+
+排查方法：把新版代码对照旧版 PHP 仓库（`C:\Users\User\OneDrive\Desktop\count168test`）里真正驱动这个页面的 `api/transactions/history_api.php` 逐条核对（不是猜）。
+
+### 21.1 Bug 1：PAYMENT 类型对 `[DOMAIN_LIST_FEE|...]`/`[AUTO_RENEW|...]` 标记行缺一条符号反转的例外
+
+`transactions.id=7515`（"Pay Domain Fee"，`account_id=4837` C168 PROFIT 账户，`from_account_id=4839` AG，`remark='[DOMAIN_LIST_FEE|AG]'`）——数据本身没问题。
+
+旧版 `history_api.php`（2118-2168 行）：PAYMENT 类型默认 **To 账户负、From 账户正**，但专门对 `sms`/`description` 带 `[DOMAIN_LIST_FEE|...]`（含 `[DOMAIN_LIST_FEE]`、`Pay Domain Fee`/`Pay Domain Fee To ` 开头的描述、`[AUTO_RENEW|...]` 系列）的行做了**反转**（注释原文："List Fee、Pay Domain Fee 付款方记 -amount"）；同一段落里 `[DOMAIN_SHARE_COMMISSION|...]`/`[AUTO_RENEW|COMMISSION|...]` 标记的行在 To 侧也有单独的 +amount 例外；`[DOMAIN_NET_PROFIT|...]`/`[AUTO_RENEW|NET_PROFIT|...]`/`Profit By ` 标记的行在 From 侧记 0。
+
+新版 `TransactionHistoryMapper.xml` 的 `findDomainPaymentHistoryLines`（[TransactionHistoryMapper.xml:235](../mybatis/TransactionHistoryMapper.xml)）只有 §15/§16/§17 那次改的 RATE middleman fee 例外，domain-fee/auto-renew 这一整类例外从未被实现过——AG 作为 `from_account_id` 走的是默认的 From=正规则，显示成 `+2400` 而不是旧版的 `-2400`。
+
+同样缺口存在于 `aggregateDomainPaymentBfByAccount`（B/F 期初余额聚合，[TransactionHistoryMapper.xml:104](../mybatis/TransactionHistoryMapper.xml)）——只要 B/F 截止日期之前有这类标记的交易，期初余额也会算错，不只是明细行。
+
+**影响范围**：不只 AG 一个账户——所有租户下但凡有域名费自动扣款（`DOMAIN_LIST_FEE`）、自动续费扣费/佣金/净利润（`AUTO_RENEW|*`）、股权分成佣金（`DOMAIN_SHARE_COMMISSION`）的账户，Payment History 的这几笔金额符号和 B/F 都会算错。
+
+### 21.1b 实锤：`K`(BOSS) 账户的 `AUTO_RENEW|COMMISSION` 那半个例外——CR/DR 符号 + ID PRODUCT + 描述文案三处一起错
+
+用户又拿 `C168` 公司下 `K`（BOSS，`account.id=4844`，`role=PARTNER`）核对了一遍，正好是 §21.1 提到但当时没有具体例子的 `[AUTO_RENEW|COMMISSION|...]` 分支。数据（新旧库一致，迁移没搬错）：
+
+```
+transactions.id=17046  PAYMENT  account_id=4844(K)  from_account_id=4837(C168 PROFIT)  amount=240
+description = "Sales Commision for AJ"   -- 注意：legacy 原文本身就拼错了（Commision 少一个 s），新库原样保留
+sms/remark  = "[AUTO_RENEW|COMMISSION|AJ|2026-08-05|ROLE:SALES|AID:4844]"
+```
+
+**CR/DR 符号**：K 是 `account_id`（To 方）。§21.1 已经提到的例外——`sms` 以 `[AUTO_RENEW|COMMISSION|` 开头时，To 方记 **+amount**（`history_api.php` 2128-2133 行）。旧版显示 `+240.00`，新版因为 `findDomainPaymentHistoryLines` 没有这个例外分支，走了默认的 "To=负"，显示成 `-240.00`。跟 §21.1 是同一个代码缺口，这次是它的 To 侧半边被实锤到了。
+
+**ID PRODUCT 全新发现的缺口**：旧版显示 `Commission`，新版显示 `-`（空）。根因不是符号问题，是另一套完全独立的逻辑缺失——`history_api.php` 对这类打了 `[AUTO_RENEW|COMMISSION|...]`/`[DOMAIN_SHARE_COMMISSION|...]` 标记的行，**根本不读存库的 `description` 字段来判断产品名**，而是从 `sms`/`remark` 里的标签重新解析：
+- `historyResolveDomainShareRoleLabel()`（810-833 行）：解析 `sms` 里的 `|ROLE:SALES|`（还有 `PROFIT`/`CS`/`IT`）→ 得到角色 `"SALES"`
+- `historyResolveAutoRenewCommissionSourceCompany()`（627-640 行）：解析 `sms` 里 `AUTO_RENEW|COMMISSION|AJ|...` 的 `AJ` → 来源公司代码
+- 两者拼成 `$description = "SALES" . " Commission From " . "AJ"` = `"SALES Commission From AJ"`，同时 `$domainShareProductKind = 'Commission'` 就是 ID PRODUCT 显示的值（2515-2538 行）
+
+也就是说旧版把这一整行的"产品名"和"描述文案"**都不认存库的 `description`**，全部靠 `remark` 里那个 `[AUTO_RENEW|COMMISSION|来源|日期|ROLE:角色|AID:账号]` 标签现算——这也解释了描述文案的第三处差异：旧版显示 `SALES COMMISSION FROM AJ`（角色 + "Commission From" + 来源公司，重新拼的），新版显示的是存库原文 `Sales Commision for AJ`（连拼写错误"Commision"都原样带出来了，介词也是 "for" 不是 "From"）——两个问题同源：新版既没有走"从 remark 重建文本"这条路径，也没有走 §21.4 的"按视角改写方向词"那条路径（这一行不匹配 `^(TYPE) (FROM|TO) (.+)$` 那个正则，因为它本来就不是标准 `"{TYPE} {FROM|TO} {账号}"` 格式，是自由文本）。
+
+新版 `resolveDomainHistoryProduct()`/`domainProductFromDescription()`（[TransactionHistoryServiceImpl.java:391-434](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)）目前只会拿存库 `description` 做字符串匹配兜底，其中还有个小 bug：第 405 行判断 `d.contains("COMMISSION")`（两个 S，拼写正确）——但这批数据实际存的是旧版一直沿用的错别字 `"COMMISION"`（一个 S），转大写后是 `"SALES COMMISION FOR AJ"`，压根不会命中这个 `contains("COMMISSION")` 判断，直接落空返回 `""`，前端显示 `-`。即使把这个拼写改成兼容两种写法，也只能治标——**真正要对齐旧版，需要照抄 `historyResolveDomainShareRoleLabel`/`historyResolveAutoRenewCommissionSourceCompany` 那套"从 remark 标签重建产品名和描述"的逻辑，而不是猜字符串**。
+
+**影响范围**：所有 `[AUTO_RENEW|COMMISSION|...]`（自动续费佣金分成）和 `[DOMAIN_SHARE_COMMISSION|...]`（股权分成佣金）标记的交易——CR/DR 符号、ID PRODUCT、描述文案三处同时受影响，不只是 K 这一个账户。
+
+### 21.2 Bug 2：History 合并排序用的是 `created_at`，不是 `transaction_date`
+
+`TransactionHistoryServiceImpl.java` 第 236-238 行，三路来源（Bank Process / Data Capture / Domain Payment）合并后按 `createdAt` 排序：
+
+```java
+lines.sort(Comparator
+        .comparing(TransactionHistoryLineRow::getCreatedAt, Comparator.nullsLast(LocalDateTime::compareTo))
+        .thenComparing(TransactionHistoryLineRow::getId, Comparator.nullsLast(Integer::compareTo)));
+```
+
+旧版 `history_api.php` 是按交易发生日期（`transaction_date`，"动态调整 description" 之前的显示日期变量 `$displayDateYmd`/`historyTransactionOrderTimestamp`）排序的。对迁移数据这两个字段经常对不上（补录/迟交），AG 这批数据里 `05/05` 那笔 `CONTRA`（`transaction_date=2026-05-04`，但 `created_at=2026-07-06`，操作员很晚才补录）就是因为 `created_at` 排序被排到了 `06/08` 那两条 Data Capture 记录后面，而不是按业务日期排在 `01/05` 和 `10/05` 之间。
+
+**影响范围**：全租户所有账户——只要某笔交易的 `created_at`（数据录入/迁移时间）跟 `transaction_date`（业务发生日期）不一致，History 页面顺序就会乱，不只是迁移数据，正常业务里补录/延迟审批的单也会中招。
+
+### 21.3 Bug 3：Data Capture 明细的 ID PRODUCT 只读了 `id_product`，没有像旧版一样兜底到 `id_product_main`/`id_product_sub`
+
+核对 `data_capture_line`：AG 这几条迁移过来的记录（`transaction_id=42741` 等，对应旧库 `data_capture_details.id=66252` 等）**旧库本身 `id_product` 列就是空字符串**，但 `id_product_main`（"HONG MING SOON" 等）一直有值——这是**旧库本身的数据质量问题**（新旧库这一列的值完全一致，migration 没有搬错，是如实复制的）。
+
+旧版 `history_api.php` 显示 ID PRODUCT 时压根不读 `id_product` 这一列（SQL 里根本没 SELECT 它，见 1512-1513 行），只用 `id_product_main`/`id_product_sub`：`product_type='sub'` 且 `id_product_sub` 非空 → 用 sub；否则 `id_product_main` 非空 → 用 main；都没有才兜底显示字面量 `'Data Capture'`（1916-1938 行）。
+
+新版 `findDataCaptureHistoryLines`（[TransactionHistoryMapper.xml:209](../mybatis/TransactionHistoryMapper.xml)）SELECT 列表里只有 `dcl.id_product AS idProduct`，没有选 `id_product_main`/`id_product_sub`；`TransactionHistoryServiceImpl.java` 第 329-330 行只判断这一个空字符串，读不到就直接兜底成硬编码 `"DATA CAPTURE"`：
+
+```java
+String idProduct = trimToEmpty(line.getIdProduct());
+row.setProduct(!idProduct.isEmpty() ? idProduct : "DATA CAPTURE");
+```
+
+没有走 `id_product_sub → id_product_main` 那条兜底链，所以旧库里 `id_product` 恰好是空的那批记录（AG 这几条是 5-7 月的，8 月的 `84258`/`84260` 凑巧 `id_product` 本身有值所以显示正常）在新版全部退化成没有意义的 `"DATA CAPTURE"`。
+
+（用户一开始怀疑是"BANK 格式用 process code 查找"导致的——排查下来不是 process code 的问题，是 SELECT 的列本身就选错了，`process_id`/`process_code` 解析在这条链路上没有问题。）
+
+**影响范围**：全租户——凡是旧库 `data_capture_details.id_product` 本身是空字符串的历史记录（不只 AG，抽查看是旧库长期存在的数据填写习惯问题，同一批数据里新旧记录都有），迁移过来后 ID PRODUCT 列都会显示成没有辨识度的 `"DATA CAPTURE"`，而不是实际的员工/项目名。
+
+### 21.4 Bug 4：CONTRA/PAYMENT/CLEAR/RECEIVE/CLAIM/RATE 的 description 应该按"当前查看账户是 To 还是 From"动态改写，新版固定显示原始存库文本
+
+核对 `transactions.id=14124/14126`（两笔 CONTRA，`account_id=4838` EXPENSES，`from_account_id=4839` AG）：**新旧两个库里存的 `description` 都是同一个字符串 `"CONTRA FROM AG"`**——不是迁移搬错了文本。
+
+旧版 `history_api.php`（2365-2401 行）对 `CONTRA/CLEAR/PAYMENT/RECEIVE/CLAIM/RATE` 这几类做了一层"看当前是谁在查"的动态改写：
+- 原始 `description` 为空 → 按当前视角自动生成 `"{TYPE} FROM {from_account_code}"`（当前是 To 账户）或 `"{TYPE} TO {to_account_code}"`（当前是 From 账户）
+- 原始 `description` 匹配 `^(CONTRA|CLEAR|PAYMENT|RECEIVE|CLAIM|RATE) (FROM|TO) (.+)$` 这种"自动生成格式"：**当前账户是 To 账户 → 原样显示**；**当前账户是 From 账户 → 强制改写成 `"{TYPE} TO {to_account_code}"`**（不管原文写的方向词是什么）
+- RATE 类型还有单独的 `"Transaction from/to X (Rate: n)"` 格式改写规则
+
+AG 是这两笔 CONTRA 的 `from_account_id`，按上面第二条规则应该被改写成 `"CONTRA TO EXPENSES"`（`to_account_code` = EXPENSES 账户的 `account_id` 业务码）——这正是旧版截图显示的文本。
+
+新版 `findDomainPaymentHistoryLines` 这一行（[TransactionHistoryMapper.xml:245](../mybatis/TransactionHistoryMapper.xml)）：`t.description AS description`，原样透传存库值，完全没做这层按视角改写的逻辑，所以 AG 看到的还是数据库里字面存的 `"CONTRA FROM AG"`。
+
+**影响范围**：全租户——任何账户只要是 `CONTRA/CLEAR/PAYMENT/RECEIVE/CLAIM/RATE` 类型交易里的 From 方（或对方描述是自动生成格式），看自己的 Payment History 时描述文案的方向都会跟旧版反着显示。
+
+### 修复涉及的文件（供以后动手时参考，这次未改动）
+
+- `backend/src/main/resources/mybatis/TransactionHistoryMapper.xml`——`findDomainPaymentHistoryLines`（Bug 1/4）、`findDataCaptureHistoryLines`（Bug 3）、`aggregateDomainPaymentBfByAccount`（Bug 1 的 B/F 部分）
+- `backend/src/main/resources/mybatis/TransactionSearchMapper.xml`——按 §15 建立的惯例，`manualCrDrTransactionTypes` 等片段是跟 History 那份故意重复维护的两份拷贝，如果 Search/List 页面有同样的 domain-fee 符号问题，这个文件要同步改（这次没有专门核对 Search 页，只核对了 Payment History）
+- `backend/src/main/java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java`——排序（Bug 2，第 236-238 行）、ID PRODUCT 兜底链（Bug 3，第 329-330 行）、`domainProductFromDescription()`/`resolveDomainHistoryProduct()`（§21.1b，第 391-434 行——需要照抄旧版 `historyResolveDomainShareRoleLabel`/`historyResolveAutoRenewCommissionSourceCompany` 从 `remark` 标签重建产品名+描述，不能只是修字符串匹配的拼写）
+- 改完后按 §15 的验证方式：`mvn compile` + 两个 mapper XML 单独做 XML 合法性校验（历史上这两个文件改动时都踩过注释里误写 `--` 的坑）+ 用 AG 这个账户手工核对每一行金额/描述/ID PRODUCT/排序跟旧版截图逐条比对
+
+---
+
+## 22. §21.1 的另一种解法：不改显示逻辑，改数据本身——已执行，过程中出过一次事故并已修复
+
+用户不想照抄旧版那套"识别标签再反转符号"的显示层逻辑（理由：旧版那套是为了兼容 PHP 自己的写入习惯而存在的历史包袱，新版 `chargeDomainFee()` 的写入方式已经不一样了），问能不能保持新版现在这套简单的默认显示公式不变。核实后确认**这个方向是对的，而且比照抄旧版更合理**——细节如下。
+
+### 22.1 根因：不是显示层缺例外，是新旧两版的写入方向本来就反了
+
+直接读 [`DomainFeeChargeServiceImpl.java`](../../java/com/eazycount/service/impl/DomainFeeChargeServiceImpl.java) 的 `chargeDomainFee()`：
+- Pay Domain Fee 行（139-140 行）：`buildPaymentLine(c168TenantId, payerAccountId, profitAccountId, ...)` → `account_id` = 付款方，`from_account_id` = C168
+- Commission 行（165 行）：`buildPaymentLine(c168TenantId, profitAccountId, row.getAccountId(), ...)` → `account_id` = C168，`from_account_id` = 收佣金的人
+- Net Profit 行（176 行）：`buildPaymentLine(c168TenantId, profitAccountId, profitAccountId, ...)` → `account_id`=`from_account_id`=C168 自己（自引用）
+
+而全库排查（64 条带 `DOMAIN_LIST_FEE`/`DOMAIN_SHARE_COMMISSION`/`DOMAIN_NET_PROFIT`/`AUTO_RENEW*` 标签的 PAYMENT 交易，全部在 `tenant_id=77`）发现，**这批全部是迁移过来的旧数据（没有一条是 2026-08-27 备份之后新建的）**，写入方向是：
+- Fee 行：`account_id`=C168（收款方），`from_account_id`=付款方——**跟新版代码正好相反**
+- Commission 行：`account_id`=收佣金的人，`from_account_id`=C168——**跟新版代码正好相反**
+- Net Profit 行：`account_id`=C168，`from_account_id`=`NULL`——不是自引用，形状也不一样
+
+核对下来这个"反向"没有一个例外（Fee 行 `account_id` 100% 是 `4837`，Commission 行 `from_account_id` 100% 是 `4837`，Net Profit 行 `from_account_id` 100% 是 `NULL`）。
+
+结论：新版 `chargeDomainFee()` 自己新建的交易，配合现在这套**没有任何标签例外的默认公式**（To 账户负、From 账户正、自引用为 0）天然就是对的——这也是用户测试时"感觉这个功能没问题"的原因，他测的是新建这条路径。截图里报错的，是迁移过来、按旧版写入习惯存的历史数据。照抄旧版那套显示层例外反而会把新建的交易也搞错（相当于对已经反过来的方向再反一次）。真正该做的是**只订正这批旧数据本身的 `account_id`/`from_account_id`，让它们符合新版自己的写入约定，完全不碰 `TransactionHistoryMapper.xml`**。
+
+### 22.2 清单（执行前核实过的范围）
+
+| 类别 | 条数 | 金额合计 | 需要的订正 |
+|---|---|---|---|
+| A. Pay Domain Fee / Auto Renew 扣费（`DOMAIN_LIST_FEE` ×10 + `AUTO_RENEW` 扣费 ×1） | 11 | 24,000 | 对调 `account_id`/`from_account_id` |
+| B. Commission 佣金（`DOMAIN_SHARE_COMMISSION` ×40 + `AUTO_RENEW|COMMISSION` ×4） | 44 | 7,800 | 对调 `account_id`/`from_account_id` |
+| C. Net Profit 净利润（`DOMAIN_NET_PROFIT` ×8 + `AUTO_RENEW|NET_PROFIT` ×1） | 9 | 11,880 | `from_account_id` 从 `NULL` 补成等于 `account_id`（自引用，对齐新版 `buildPaymentLine(profitAccountId, profitAccountId, ...)` 的写法） |
+
+全部 64 条，均在 `tenant_id=77`（C168），无跨租户情况。
+
+### 22.3 事故：第一版对调脚本在这台 MariaDB 上没有正确工作，55 条数据被写成了自引用——已发现并修复
+
+第一版脚本用的是最直觉的写法：
+
+```sql
+UPDATE transactions
+SET account_id = from_account_id,
+    from_account_id = account_id
+WHERE ...;
+```
+
+按 MySQL 官方文档，同一条 UPDATE 语句里多列赋值应该都读**这一行更新前的原始值**，这样写理论上能正确互换两列。但实际执行后发现完全不是这样——**这台服务器上，第二个赋值 `from_account_id = account_id` 读到的是同一语句里第一个赋值刚写入的新值，不是原始值**，导致两列最终被写成了同一个值（都变成了原来 `from_account_id` 的值），而不是互换。类别 A（11 条）和类别 B（44 条）全部中招，变成了自引用（`account_id = from_account_id`）。类别 C 因为只改了单独一列（`from_account_id = account_id`，没有互换），不受影响，一次执行就是对的。
+
+**发现方式**：执行后没有直接相信"脚本跑完就结束"，照例逐行核对了 AG（`id=7515`）和 K（`id=17046`）这两条已知的具体例子，发现两条记录的 `account_id`/`from_account_id` 变成了同一个值，跟预期的"互换"结果对不上，才发现问题。
+
+**能够安全修复的原因**：损坏后的数据虽然两列相同，但原始信息并没有真的丢——
+- 类别 A：损坏后 `account_id` 恰好还是对的（本来就该改成付款方，而这正是损坏后两列共同的值），只需要把 `from_account_id` 单独修回 `4837` 即可
+- 类别 B：同理，损坏后 `account_id` 恰好还是对的（`4837`），`from_account_id` 需要修回收佣金的人——这个信息没有丢，因为 `remark` 标签本身就带着 `AID:{account.id}`（比如 `[DOMAIN_SHARE_COMMISSION|MAC999|ROLE:SALES|AID:4841]` 里的 `4841`），用 `REGEXP_SUBSTR` 从 `remark` 里现取即可，不需要回滚
+
+用一次性修复脚本（未留档，属于当场手工订正，逻辑等价于：Fee 行 `SET from_account_id=4837 WHERE account_id=from_account_id`；Commission 行 `SET from_account_id = CAST(REPLACE(REGEXP_SUBSTR(remark,'AID:[0-9]+'),'AID:','') AS UNSIGNED) WHERE account_id=from_account_id`）把这 55 条修复回正确状态，修复后逐条核对了全部 55 条（AG/K 两个已知例子 + 全量列表跟 §22.2 的清单一一核对），确认跟预期完全一致。
+
+**已经把 [fix_domain_fee_commission_account_direction_swap.sql](fix_domain_fee_commission_account_direction_swap.sql) 改成了安全写法**（`UPDATE ... JOIN (SELECT ... 快照子查询) src ON ... SET t.col = src.col`，SET 读的是子查询快照而不是同一张表正在被改的行，不会再复现这个问题），脚本文件顶部加了醒目的坑位说明，避免以后有人照着最初那个直觉写法重写一遍。
+
+### 22.4 执行结果
+
+三个脚本（[fix_domain_fee_commission_account_direction_swap.sql](fix_domain_fee_commission_account_direction_swap.sql) 修复后的安全版本 + [fix_domain_net_profit_self_reference.sql](fix_domain_net_profit_self_reference.sql)）全部执行完毕并核对通过：
+
+| 类别 | 条数 | 执行后状态 |
+|---|---|---|
+| A. Fee | 11 | `account_id`=付款方，`from_account_id`=C168（`4837`）——跟新版写入约定一致 |
+| B. Commission | 44 | `account_id`=C168（`4837`），`from_account_id`=收佣金的人——跟新版写入约定一致 |
+| C. Net Profit | 9 | `account_id`=`from_account_id`=C168（`4837`，自引用）——跟新版写入约定一致 |
+
+全部由 Claude 直接连接本地 `count_real`（`127.0.0.1:3306`，root）执行。§21.1/§21.1b 提到的 CR/DR 符号、ID PRODUCT、描述文案问题（针对 domain fee/commission 这几类），现在应该已经用现有的默认公式（配合 §16/§17 已经实现的自引用归零规则）正确显示，**不需要再改 `TransactionHistoryMapper.xml`/`TransactionHistoryServiceImpl.java`**——建议下次登录时用 AG（Pay Domain Fee）和 K（Commission）这两个账户实际打开 Payment History 页面核对一遍。
+
+### 22.5 遗留说明
+
+- §21 清单里其余的 Bug 2（排序用 `created_at`）、Bug 3（Data Capture ID PRODUCT 兜底）、Bug 4（CONTRA/PAYMENT 描述按视角改写）**仍然是应用层代码缺口，没有被这次的数据订正解决**，因为它们跟 domain fee 写入方向无关，是独立的问题，还是需要按 §21 的清单去改代码。
+- 这次事故也是一个提醒：以后任何"互换两列"的一次性订正脚本，优先用 `UPDATE ... JOIN (快照子查询) ...` 的写法，不要图省事用同一张表内联的 `SET a=b, b=a`，不同 MySQL/MariaDB 版本对这个写法的实际求值顺序不完全可靠。
+
+### 22.6 §21.1b 剩下那半个问题（ID PRODUCT 空白）：也用数据订正解决，不改代码——已执行
+
+金额符号订正完（§22.4）后，用户拿 K 账户实测确认金额已经对了，但 Commission 那一行 ID PRODUCT 还是空的（`-`）。排查后确认这是一个跟符号无关、完全独立的问题：`TransactionHistoryServiceImpl.domainProductFromDescription()`（391-416 行）靠字符串匹配 `description` 判断产品名，其中 `d.contains("COMMISSION")` 判断的是拼对了的 "COMMISSION"（两个 S），但这批旧数据的 `description` 存的是旧库沿用多年的错别字 "Commision"（一个 S），永远匹配不上，函数直接返回空。
+
+用户明确要求：**不要照抄旧版那套从 `remark` 标签重建文案的逻辑，就按新版自己现在的方式来，而且不希望这批记录还带着 `remark`**——跟 §22 处理符号问题的思路一致：不改 `TransactionHistoryServiceImpl.java`，而是把这 64 条旧数据的 `description`/`remark` 直接订正成新版 `chargeDomainFee()` 自己新建交易时会产出的样子，让现有代码不用改就能读对。
+
+**处理依据**：`DomainFeeChargeServiceImpl.java` 里 `buildPaymentLine()` 全程都是 `txn.setRemark(null)`（167、177 行调用处都不传 remark）——新版自己新建的这三类交易从来不带 `remark`，`[DOMAIN_LIST_FEE|...]` 这套标签本来就是旧版 PHP 自己的记账手段，新版不读也不写。新版对应的 `description` 精确文本：
+- Commission（169-172 行）：`{SALES|CS|IT|PROFIT} COMMISSION FROM {payerCode}`
+- Net Profit（180-181 行）：`NET PROFIT FROM {payerCode}`
+
+**排查中顺带发现的一个旧库自身的 bug**：40 条 `DOMAIN_SHARE_COMMISSION`（不含 4 条 `AUTO_RENEW|COMMISSION`）的 `description` 全部硬编码写死成 `"... Commision for K"`——不管实际付费公司是 MAC999/TZX/WSMT/95/AG/RS/WCC/BP17/X17/23/UG 哪一个，文案里的公司代码永远是 `K`（K 是旧版后台处理这类分成的操作账号，不是付费公司）。真正的付费公司代码只留在 `remark` 标签里（比如 `[DOMAIN_SHARE_COMMISSION|AG|ROLE:SALES|AID:4841]` 里的 `AG`），所以订正描述文案时，是先从即将清空的 `remark` 里把 `ROLE:` 和付费公司代码取出来拼成新文案，再清空 `remark`，不是直接拿旧 `description` 改字。
+
+**脚本**：[fix_domain_fee_commission_description_normalize.sql](fix_domain_fee_commission_description_normalize.sql)。范围：
+- 44 条 Commission：`description` 重建成 `{ROLE} COMMISSION FROM {payer}`（如 `SALES COMMISSION FROM AJ`），`remark` 清空
+- 9 条 Net Profit：`description` 重建成 `NET PROFIT FROM {payer}`（如 `NET PROFIT FROM AJ`），`remark` 清空
+- 11 条 Fee（10 条 `DOMAIN_LIST_FEE` + 1 条 `AUTO_RENEW`）：`description` 不动——`DOMAIN_LIST_FEE` 那 10 条本来就是 `"Pay Domain Fee"`，转大写后跟 `domainProductFromDescription()` 的 `d.startsWith("PAY DOMAIN FEE")` 已经能匹配上，不需要改；`AUTO_RENEW` 那 1 条（`id=17044`，文案是 `"Renew AJ | 1 year"`）目前新版没有对应的写入路径可以照抄，先不编一个文案出来，只清空 `remark`，ID PRODUCT 会继续显示空白，留作已知的小缺口。这 11 条只清空 `remark`。
+
+执行前用只读查询把 `role`/`payer` 的提取结果核对过一遍（44+9 条全部正确，没有解析失败的），执行后逐条核对了新 `description` 文本和 `remark` 是否清空，抽查的 10 条（含 AG 的 Fee 行、K 的 Commission 行、AJ 相关的 4 条 Commission + 1 条 Net Profit）全部符合预期。全部 64 条确认 `remark` 已清空。
+
+**结果**：现有的 `domainProductFromDescription()` 代码不用改，K 这行现在 `description = "SALES COMMISSION FROM AJ"`，转大写后能命中 `contains("COMMISSION")`，ID PRODUCT 会显示 `COMMISSION`。同样逻辑覆盖了另外 43 条 Commission 和 9 条 Net Profit（Net Profit 的 `NET PROFIT FROM ...` 命中 `d.startsWith("NET PROFIT")` 分支，显示 `PROFIT`）。
+
+### 22.7 意外的额外收获：`description` 订正顺带激活了一段已有但一直没生效过的"C168 只看 Net Profit"过滤
+
+用户核对时发现，`C168 (EZAY COUNT)` 自己的 Payment History——旧版会看到 BP17 那 3 条 Commission 记录混在里面（`+480`/`+120`/`+120`），新版看不到，只剩 Net Profit 那几行，怀疑是不是数据又出问题了。
+
+排查后确认**新版是对的，不用改**：`TransactionHistoryServiceImpl.buildDomainPaymentHistorySlice()`（132-153 行）里早就写了一段专门给 `C168`/`PROFIT` 账户用的过滤——`c168ProfitView` 为真时，只保留 `description` 以 `"NET PROFIT"` 开头的行，其余（Fee、Commission）一律跳过；命中的 Net Profit 行还会强制把 `signedAmount` 设成 `+amount`（不走 mapper 里自引用归零那条规则）。这段代码不是这次改的，是早就存在的既有设计。
+
+但在 §22.6 订正 `description` 之前，这批旧数据的 Net Profit 行存的是 `"Profit By K"`，根本不以 `"NET PROFIT"` 开头，`isNetProfitDescription()` 一直判不中——也就是说，**订正之前，C168 自己的 Payment History 里这 9 条 Net Profit 其实一条都不会显示**（不是显示错，是压根被这段过滤挡在外面），Commission 那几条本来就会被挡住。§22.6 把 `description` 改成 `"NET PROFIT FROM {payer}"` 之后，正好让这段一直没生效过的过滤逻辑生效了：Net Profit 正确显示出来，Commission 继续被挡住——这是新版原本就该有的行为，不是这次改动引入的新逻辑，纯粹是数据格式对齐后"激活"了已有代码。
+
+旧版会显示 Commission，是因为旧版 PHP 没有这层"C168 只看 Net Profit"的过滤，只要 C168 是交易任意一方（收 Fee 或付 Commission）都会显示——这属于旧版自己的展示口径，不是新版要对齐的目标。用户确认："旧版那三条 Commission 记录是不对的（不该显示），当前新版才是对的"。
+
+---
+
+## 23. §21.4 结论修正：`CONTRA`/`PAYMENT`/`CLEAR`/`CLAIM` 的按视角改写逻辑其实早就写好了，缺的是数据格式——已执行，全库 10,567 条
+
+用户拿 AG 的 CONTRA 复现 §21.4 提到的问题（当前查看账户是 `from_account_id` 时，应该显示 `TO` 开头的改写文案，实际显示的是存库原文），并且自己在别的公司新建了一笔手动 CONTRA 测试，发现新建的这笔从 `from_account_id` 视角看**是对的**——这个反馈直接推翻了 §21.4 当时"显示层缺这段逻辑"的结论，逼着重新查了一遍代码。
+
+### 23.1 真正的根因：改写逻辑已经存在，只是被一个格式门槛挡住了
+
+`TransactionHistoryServiceImpl.applyManualTransferHistoryPresentation()`（594-619 行）就是要的那段按视角改写逻辑，本身完全没问题：`from_account_id` 一方看到 `"{TYPE} TO {收款方}"`，`account_id` 一方看到 `"{TYPE} FROM {付款方}"`。
+
+但它前面有一道门槛（`shouldRewriteManualTransferHistoryDescription()`，625-636 行）：
+
+```java
+return upper.startsWith(typeToken + " FROM ") && upper.contains(" TO ");
+```
+
+**必须同时满足"以 `TYPE FROM ` 开头"和"文本里包含 ` TO `" 才会触发改写。**
+
+新版手动提交交易时（`TransactionSubmitServiceImpl.formatTransferDescription()`，407-410 行）写入的是一次性双边格式：`"CONTRA FROM {付款方} TO {收款方}"`，天然能过这道门槛，所以用户新建的那笔测试数据显示是对的。而**这批迁移过来的旧数据 `description` 只存了单边**：`"CONTRA FROM AG"`，没有 " TO " 这段，门槛过不去，改写逻辑被跳过，存库原文直接透传。
+
+跟 §22 的 domain fee 问题是同一种模式（新旧两版的写入约定不一样，显示层只认新版格式）——不是代码缺失，是数据格式跟现在的门槛判断对不上。
+
+### 23.2 排查范围：不只 C168，全库几乎所有手动交易都是这个格式
+
+按 `PAYMENT`/`CLAIM`/`CLEAR`/`CONTRA` 四种类型、`description` 匹配"`{TYPE} FROM %` 但不含 ` TO `"扫了全库（不限 `tenant_id`）：
+
+| 租户 ID | 受影响条数 |
+|---|---|
+| 77（C168） | 9 |
+| 78 | 1,976 |
+| 79 | 1,711 |
+| 80 | 191 |
+| 81 | 3,953 |
+| 82 | 150 |
+| 83 | 361 |
+| 84 | 531 |
+| 85 | 560 |
+| 89 | 1,122 |
+| 94 | 3 |
+| **合计** | **10,567** |
+
+执行前确认过：这 10,567 条 `account_id`/`from_account_id` 都非空，跟 `account` 表 JOIN 全部能对上（无孤儿引用）；`account_id`=收款方（To）、`from_account_id`=付款方（From）这个方向本身没有问题（核对过 `TransactionSubmitServiceImpl.submitTransfer()`，新版新建交易也是同样的方向，不是像 §22 domain fee 那样两个字段反过来），只需要订正 `description` 本身，不用动 `account_id`/`from_account_id`。`RATE` 类型不在这批里——已经在 §15/§16/§17 单独处理过，有自己独立的双边格式和改写逻辑。
+
+### 23.3 修复
+
+脚本：[fix_manual_transfer_description_two_sided_format.sql](fix_manual_transfer_description_two_sided_format.sql)。用 `UPDATE ... JOIN (快照子查询)` 的安全写法（吸取 §22.3 那次事故的教训），把 `description` 重写成 `"{TYPE} FROM {付款方代码} TO {收款方代码}"`（代码来自 `account_id`/`from_account_id` 关联出的 `account.account_id`）——具体文字内容不影响正确性，因为一旦通过门槛判断，显示层会按查看账户重新拼一遍最终文案，这里只需要让它"看起来是双边格式"即可。
+
+**执行结果**：一次性影响 10,567 条，全部成功，0.42 秒完成。执行后核对：全库不再有匹配"单边旧格式"条件的行；AG 那两笔 CONTRA（`id=14124`/`14126`）确认变成 `"CONTRA FROM AG TO EXPENSES"`；额外抽查了 78/81 租户的几条 `PAYMENT`/`CONTRA`/`CLEAR`，格式都正确。幂等（`description NOT LIKE '% TO %'` 这个门槛订正后自然不再匹配），可安全重跑。
+
+---
+
+## 24. §21 清单的 Bug 2 + 附带的 B/F 日期问题：已改代码（不是数据订正）
+
+这两处是这次唯一的**应用层代码改动**（§22/§23 都是数据订正，没碰代码），改在 [`TransactionHistoryServiceImpl.java`](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)。
+
+### 24.1 Bug 2：History 合并排序改成按 `transaction_date`
+
+第 236-239 行，原来只按 `createdAt`（数据录入时间）+ `id` 排序，改成：
+
+```java
+lines.sort(Comparator
+        .comparing(TransactionHistoryLineRow::getTransactionDate, Comparator.nullsLast(LocalDate::compareTo))
+        .thenComparing(TransactionHistoryLineRow::getCreatedAt, Comparator.nullsLast(LocalDateTime::compareTo))
+        .thenComparing(TransactionHistoryLineRow::getId, Comparator.nullsLast(Integer::compareTo)));
+```
+
+主排序键换成 `transactionDate`（业务发生日期，对齐旧版行为），原来的 `createdAt`/`id` 降级成同一天内的 tie-break，没有丢弃。
+
+### 24.2 B/F 行日期固定显示字面量 `"B/F"`
+
+第 261 行，原来是 `bfRow.setDate(formatHistoryDate(dateFrom))`（显示查询范围起始日，比如 `01/01/2026`），改成：
+
+```java
+bfRow.setDate("B/F");
+```
+
+跟旧版一致，固定显示 `"B/F"` 字样，不随查询范围变化。`dateFrom` 这个方法参数在 `range.setFrom(...)` 那里还在用，不是废弃参数。
+
+### 24.3 验证情况
+
+这个环境没有装 Maven（`mvn`/`mvnw` 都找不到），没能实际跑 `mvn compile`——两处改动都手工核对过类型正确（`getTransactionDate()` 返回 `LocalDate`，文件顶部已 import；`setDate` 接收 `String`，`"B/F"` 合法字面量），但建议用户在自己本地环境跑一次 `mvn compile` 确认。
+
+### 24.4 §21 清单剩余项（已在 §25 处理完）
+
+Bug 3（Data Capture ID PRODUCT 兜底到 `id_product_main`/`id_product_sub`）当时还没处理，见下方 §25——最终也是数据订正，不是代码改动。
+
+---
+
+## 25. Bug 3：`data_capture_line.id_product` 全库回填——已执行，59,615 行
+
+### 25.1 先确认新版自己的写入路径没有这个问题
+
+`DataCaptureSummaryServiceImpl.java` 第 482-484 行，提交明细行时强制校验：
+
+```java
+if (trimToNull(line.getIdProduct()) == null) {
+    throw new BusinessException("Product Id is required for every line");
+}
+```
+
+GAME、BANK 两个 category 走的是同一段校验，没有分支——只要是走新版这条提交链路，`id_product` 保证非空。确认这纯粹是继承自旧库的历史数据质量问题（`data_capture_details.id_product` 在旧库本身就没有稳定写入过，`id_product_main`/`id_product_sub` 倒是一直有值），不是新版代码需要按 GAME/BANK 分别处理的问题，跟用户的判断一致。
+
+### 25.2 排查范围
+
+全库 `data_capture_line` 75,234 行，**59,615 行（约 79%）`id_product` 为空**，且确认这 59,615 行没有一条是 `id_product_main`/`id_product_sub` 也同时为空的（兜底链能完全覆盖，不会有漏网之鱼）。按公司（tenant）拆分：
+
+| 公司 | 该公司总明细行数 | `id_product` 为空 | 占比 |
+|---|---|---|---|
+| 95 | 27,338 | 21,745 | 79.5% |
+| AG | 26,179 | 20,294 | 77.5% |
+| RS | 15,463 | 12,351 | 79.9% |
+| WCC | 1,732 | 1,732 | 100% |
+| MAC999 | 1,885 | 1,357 | 72.0% |
+| WSMT | 1,141 | 870 | 76.2% |
+| TZX | 930 | 718 | 77.2% |
+| VG | 525 | 525 | 100% |
+| C168 | 16 | 12 | 75.0% |
+| CX | 15 | 11 | 73.3% |
+| **合计** | **75,234** | **59,615** | **79.2%** |
+
+WCC、VG 两家是 100%——这两家所有 Data Capture 记录 `id_product` 一条不落全是空的。没列出来的公司（BK1/M1/M2 等）说明该公司数据全部正常，不受影响。
+
+### 25.3 修复：直接回填 DB，不改代码
+
+脚本：[fix_data_capture_line_id_product_backfill.sql](fix_data_capture_line_id_product_backfill.sql)。用跟旧版 `history_api.php` 读取侧一样的兜底规则回填：`product_type='SUB'` 且 `id_product_sub` 非空 → 用 `id_product_sub`；否则用 `id_product_main`。回填完之后，现有的 `TransactionHistoryServiceImpl`（`dcl.id_product AS idProduct`，读到空才兜底显示 `"DATA CAPTURE"`）不用改一行代码，自然就能读对。
+
+**执行结果**：一次性影响 59,615 行，3.18 秒完成。执行后核对：全库不再有 `id_product` 为空的行；AG 已知的几条（`transaction_id=42741/42743/51354/51356/66324/66326`）确认变成 `"HONG MING SOON"`/`"LEW ZHEN CHENG"`，跟 `id_product_main` 一致；按公司逐一核对空值数也全部归零。幂等（`id_product IS NULL OR id_product=''` 这个门槛回填后自然不再匹配），可安全重跑。
+
+至此 §21 清单里发现的问题（Bug 1/1b/2/3/4 + B/F 日期）全部处理完毕——Bug 2 和 B/F 是代码改动（§24），其余全部是数据订正（§22/§23/§25），没有再动 `TransactionHistoryMapper.xml`/`TransactionHistoryServiceImpl.java` 里跟符号、描述、ID PRODUCT 相关的判断逻辑。
+
+---
+
+## 26. 补漏：§22.6 当时漏判断的 `AUTO_RENEW` 那 1 条 Fee 行——已修复
+
+用户拿 `AJ`（AH JI）账户核对（`C168` 公司下、`account_id=5514`），发现 ID PRODUCT 空白、`description` 还是原始的 `"Renew AJ | 1 year"`，跟另外 10 条 `DOMAIN_LIST_FEE`（显示 `"Pay Domain Fee"`/`PAYMENT`）不一致。
+
+§22.6 当时的判断是错的：以为"新版没有专门给续费扣费写文案的代码路径，所以这条没法对齐"。重新查证：
+
+- 新版 `DomainFeeChargeServiceImpl.chargeDomainFee()` 是**唯一**的扣费入口，不管是普通域名费还是续费触发的扣费，写的都是同一个字面量 `"PAY DOMAIN FEE"`（第 143-144 行）——新版压根不区分"域名费"和"续费扣费"这两种场景，不存在"没有对应代码路径"这回事。
+- 旧版这边独立地也走到了同一个结论：`history_api.php` 判断"是不是域名费类交易"时，`historyIsAutoRenewFeeSms()` 本来就会让 `[AUTO_RENEW|...]` 标签命中跟 `[DOMAIN_LIST_FEE|...]` 同一条 `isDomainListFee` 分支，命中后不管原始 `description` 是什么，一律强制显示成 `"Pay Domain Fee"`——这正是用户截图里旧版显示 `"PAY DOMAIN FEE"` 的原因，尽管这条底层存的原文其实是 `"Renew AJ | 1 year"`。
+
+**处理**：`id=17044` 的 `description` 订正成 `"PAY DOMAIN FEE"`，跟另外 10 条 Fee 行一致——现有的 `domainProductFromDescription()` 会命中 `d.startsWith("PAY DOMAIN FEE")`，ID PRODUCT 显示 `PAYMENT`，不用改代码。[fix_domain_fee_commission_description_normalize.sql](fix_domain_fee_commission_description_normalize.sql) 补了第 4 条语句覆盖这条（幂等，`WHERE description='Renew AJ | 1 year'` 保证只影响还没修的状态），同时更新了脚本顶部的说明，去掉了之前"这条先不处理"的过时结论。
+
+至此 domain fee 相关的 65 条（64 条 + 这条 `id=17044` 的补充修复）全部对齐新版格式。
+
+---
+
+## 27. 新发现：C168 账户在 Payment History 和 Search/List 页面余额对不上——**改动已撤销，仅作排查过程存档**
+
+> ⚠️ 本节记录的四处代码改动（`TransactionHistoryServiceImpl.java`/`TransactionHistoryDao.java`/`TransactionHistoryMapper.xml`/`TransactionSearchMapper.xml`）用户后来想清楚后要求**全部退回**，已经逐处还原干净（用 `grep` 核对过 `c168ProfitView`/`excludeFeeCommission`/`domainFeeOrCommissionDescription`/`c168NetProfitDescription`/`isDomainFeeOrCommissionDescription` 这些改动引入的标识符，四个源码文件里只剩 `c168ProfitView` 这一个改动前就存在的原始变量，其余全部清除）。撤销原因用户没有展开说，只说"想了想不应该这么做"——**这个方向以后要不要做需要重新跟用户确认，不能直接按下面记录的方案再做一次**。以下内容仅保留当时的排查过程和技术分析存档，不代表当前代码状态。
+
+用户拿 C168 账户核对，发现 Payment History 页面显示余额 13,560.00，Search/List（Contra Inbox 汇总表格）页面同一个账户显示 17,400.00，两边对不上。
+
+### 27.1 排查：两边算的是不同口径
+
+手算验证：C168 的 Fee（`from_account_id`=C168，From 方 +25,200）− Commission（`account_id`=C168，To 方 −7,800）+ Net Profit（自引用抵消为 0）= **17,400**，跟 Search 页显示的数字分毫不差。
+
+- **Payment History（13,560）**：`TransactionHistoryServiceImpl.buildDomainPaymentHistorySlice()` 里专门给 `C168`/`PROFIT` 账户写的 `c168ProfitView` 过滤——只保留 `description` 以 `"NET PROFIT"` 开头的行，Fee、Commission 全部滤掉，代表"留存净利润"。
+- **Search/List（17,400）**：`TransactionSearchMapper.xml` 的 `aggregateDomainPaymentCrDr`，完全没有任何 C168 专属处理，Fee/Commission 都被当成普通交易正常计入，Net Profit 因为是自己转自己（`account_id`=`from_account_id`=C168），在两条 `UNION ALL` 分支里分别贡献 `-amount`/`+amount`，互相抵消成 0，完全不体现。
+
+### 27.2 用户确认的业务规则
+
+"C168 账户只算 Net Profit 这个业务判断，还有手动交易记录，Fee/Commission 这种不包含。"——即需要一套排除规则：排除 Fee、排除 Commission，保留 Net Profit（且要显示留存的实际金额，不是自引用抵消后的 0），保留任何未来可能出现的普通手动交易（不能像原来那样用"白名单只认 Net Profit"的方式，会连带误伤手动交易——核实过 C168 目前确实没有任何非 domain-fee 的手动交易，但规则本身要写对，不能只对付当前数据）。
+
+### 27.3 修改的文件
+
+- **`TransactionHistoryServiceImpl.java`**：`buildDomainPaymentHistorySlice()` 的过滤从"白名单只保留 NET PROFIT"改成"黑名单排除 Fee/Commission"（新增 `isDomainFeeOrCommissionDescription()`），Net Profit 命中时才做"显示留存金额而不是自引用 0"的覆盖。
+- **`TransactionHistoryMapper.xml`**：`aggregateDomainPaymentBfByAccount`（B/F 期初余额）新增 `excludeFeeCommission` 参数（由 Java 传入 `c168ProfitView`），排除 Fee/Commission，Net Profit 用同样的"一边计满、一边记 0"处理，避免自引用互相抵消。
+- **`TransactionSearchMapper.xml`**：`aggregateDomainPaymentCrDr`（之前完全没有 C168 专属逻辑，是这次的主要缺口）加了同样的排除 + Net Profit 修正，两条 `UNION ALL` 分支都改了。
+- **`TransactionHistoryDao.java`**：`aggregateDomainPaymentBfByAccount` 方法签名加了 `excludeFeeCommission` 参数（只有一处调用方，已同步改）。
+
+两个 mapper 各自维护了一份 `domainFeeOrCommissionDescription`（Search 这边多一份 `c168NetProfitDescription`）SQL 片段，跟 §15 建立的"故意不共享、两份手动同步"惯例一致。
+
+### 27.4 验证
+
+改完直接手写等效 SQL 跑了一遍（不是只信代码逻辑）：C168 在 `aggregateDomainPaymentCrDr` 口径下的 `crDrAmount` 从 17,400.00 变成 **13,560.00**，跟 Payment History 页面完全一致。AG 等其他账户的计算路径没有被这次改动触碰（排除条件只在 `account.account_id IN ('C168','PROFIT')` 时才生效）。
+
+同样没有 Maven 环境跑 `mvn compile`，建议用户本地编译确认。
+
+## 22. 事后修复：Add Domain 报 500（`NullPointerException: ... "c168Tenant" is null`），根因是查 C168 租户时硬编码了 `owner_id = 1`
+
+**现象**：Domain 页面点 Add Domain 提交后前端报"An unexpected error occurred"，后端日志：
+
+```
+NullPointerException: Cannot invoke "com.eazycount.entity.Tenant.getId()" because "c168Tenant" is null
+```
+
+**根因**：`count_real` 库里核实过，`tenant` 表 `code='C168'` 那一行实际 `owner_id=3`，而这个库里根本没有 `id=1` 的 owner（`owner` 表最小 id 是 3）：
+
+```sql
+SELECT id, code, owner_id FROM tenant WHERE code='C168';  -- id=77, owner_id=3
+SELECT id FROM owner ORDER BY id;                          -- 最小是 3，没有 1
+```
+
+但 [DomainServiceImpl.java](../../java/com/eazycount/service/impl/DomainServiceImpl.java) 里 `createDomain`/`updateDomain`/`deleteAllTenants` 三处、以及 [DomainFeeChargeServiceImpl.java:98](../../java/com/eazycount/service/impl/DomainFeeChargeServiceImpl.java) 都写死了 `domainDao.findTenantByCodeAndOwnerId("C168", 1)`——这个 `1` 是早年在 `testcount` 手工测试库里 C168 恰好挂在 `owner_id=1` 下留下的硬编码假设，迁移到 `count_real` 后这个假设不成立，查询直接查不到行返回 `null`。`createDomain` 里对返回值没做判空就直接 `c168Tenant.getId()`，于是空指针；`DomainFeeChargeServiceImpl` 那处虽然判了空但因此永远抛 `BusinessException("C168 ledger tenant not found")`，功能上同样是坏的。
+
+`AutoRenewServiceImpl.java:109` 早就用的是不依赖 owner 的 `tenantDao.findTenantByCode("C168")`（`TenantDao`/`TenantMapper.xml` 里现成的方法）——C168 在 `tenant` 表里本来就是全局唯一一行（不按 owner 区分），按 owner 过滤本身就是多余且错误的前提。
+
+**修复**：把上述四处硬编码 `domainDao.findTenantByCodeAndOwnerId("C168", 1)` 统一换成 `tenantDao.findTenantByCode("C168")`（`DomainServiceImpl`/`DomainFeeChargeServiceImpl` 新增注入 `TenantDao`），并给 `createDomain` 补上之前缺失的判空（查不到就抛 `BusinessException("C168 ledger tenant not found")`，跟 `DomainFeeChargeServiceImpl` 保持一致，不再直接 NPE）。
+
+涉及文件：
+- `backend/src/main/java/com/eazycount/service/impl/DomainServiceImpl.java`
+- `backend/src/main/java/com/eazycount/service/impl/DomainFeeChargeServiceImpl.java`
+
+验证：`mvnw compile` 通过；未在 UI 上回归测试 Add/Update/Delete Domain 三个入口，建议重启后端后手工过一遍。
+
+**影响范围**：`DomainDao.findTenantByCodeAndOwnerId(code, ownerId)` 本身没问题（`updateDomain` 里按真实 `groupCode`/`companyCode` + `ownerId` 查询的用法是对的，没动），问题只出在这四处把 `ownerId` 写死成字面量 `1` 去查 C168。如果以后 `count_real` 里 owner 表结构再变（比如真的建了 id=1 的 owner），也不会影响这个修复，因为改成按 `code` 全局查，不再依赖任何具体的 owner id。
+
+---
+
+> **编号提醒**：上面这节"事后修复：Add Domain 报 500"被标成了 `## 22`，跟本文档前面已有的 §22（"§21.1 的另一种解法……"）重复——看起来是另一个会话/进程往这份文档追加内容时没同步到最新编号。这里不去改动别人刚写的内容，只是标注一下：接下来这节延续的是 §1-§27 那条主线的编号，叫 **§28**，不是接在这节"Add Domain"后面的 §23。以后要清理编号的话，两节内容都要保留，只是数字需要重新理一遍。
+
+---
+
+## 28. 推翻 §21/§27 里"MAC999/TZX/WSMT 是备份之后才补进生产环境"的猜测——真相是旧版前端的虚拟兜底显示，从来没有真实数据——已回填
+
+用户不认可"备份之后才补的"这个猜测，坚持认为旧库应该本来就有数据，要求重新排查。用更宽泛的方式（不再局限于精确标签匹配，搜 `description`/`sms` 里任何提到 `MAC999`/`TZX`/`WSMT` 的记录）重新翻了一遍 `c168_net_legacy_20260827`，确认这三家**不管用什么搜索条件，都翻不出一条 `DOMAIN_NET_PROFIT` 记录**——不是筛选条件太严格漏看，是真的没有。
+
+### 28.1 真正的根因：旧版前端自己承认这是"虚拟"数据
+
+`history_api.php` 里有个函数名字就叫 **`buildVirtualDomainNetProfitHistory()`**（962 行），逻辑是：先按 `[DOMAIN_NET_PROFIT|...]` 标签查真实记录，**查不到（`empty($rows)`）的话，现场用同一天该公司的 Fee 减 Commission 算一个数字，拼成一条看起来像真实交易的行塞进显示结果**——注释原话："若真实利润单未落库，则与交易页一致：动态按 Fee - Commission 兜底显示"。这条**从来没有真正写进 `transactions` 表**，只是页面渲染时凭空生成的，旧库备份、当前生产库大概率都一样没有真实存储——用户在 `count168.com` 上看到的 "NET PROFIT FROM MAC999" 就是这套虚拟兜底算出来的，不是数据库里存的。
+
+§21/§27 当时的猜测（"备份之后才手动补进生产环境"）是错的——不存在"补数据"这回事，旧版从一开始就没往数据库写过这一行，是显示层现算的。
+
+### 28.2 处理：把旧版的虚拟计算结果，当成真实数据回填
+
+新版 `chargeDomainFee()` 每次扣费只要利润 > 0 就**一定**会真实写入 Net Profit 记录（`DomainFeeChargeServiceImpl.java:175-178`），不存在"没写就现算"这种兜底机制——所以不是去新版代码里补一套"虚拟计算"逻辑，而是把这三条按新版自己的写入方式，当成真实数据回填进去，这样新版反而比旧版更完整、更一致。
+
+脚本：[fix_domain_net_profit_backfill_mac999_tzx_wsmt.sql](fix_domain_net_profit_backfill_mac999_tzx_wsmt.sql)。金额用旧版同一套算法（Fee 2400 − Commission 720 = 1680，跟其他公司的 Net Profit 金额规律完全一致）；`account_id`=`from_account_id`=4837（C168 自己，自引用，跟 §22 订正后其余 9 条 Net Profit 的形状一致）；`transaction_date`/`created_by`/`approved_by`/`created_at`/`approved_at` 沿用各自 Fee 批次里同一批次的值（`id=7269`/`7274`/`7279`），当成是在补完那次历史批次本来就该有的一步，不是编造成"现在"发生的。
+
+**执行结果**：插入 3 条（`id=93762/93763/93764`），全部核对通过：
+- `NET PROFIT FROM MAC999`：1,680，日期 2026-04-22，`created_by=JACKSEE`（跟 MAC999 那笔 Fee 一致）
+- `NET PROFIT FROM TZX`：1,680，日期 2026-04-22，`created_by=K`
+- `NET PROFIT FROM WSMT`：1,680，日期 2026-04-22，`created_by=JACKSEE`
+
+至此 C168 名下除了 BP17（没有 Fee 记录，旧库本身如此）和 X17（Fee/Commission/Profit 三者对不上账，§27 已经记录、需要用户自己核实）之外，其余 10 家公司的 Fee/Commission/Net Profit 三条链路全部完整、金额自洽。

@@ -4,6 +4,7 @@ import com.eazycount.common.BusinessException;
 import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.DomainDao;
 import com.eazycount.dao.DomainListFeePriceDao;
+import com.eazycount.dao.TenantDao;
 import com.eazycount.dao.TenantFeeShareAllocateDao;
 import com.eazycount.dao.TransactionDao;
 import com.eazycount.dao.UserDao;
@@ -41,6 +42,9 @@ public class DomainServiceImpl implements DomainService {
 
     @Autowired
     private DomainDao domainDao;
+
+    @Autowired
+    private TenantDao tenantDao;
 
     @Autowired
     private UserDao userDao;
@@ -489,7 +493,7 @@ public class DomainServiceImpl implements DomainService {
 
         List<OwnerTenantDTO> tenants = domainDao.findAllTenantsByOwner(owner.getId());
 
-        Tenant c168Tenant = domainDao.findTenantByCodeAndOwnerId("C168", 1);
+        Tenant c168Tenant = tenantDao.findTenantByCode("C168");
         Integer c168TenantId = c168Tenant != null ? c168Tenant.getId() : null;
 
         // Pre-check all tenants before touching any row: if even one C168 account has
@@ -567,7 +571,10 @@ public class DomainServiceImpl implements DomainService {
         Integer ownerId = owner.getId();
         domainDTO.setId(ownerId);
 
-        Tenant c168Tenant = domainDao.findTenantByCodeAndOwnerId("C168", 1);
+        Tenant c168Tenant = tenantDao.findTenantByCode("C168");
+        if (c168Tenant == null || c168Tenant.getId() == null) {
+            throw new BusinessException("C168 ledger tenant not found");
+        }
 
         Map<String, Integer> groupCodeToIdMap = new HashMap<>();
         if (domainDTO.getGroups() != null && !domainDTO.getGroups().isEmpty()) {
@@ -653,7 +660,7 @@ public class DomainServiceImpl implements DomainService {
             }
         }
 
-        Tenant c168Tenant = domainDao.findTenantByCodeAndOwnerId("C168", 1);
+        Tenant c168Tenant = tenantDao.findTenantByCode("C168");
         Integer c168TenantId = (c168Tenant != null) ? c168Tenant.getId() : 2;
 
         // 1. 批量查出 C168 下所有已拥有的账号名（Code），避免在循环中重复查询数据库
