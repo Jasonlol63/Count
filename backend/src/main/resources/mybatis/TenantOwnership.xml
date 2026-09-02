@@ -18,7 +18,7 @@
             END AS accountId,
             
             CASE
-                WHEN co.owner_type = 'group' THEN t_partner.code
+                WHEN co.owner_type = 'group' THEN CONCAT('Group: ', t_partner.code)
                 WHEN co.owner_type = 'user'  THEN u.login_id
                 ELSE o.owner_code
             END AS accountName,
@@ -65,7 +65,7 @@
             END AS accountId,
             
             CASE
-                WHEN coh.owner_type = 'group' THEN t_partner.code
+                WHEN coh.owner_type = 'group' THEN CONCAT('Group: ', t_partner.code)
                 WHEN coh.owner_type = 'user'  THEN u.login_id
                 ELSE o.owner_code
             END AS accountName,
@@ -134,7 +134,7 @@
             AND ur.code = 'PARTNERSHIP'
             AND u.status = 'ACTIVE'
           UNION ALL
-          -- ③ 同一个 Owner 名下的活跃集团 (作为 GROUP 股东选项) --
+          -- ③ 该公司实际所属的 Group (作为 GROUP 股东选项) --
           SELECT DISTINCT
               NULL AS ownershipId,
               #{tenantId} AS tenantId,
@@ -146,9 +146,9 @@
               'Group Equity' AS name,
               'GROUP' AS role,
               0 AS isExternalPartner
-          FROM tenant g
-                   JOIN tenant t ON t.id = #{tenantId}
-          WHERE g.tenant_type = 'GROUP' AND g.status = 'ACTIVE' AND g.owner_id = t.owner_id
+          FROM tenant t
+                   JOIN tenant g ON g.id = t.parent_id
+          WHERE t.id = #{tenantId} AND g.tenant_type = 'GROUP' AND g.status = 'ACTIVE'
         ) AS candidates
         ORDER BY accountName ASC
     </select>

@@ -791,3 +791,58 @@ BC009 (BILLION PAY SGD) 账户的 Payment History 里，一条 "RATE CHARGE (X0.
 抽查了 `user_id=284`（在 CX 公司）：旧库 JSON 里 38 个账号，新库落地 37 条（1 条指向的账号已经不存在，跳过），跟预期完全对上。
 
 脚本：[migrate_data_user_acl_from_legacy.sql](migrate_data_user_acl_from_legacy.sql)。
+
+---
+
+## 20. 补做：全库表清单复核发现的两处真实遗漏（`tenant_auto_renew_transaction` / `user_group_map`）——已执行
+
+用户怀疑 `tenant_auto_renew_transaction`、`tenant_link` 这两张空表不该是空的，让重新核对。逐张核对后，`tenant_link` 确认不是迁移问题（见下方 20.3），但顺着这个思路把旧库**全部表名**（含未在任何文档/脚本里出现过的）跟迁移脚本、`TABLE_MIGRATION.md` 交叉扫了一遍，额外挖出一个之前完全没人发现的漏项（`user_group_map`）。两处都已核实、执行并验证。
+
+### 20.1 `tenant_auto_renew_transaction`：§3 当时明确说"等 Transactions 域迁完再补"，后来没人回去补
+
+§3 原文："`tenant_auto_renew_transaction`：需要关联 `transactions.id`，Transactions 域还没迁，等那边做完再补。" §12 把 Transactions 域迁完之后，这一步一直没人执行。
+
+旧库 `company_auto_renew_request` 10 条（跟 §3 迁移结果一致）里，只有 1 条 `status='approved'` 且带 `transaction_id`：`id=2943`（公司 324 / tenant code `AJ`，`transaction_id=17044`）。核实：
+- `transactions.id=17044` 在 `count_real` 里确实存在（`description="Renew AJ | 1 year"`，`amount=2400`，`tenant_id=77`）——说明这笔交易本身 §12 是搬对了的，只是关联行没建
+- 对应的 `tenant_auto_renew` 记录也在（`id=3`，AJ 公司，approved），通过 `(tenant_id, expiration_snapshot)` 这个唯一键能精确对上
+- 全库搜索 `description LIKE '%Renew AJ%'` 确认这笔续费只有这一条交易（旧系统一个申请只记一条流水，不是新版 `chargeDomainFee` 那种一次审批出付款/佣金/利润好几条腿的模式，所以这次只补 1 行是符合预期的，不是漏抓）
+
+脚本：[fix_tenant_auto_renew_transaction_backfill.sql](fix_tenant_auto_renew_transaction_backfill.sql)（`NOT EXISTS` 幂等保护，可安全重跑）。
+
+**执行结果**：插入 1 行（`request_id=3` ↔ `transaction_id=17044`）。已核对该行落库正确。
+
+### 20.2 `user_group_map`：一张跟 `user_company_map` 平行、但从未被任何脚本或文档提到过的表
+
+旧库除了 `user_company_map`（→ `user_tenant_access`，§2 已迁 50 行）之外，还有一张结构类似但独立的 `user_group_map`（3 行）——存的是"用户直接挂在某个 GROUP 租户下"的访问权限（不经过 company）。这张表在 §1-§19、`TABLE_MIGRATION.md` 里完全没有出现过，是这次全表名扫描才发现的。
+
+核对这 3 行在 `count_real` 里的现状（迁移前）：
+
+| user_id | login_id | 应有的 group | 迁移前 `count_real` 实际状态 |
+|---|---|---|---|
+| 532 | OK | LOL（tenant 112） | **完全没有任何 `user_tenant_access` 行**（这个账号哪个公司/集团都进不去） |
+| 533 | JS_3 | LOL（tenant 112） | 只有 `BK1` 公司的权限，缺 LOL |
+| 534 | BIN | IG（tenant 109） | 只有 `RS` 公司的权限，缺 IG |
+
+（`LOL` 是 legacy `groups.id=18`，是构成 `count_real.tenant` 28 行里 5 个 GROUP 之一的真实集团，不是悬空引用。）
+
+脚本：[fix_user_group_map_backfill.sql](fix_user_group_map_backfill.sql)。`account_acl_mode`/`process_acl_mode` 按 §2 同样的约定给默认值 `ALL`（`user_group_map` 本身不带任何 ACL 细节可还原，跟 §2 当时"迁移出来的 `user_tenant_access` 统一 ALL"的处理方式一致）。`NOT EXISTS` 幂等保护，可安全重跑。
+
+**执行结果**：插入 3 行。已核对：532 现在能进 LOL；533 在原有 BK1（`CUSTOM`/`NONE`）之外新增了 LOL（`ALL`/`ALL`）；534 在原有 RS（`CUSTOM`/`CUSTOM`）之外新增了 IG（`ALL`/`ALL`）——原有行的 ACL 设置没有被覆盖，纯新增。
+
+### 20.3 `tenant_link`：核实后确认不是迁移遗漏
+
+用户同时怀疑的另一张空表。核实结论：
+- `TABLE_MIGRATION.md` §5 本身就把 `tenant_link` 列为"新增，旧库无同名表"——没有 legacy 源表可迁
+- 翻代码发现 `TenantOwnershipServiceImpl.linkPartner()`（"关联 Partner"功能的真正实现）实际写入的是 `tenant_ownership`（`owner_type='group'` + `partner_tenant_id`），全代码库搜索 `TenantLink`/`tenant_link` 没有任何地方真正读写这张表
+- 进一步查了旧版 PHP（`count168test`）的对应表：`tenant_module_policy`（56 行，跟这次话题一起被怀疑过的另一张表）同样是"建了但从没被任何 PHP 代码读取过"的废弃脚手架（`database/migrations/20260528_dual_tenant_company_group.sql` 建表时批量灌的默认值，此后无人问津）
+
+结论：`tenant_link` 空着是当前系统的正常状态，不需要补数据；这是应用层"预留了表但功能走了另一条路径"的情况，跟数据迁移无关。
+
+### 迁移结果
+
+| 表 | 执行前 | 执行后 |
+|---|---|---|
+| tenant_auto_renew_transaction | 0 | 1 |
+| user_tenant_access（本次新增的 3 行） | — | +3（532/533/534 各新增 1 行 GROUP 权限，原有公司权限行不受影响） |
+
+两个脚本均由 Claude 直接连接本地 `count_real`（`127.0.0.1:3306`，root）执行，执行前已用只读查询预演过 `SELECT` 部分确认结果集正确，执行后逐行核对落库结果与预演一致。

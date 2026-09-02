@@ -3,7 +3,7 @@
 > **目标 schema**：`schema.sql`（本目录）  
 > **对照来源**：旧 PHP 库（`count168.org` / `easycount_schema.sql`、`games_schema.sql`；以及 `backend/src/main/resources/schema.sql` 残缺摘录）  
 > **运行库示例**：`testcount`  
-> **最后更新**：2026-08-27
+> **最后更新**：2026-09-02
 
 本文说明旧表在新租户模型（`tenant`）下如何 **迁移 / 拆分 / 合并 / 优化 / 弃用**。  
 **只谈表结构与设计意图**；业务 API 是否已切到 Spring 另见 `docs/frontend-springboot-migration.md` 第32节（Data Capture）。
@@ -35,15 +35,16 @@
 | `company` | `tenant`（`tenant_type=COMPANY`） | 迁移合并 |
 | groups（逻辑） | `tenant`（`tenant_type=GROUP`） | 迁移合并 |
 | `user_company_map` | `user_tenant_access` | 迁移 |
+| `user_group_map`（用户直挂 GROUP，跟 `user_company_map` 平行的独立表） | `user_tenant_access` | 迁移（**原始迁移遗漏，2026-09-02 补做**，见 [`MIGRATION_LOG.md` §20.2](../SqlEtcForMigrate/MIGRATION_LOG.md#202-user_group_map一张跟-user_company_map-平行但从未被任何脚本或文档提到过的表)） |
 | `user_company_permissions` | `user_tenant_account_access` + `user_tenant_process_access` | 拆分规范化 |
 | `account_company` | `account_tenant_access` | 迁移 |
 | `role` | `user_role` + `permission` + `user_role_permission` | 拆分 |
 | （无清晰等价） | `feature_module` + `tenant_feature_module` | 新增（Games/Bank 等模块开关） |
-| （group 互链） | `tenant_link` | 新增 |
+| （group 互链） | `tenant_link` | 新增，**但实际未启用**：`linkPartner()` 走的是 `tenant_ownership`（`owner_type='group'`），这张表全代码库没有任何读写，空表是正常状态，不是迁移遗漏，见 [`MIGRATION_LOG.md` §20.3](../SqlEtcForMigrate/MIGRATION_LOG.md#203-tenant_link核实后确认不是迁移遗漏) |
 | `password_reset_tac` | **弃用**；密码重置改走 Redis TAC | 弃用（原表已从 schema.sql 移除） |
 | `password_reset_tac_owner` | **弃用**；同上 | 弃用（原表已从 schema.sql 移除） |
 
-> **注**：`testcount` 库当前实际表名仍是 `tenant_auto_renew_request` / `tenant_auto_renew_request_transaction`（早期建库时的命名，`AutoRenewMapper.xml`、`migrate_auto_renew_delete.sql` 也用这个名字），已存在的库不重命名。`schema.sql` 里"从零建库"用的新表名是 `tenant_auto_renew` / `tenant_auto_renew_transaction`（不含 `request` 字样）——**两者目前不一致，全新建库时以 schema.sql 为准，但 mapper/增量脚本尚未同步改名**，谁先动手改代码那边请一并同步。
+> **注**：`testcount` 库当前实际表名仍是 `tenant_auto_renew_request` / `tenant_auto_renew_request_transaction`（早期建库时的命名，`AutoRenewMapper.xml`、`migrate_auto_renew_delete.sql` 也用这个名字），已存在的库不重命名。`schema.sql` 里"从零建库"用的新表名是 `tenant_auto_renew` / `tenant_auto_renew_transaction`（不含 `request` 字样）——**两者目前不一致，全新建库时以 schema.sql 为准，但 mapper/增量脚本尚未同步改名**，谁先动手改代码那边请一并同步。`tenant_auto_renew_transaction` 当初随 Transactions 域一起延后处理，2026-09-02 已补做（1 行，见 [`MIGRATION_LOG.md` §20.1](../SqlEtcForMigrate/MIGRATION_LOG.md#201-tenant_auto_renew_transaction3-当时明确说等-transactions-域迁完再补后来没人回去补)）。
 
 ### 2.2 Domain / 公告 / 币别 / Ownership
 
