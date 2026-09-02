@@ -368,10 +368,10 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
         YearMonth creationMonth = YearMonth.from(creationMonthFloor(bp, dayStart));
         YearMonth loopStart = startMonth.isBefore(creationMonth) ? creationMonth : startMonth;
 
-        // ACTIVE + cap OFF: keeps generating FULL_MONTH past dayEnd until status changes.
-        // expiredAtCreation forces the cap on regardless of the toggle.
-        boolean useDayEndTail = resolveUseDayEndTail(bp);
-        boolean extendPastDayEnd = bp.getStatus() == BankProcess.Status.ACTIVE && !useDayEndTail;
+        // ACTIVE + cap OFF: keeps generating FULL_MONTH past dayEnd, regardless of expiredAtCreation
+        // (that flag still drives the tail/full-price split via resolveUseDayEndTail() below).
+        boolean extendPastDayEnd = bp.getStatus() == BankProcess.Status.ACTIVE
+                && !Boolean.TRUE.equals(bp.getDayEndMonthlyCapEnabled());
         YearMonth todayMonth = YearMonth.from(today);
         YearMonth loopEnd = (extendPastDayEnd && todayMonth.isAfter(endMonth)) ? todayMonth : endMonth;
 
@@ -454,10 +454,8 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
         YearMonth month = startMonth.isBefore(creationMonth) ? creationMonth : startMonth;
         LocalDate posted = month.equals(startMonth) ? dayStart : monthlyAnchor(month, dayStart);
 
-        // ACTIVE: keeps rolling the anchor past dayEnd until status changes.
-        // expiredAtCreation overrides this: never gets the past-dayEnd extension.
-        boolean extendPastDayEnd = bp.getStatus() == BankProcess.Status.ACTIVE
-                && !Boolean.TRUE.equals(bp.getExpiredAtCreation());
+        // ACTIVE: keeps rolling the anchor past dayEnd, regardless of expiredAtCreation.
+        boolean extendPastDayEnd = bp.getStatus() == BankProcess.Status.ACTIVE;
 
         List<AccountingDueDTO> dues = new ArrayList<>();
         while (true) {
