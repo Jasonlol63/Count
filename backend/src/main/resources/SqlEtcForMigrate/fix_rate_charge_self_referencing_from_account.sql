@@ -1,3 +1,11 @@
+-- ============================================================================
+-- DEPRECATED / SUPERSEDED -- DO NOT RUN. See fix_rate_charge_self_referencing_from_account_v2.sql
+-- This version double-counted the middleman's fee (their independent booking row already
+-- credits +amount; pointing from_account_id at them here credited it a second time). v2 fixes
+-- this by setting from_account_id back to NULL instead of the middleman account. Kept only
+-- for history -- see MIGRATION_LOG.md around the "fix_rate_charge_self_referencing" sections.
+-- ============================================================================
+--
 -- One-off DATA CORRECTION (not raw migration): fixes legacy "self-transfer" Rate Charge /
 -- middleman-fee transactions where account_id = from_account_id.
 --

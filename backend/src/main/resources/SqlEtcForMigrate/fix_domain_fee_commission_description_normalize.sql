@@ -67,7 +67,7 @@ JOIN (
             )
         ) AS new_description
     FROM transactions
-    WHERE tenant_id = 77
+    WHERE tenant_id = (SELECT id FROM tenant WHERE code = 'C168' AND tenant_type = 'COMPANY')
       AND transaction_type = 'PAYMENT'
       AND remark IS NOT NULL
       AND (remark LIKE '[DOMAIN_SHARE_COMMISSION|%' OR remark LIKE '[AUTO_RENEW|COMMISSION|%')
@@ -92,7 +92,7 @@ JOIN (
             )
         ) AS new_description
     FROM transactions
-    WHERE tenant_id = 77
+    WHERE tenant_id = (SELECT id FROM tenant WHERE code = 'C168' AND tenant_type = 'COMPANY')
       AND transaction_type = 'PAYMENT'
       AND remark IS NOT NULL
       AND (remark LIKE '[DOMAIN_NET_PROFIT|%' OR remark LIKE '[AUTO_RENEW|NET_PROFIT|%')
@@ -103,7 +103,7 @@ SET t.description = src.new_description,
 -- 3) Fee rows (11 expected): description left as-is (see header note); only clear remark.
 UPDATE transactions
 SET remark = NULL
-WHERE tenant_id = 77
+WHERE tenant_id = (SELECT id FROM tenant WHERE code = 'C168' AND tenant_type = 'COMPANY')
   AND transaction_type = 'PAYMENT'
   AND remark IS NOT NULL
   AND (
@@ -116,6 +116,6 @@ WHERE tenant_id = 77
 -- (see the header note above -- added after the fact, MIGRATION_LOG.md §26).
 UPDATE transactions
 SET description = 'PAY DOMAIN FEE'
-WHERE tenant_id = 77
+WHERE tenant_id = (SELECT id FROM tenant WHERE code = 'C168' AND tenant_type = 'COMPANY')
   AND id = 17044
   AND description = 'Renew AJ | 1 year';

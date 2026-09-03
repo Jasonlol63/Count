@@ -38,7 +38,8 @@ INSERT INTO transactions (
     created_at, updated_at
 )
 SELECT
-    77, 'PAYMENT', 4837, 4837, src.currency_id, 1680.00,
+    (SELECT id FROM tenant WHERE code = 'C168' AND tenant_type = 'COMPANY'),
+    'PAYMENT', 4837, 4837, src.currency_id, 1680.00,
     src.transaction_date, CONCAT('NET PROFIT FROM ', src.payer_code), NULL,
     src.created_by, 'APPROVED', src.created_by, src.approved_at,
     src.created_at, src.created_at
@@ -54,6 +55,6 @@ FROM (
 ) src
 WHERE NOT EXISTS (
     SELECT 1 FROM transactions x
-    WHERE x.tenant_id = 77
+    WHERE x.tenant_id = (SELECT id FROM tenant WHERE code = 'C168' AND tenant_type = 'COMPANY')
       AND x.description = CONCAT('NET PROFIT FROM ', src.payer_code)
 );

@@ -22,9 +22,15 @@
 -- Usage:
 --   mysql -u root count_real < backend/src/main/resources/SqlEtcForMigrate/fix_domain_net_profit_self_reference.sql
 
+-- tenant_id resolved by code, not hardcoded: a fresh full-migration re-run (2026-09-03) proved
+-- tenant.id is NOT stable across runs (auto-increment order depends on legacy table scan order,
+-- which differs snapshot to snapshot -- C168 came out as tenant_id=1 that time, not 77). The
+-- hardcoded `tenant_id = 77` below silently matched zero rows that run (exit 0, no error) --
+-- caught only by an unrelated later script's FK error, not by this one. Resolved by code so this
+-- is correct regardless of what id C168 happens to get.
 UPDATE transactions
 SET from_account_id = account_id
-WHERE tenant_id = 77
+WHERE tenant_id = (SELECT id FROM tenant WHERE code = 'C168' AND tenant_type = 'COMPANY')
   AND transaction_type = 'PAYMENT'
   AND account_id = 4837
   AND from_account_id IS NULL

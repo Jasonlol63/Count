@@ -118,6 +118,14 @@
                 UPPER(c.code) AS currencyCode,
                 CASE
                     WHEN #{excludeFeeCommission} = TRUE AND t.remark = 'DOMAIN_NET_PROFIT' THEN t.amount
+                    <!-- Legacy-migrated RATE leg1/leg2 (rate_group_id LIKE 'RATE_%'): account_id/
+                         from_account_id were copied verbatim from the old PHP DB and don't follow the
+                         current app's leg-insert convention (account_id = leg.toAccountId()), so the
+                         plain formula below is inverted for these rows — reverse it here instead of
+                         swapping the stored columns (which would also flip the FROM/TO description
+                         text, that already matches legacy on its own). New RATE groups use 'RG-%' and
+                         are unaffected. -->
+                    WHEN t.transaction_type = 'RATE' AND t.rate_group_id LIKE 'RATE\_%' THEN t.amount
                     ELSE -t.amount
                 END AS bfPart
             FROM transactions t
@@ -145,6 +153,8 @@
                 UPPER(c.code) AS currencyCode,
                 CASE
                     WHEN #{excludeFeeCommission} = TRUE AND t.remark = 'DOMAIN_NET_PROFIT' THEN 0
+                    <!-- Mirror of the legacy-RATE exception above, for the from_account_id branch. -->
+                    WHEN t.transaction_type = 'RATE' AND t.rate_group_id LIKE 'RATE\_%' THEN -t.amount
                     ELSE t.amount
                 END AS bfPart
             FROM transactions t
@@ -258,6 +268,11 @@
                  AND <include refid="rateMiddlemanFeeDescription"/>
                 THEN t.amount
                 WHEN t.account_id = #{accountId} AND t.from_account_id = #{accountId} THEN 0
+                <!-- Legacy-migrated RATE leg1/leg2 only (rate_group_id LIKE 'RATE_%'): see the
+                     matching comment in aggregateDomainPaymentBfByAccount above for why this is
+                     reversed instead of swapping account_id/from_account_id. -->
+                WHEN t.transaction_type = 'RATE' AND t.rate_group_id LIKE 'RATE\_%' AND t.account_id = #{accountId} THEN t.amount
+                WHEN t.transaction_type = 'RATE' AND t.rate_group_id LIKE 'RATE\_%' THEN -t.amount
                 WHEN t.account_id = #{accountId} THEN -t.amount
                 ELSE t.amount
             END AS signedAmount,

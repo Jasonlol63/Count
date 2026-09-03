@@ -176,14 +176,21 @@
                 a.name AS accountName,
                 a.role AS role,
                 UPPER(c.code) AS currencyCode,
+                <!-- Legacy-migrated RATE leg1/leg2 (rate_group_id LIKE 'RATE_%') get the sign
+                     reversed here instead of swapping account_id/from_account_id — see the matching
+                     comment in TransactionHistoryMapper.xml / aggregateDomainPaymentBfByAccount. -->
                 CASE
                     WHEN <include refid="c168DomainNetProfitRemark"/>
+                        THEN CASE WHEN t.transaction_date &lt; #{dateFrom} THEN t.amount ELSE 0 END
+                    WHEN t.transaction_type = 'RATE' AND t.rate_group_id LIKE 'RATE\_%'
                         THEN CASE WHEN t.transaction_date &lt; #{dateFrom} THEN t.amount ELSE 0 END
                     WHEN t.transaction_date &lt; #{dateFrom} THEN -t.amount
                     ELSE 0
                 END AS bfPart,
                 CASE
                     WHEN <include refid="c168DomainNetProfitRemark"/>
+                        THEN CASE WHEN t.transaction_date &gt;= #{dateFrom} AND t.transaction_date &lt;= #{dateTo} THEN t.amount ELSE 0 END
+                    WHEN t.transaction_type = 'RATE' AND t.rate_group_id LIKE 'RATE\_%'
                         THEN CASE WHEN t.transaction_date &gt;= #{dateFrom} AND t.transaction_date &lt;= #{dateTo} THEN t.amount ELSE 0 END
                     WHEN t.transaction_date &gt;= #{dateFrom}
                      AND t.transaction_date &lt;= #{dateTo} THEN -t.amount
@@ -224,13 +231,18 @@
                 a.name AS accountName,
                 a.role AS role,
                 UPPER(c.code) AS currencyCode,
+                <!-- Mirror of the legacy-RATE exception above, for the from_account_id branch. -->
                 CASE
                     WHEN <include refid="c168DomainNetProfitRemark"/> THEN 0
+                    WHEN t.transaction_type = 'RATE' AND t.rate_group_id LIKE 'RATE\_%'
+                        THEN CASE WHEN t.transaction_date &lt; #{dateFrom} THEN -t.amount ELSE 0 END
                     WHEN t.transaction_date &lt; #{dateFrom} THEN t.amount
                     ELSE 0
                 END AS bfPart,
                 CASE
                     WHEN <include refid="c168DomainNetProfitRemark"/> THEN 0
+                    WHEN t.transaction_type = 'RATE' AND t.rate_group_id LIKE 'RATE\_%'
+                        THEN CASE WHEN t.transaction_date &gt;= #{dateFrom} AND t.transaction_date &lt;= #{dateTo} THEN -t.amount ELSE 0 END
                     WHEN t.transaction_date &gt;= #{dateFrom}
                      AND t.transaction_date &lt;= #{dateTo} THEN t.amount
                     ELSE 0

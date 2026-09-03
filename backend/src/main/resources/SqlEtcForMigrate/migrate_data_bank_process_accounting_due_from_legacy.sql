@@ -94,6 +94,17 @@ SET resend_schedule_day_start = '2026-05-31',
     resend_schedule_frequency = 'FIRST_OF_EVERY_MONTH'
 WHERE id = 420;
 
+-- A fresh run against a newer legacy snapshot (2026-09-03) surfaced 2 more bank_process rows
+-- (694, 701) with accounting_resend_relax_created_floor=1 -- same open-Resend-schedule situation as
+-- id 420 above. Both have a single, clean, unambiguous schedule (2026-08-29..2027-02-28,
+-- 1st_of_every_month), no conflict. Added here so a future re-run reaches the correct end state
+-- without a manual step; harmless no-op against a snapshot where these 2 don't have the flag set.
+UPDATE bank_process
+SET resend_schedule_day_start = '2026-08-29',
+    resend_schedule_day_end   = '2027-02-28',
+    resend_schedule_frequency = 'FIRST_OF_EVERY_MONTH'
+WHERE id IN (694, 701) AND accounting_resend_relax_created_floor = 1;
+
 -- =============================================================================
 -- 2. bank_process_accounting_posted from process_accounting_posted (POSTED / SKIPPED via the legacy
 --    *_skipped period_type suffix). id preserved 1:1. Deduped per (tenant, bank_process, posted_date,

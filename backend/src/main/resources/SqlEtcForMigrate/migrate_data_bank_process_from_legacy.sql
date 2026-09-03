@@ -213,4 +213,10 @@ SELECT
     g.created_at
 FROM c168_net_legacy_20260827.bank_process_accounting_resend_daily_guard g
 JOIN c168_net_legacy_20260827.company c ON c.id = g.company_id
-JOIN tenant ten ON ten.tenant_type = 'COMPANY' AND ten.code = c.company_id;
+JOIN tenant ten ON ten.tenant_type = 'COMPANY' AND ten.code = c.company_id
+-- Orphan guard added 2026-09-03: a fresh run against a newer legacy snapshot surfaced 2 guard rows
+-- whose bank_process_id no longer exists in the current legacy `bank_process` table at all (deleted
+-- from the old system after this script was first written) -- FK error without this join. Silently
+-- excluded, same "orphan, not fabricated" treatment used throughout this migration for
+-- companies/processes deleted before any archival existed.
+JOIN c168_net_legacy_20260827.bank_process bp ON bp.id = g.bank_process_id;

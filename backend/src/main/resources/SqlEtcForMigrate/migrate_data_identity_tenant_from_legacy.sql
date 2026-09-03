@@ -132,7 +132,14 @@ JOIN user_role ur ON ur.code = CASE LOWER(TRIM(x.role))
     WHEN 'audit'            THEN 'AUDIT'
     WHEN 'customer service' THEN 'CUSTOMER_SERVICE'
     WHEN 'partnership'      THEN 'PARTNERSHIP'
-END;
+END
+-- IT_JK/IT_JS/IT_MS (legacy user.id 523/524/525): confirmed with the user as intentional --
+-- these 3 accounts are to be deleted entirely, not backfilled (see
+-- migrate_data_user_acl_from_legacy.sql's header, which documents the same decision for the
+-- user_company_permissions rows that reference them). This script originally had no exclusion for
+-- them and re-inserted all 3 on a fresh re-run (2026-09-03) -- excluded explicitly here so a future
+-- re-run reaches the correct end state without a manual cleanup step.
+WHERE x.id NOT IN (523, 524, 525);
 
 -- =============================================================================
 -- 6. user_tenant_access (from user_company_map; scope_type ignored, company_id authoritative)

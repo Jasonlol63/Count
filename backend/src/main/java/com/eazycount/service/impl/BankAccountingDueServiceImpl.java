@@ -340,7 +340,8 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
         };
     }
 
-    private static boolean isCompensationPost(BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType) {
+    /* Package-private (not private): reused by BankProcessDescriptionBackfillTool. */
+    static boolean isCompensationPost(BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType) {
         if (periodType == BkProcessAccountingPosted.PeriodType.COMPENSATION) {
             return true;
         }
@@ -1065,7 +1066,9 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
         accountingDueDao.insertLedgerEntry(row);
     }
 
-    private static String buildLineDescription(BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType,
+    /* Package-private (not private): reused by BankProcessDescriptionBackfillTool to regenerate
+       description for pre-migration transactions with the exact same formatting rules as new postings. */
+    static String buildLineDescription(BankProcess bankProcess, BkProcessAccountingPosted.PeriodType periodType,
                                                LocalDate postedDate, LocalDate billingStart, LocalDate billingEnd,
                                                BigDecimal amount, BigDecimal baseAmount, String bankName, boolean compensation) {
         if (compensation) {

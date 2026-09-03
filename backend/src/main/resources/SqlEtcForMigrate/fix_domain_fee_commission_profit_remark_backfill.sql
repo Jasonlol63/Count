@@ -27,18 +27,18 @@
 
 UPDATE transactions
 SET remark = 'DOMAIN_FEE'
-WHERE tenant_id = 77
+WHERE tenant_id = (SELECT id FROM tenant WHERE code = 'C168' AND tenant_type = 'COMPANY')
   AND description = 'PAY DOMAIN FEE'
   AND remark IS NULL;
 
 UPDATE transactions
 SET remark = 'DOMAIN_COMMISSION'
-WHERE tenant_id = 77
+WHERE tenant_id = (SELECT id FROM tenant WHERE code = 'C168' AND tenant_type = 'COMPANY')
   AND description LIKE '% COMMISSION FROM %'
   AND remark IS NULL;
 
 UPDATE transactions
 SET remark = 'DOMAIN_NET_PROFIT'
-WHERE tenant_id = 77
+WHERE tenant_id = (SELECT id FROM tenant WHERE code = 'C168' AND tenant_type = 'COMPANY')
   AND description LIKE 'NET PROFIT FROM %'
   AND remark IS NULL;

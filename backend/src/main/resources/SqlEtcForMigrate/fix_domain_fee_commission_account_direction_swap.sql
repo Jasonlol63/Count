@@ -38,6 +38,10 @@
 -- this is the safe, portable way to swap two columns in one statement. Do not revert to the inline
 -- two-column SET form.
 --
+-- tenant_id resolved by code (SELECT ... WHERE code='C168'), not hardcoded 77: a fresh
+-- full-migration re-run (2026-09-03) proved tenant.id is not stable across runs -- see
+-- fix_domain_net_profit_self_reference.sql's header for the full incident note.
+--
 -- Usage:
 --   mysql -u root count_real < backend/src/main/resources/SqlEtcForMigrate/fix_domain_fee_commission_account_direction_swap.sql
 
@@ -46,7 +50,7 @@ UPDATE transactions t
 JOIN (
     SELECT id, account_id, from_account_id
     FROM transactions
-    WHERE tenant_id = 77
+    WHERE tenant_id = (SELECT id FROM tenant WHERE code = 'C168' AND tenant_type = 'COMPANY')
       AND transaction_type = 'PAYMENT'
       AND account_id = 4837
       AND (
@@ -63,7 +67,7 @@ UPDATE transactions t
 JOIN (
     SELECT id, account_id, from_account_id
     FROM transactions
-    WHERE tenant_id = 77
+    WHERE tenant_id = (SELECT id FROM tenant WHERE code = 'C168' AND tenant_type = 'COMPANY')
       AND transaction_type = 'PAYMENT'
       AND from_account_id = 4837
       AND (
