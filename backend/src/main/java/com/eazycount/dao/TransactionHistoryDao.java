@@ -28,7 +28,8 @@ public interface TransactionHistoryDao {
             @Param("tenantId") Integer tenantId,
             @Param("accountId") Integer accountId,
             @Param("dateFrom") LocalDate dateFrom,
-            @Param("currencyCodes") List<String> currencyCodes);
+            @Param("currencyCodes") List<String> currencyCodes,
+            @Param("excludeFeeCommission") boolean excludeFeeCommission);
 
     List<TransactionHistoryLineRow> findBankProcessHistoryLines(
             @Param("tenantId") Integer tenantId,

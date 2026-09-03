@@ -29,6 +29,14 @@
         )
     </sql>
 
+    <!-- Domain-fee-charge family (chargeDomainFee()): identified by the internal `remark` tag
+         DomainFeeChargeServiceImpl writes (DOMAIN_FEE / DOMAIN_COMMISSION), NOT by parsing
+         `description` text — see MIGRATION_LOG.md §29. Excluded from C168/PROFIT's own Cr/Dr and
+         B/F; its Net Profit lines (DOMAIN_NET_PROFIT) and any genuine manual transfer stay in. -->
+    <sql id="domainFeeOrCommissionRemark">
+        (t.remark = 'DOMAIN_FEE' OR t.remark = 'DOMAIN_COMMISSION')
+    </sql>
+
     <!-- RATE Middle-Man fee-kind leg: legacy RATE_MIDDLEMAN_FEE / MARKUP X … (Service Fee), or
          CHARGE … PLATFORM FEE (Platform Fee) — both single-sided, +amount to whoever holds account_id. -->
     <sql id="rateMiddlemanFeeDescription">
@@ -108,7 +116,10 @@
         FROM (
             SELECT
                 UPPER(c.code) AS currencyCode,
-                -t.amount AS bfPart
+                CASE
+                    WHEN #{excludeFeeCommission} = TRUE AND t.remark = 'DOMAIN_NET_PROFIT' THEN t.amount
+                    ELSE -t.amount
+                END AS bfPart
             FROM transactions t
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
             WHERE t.tenant_id = #{tenantId}
@@ -124,12 +135,18 @@
                     UPPER(#{code})
                 </foreach>
             </if>
+            <if test="excludeFeeCommission">
+                AND NOT <include refid="domainFeeOrCommissionRemark"/>
+            </if>
 
             UNION ALL
 
             SELECT
                 UPPER(c.code) AS currencyCode,
-                t.amount AS bfPart
+                CASE
+                    WHEN #{excludeFeeCommission} = TRUE AND t.remark = 'DOMAIN_NET_PROFIT' THEN 0
+                    ELSE t.amount
+                END AS bfPart
             FROM transactions t
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
             WHERE t.tenant_id = #{tenantId}
@@ -145,6 +162,9 @@
                 <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
                     UPPER(#{code})
                 </foreach>
+            </if>
+            <if test="excludeFeeCommission">
+                AND NOT <include refid="domainFeeOrCommissionRemark"/>
             </if>
         ) x
         GROUP BY x.currencyCode

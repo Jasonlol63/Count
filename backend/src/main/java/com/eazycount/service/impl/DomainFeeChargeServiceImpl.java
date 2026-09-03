@@ -36,6 +36,12 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
 
     private static final String LEDGER_CURRENCY_CODE = "MYR";
 
+    /* Internal `remark` tags identifying transaction origin for business logic (MIGRATION_LOG.md §29).
+     * Never shown to viewers -- History code blanks these, same as RATE middleman handling. */
+    public static final String REMARK_DOMAIN_FEE = "DOMAIN_FEE";
+    public static final String REMARK_DOMAIN_COMMISSION = "DOMAIN_COMMISSION";
+    public static final String REMARK_DOMAIN_NET_PROFIT = "DOMAIN_NET_PROFIT";
+
     @Autowired
     private DomainDao domainDao;
 
@@ -141,7 +147,7 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
         List<Transaction> lines = new ArrayList<>();
 
         lines.add(buildPaymentLine(c168TenantId, payerAccountId, profitAccountId, currencyId,
-                domainFeeAmount, transactionDate, "PAY DOMAIN FEE", createdBy, approvedAt));
+                domainFeeAmount, transactionDate, "PAY DOMAIN FEE", REMARK_DOMAIN_FEE, createdBy, approvedAt));
 
         BigDecimal commissionTotal = BigDecimal.ZERO;
         for (TenantFeeShareAllocate row : allocations) {
@@ -169,7 +175,7 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
             lines.add(buildPaymentLine(c168TenantId, profitAccountId, row.getAccountId(), currencyId,
                     amount, transactionDate,
                     row.getShareType().name() + " COMMISSION FROM " + payerCode,
-                    createdBy, approvedAt));
+                    REMARK_DOMAIN_COMMISSION, createdBy, approvedAt));
         }
 
         BigDecimal profitAmount = scaleMoney(domainFeeAmount.subtract(commissionTotal));
@@ -178,7 +184,8 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
         }
         if (profitAmount.compareTo(BigDecimal.ZERO) > 0) {
             lines.add(buildPaymentLine(c168TenantId, profitAccountId, profitAccountId, currencyId,
-                    profitAmount, transactionDate, "NET PROFIT FROM " + payerCode, createdBy, approvedAt));
+                    profitAmount, transactionDate, "NET PROFIT FROM " + payerCode,
+                    REMARK_DOMAIN_NET_PROFIT, createdBy, approvedAt));
         }
 
         for (Transaction line : lines) {
@@ -201,7 +208,7 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
     /* Build Payment Details Use */
     private Transaction buildPaymentLine(Integer tenantId, Integer toAccountId, Integer fromAccountId,
             Integer currencyId, BigDecimal amount, LocalDate transactionDate, String description,
-            String createdBy, LocalDateTime approvedAt) {
+            String remark, String createdBy, LocalDateTime approvedAt) {
         Transaction txn = new Transaction();
         txn.setTenantId(tenantId);
         txn.setTransactionType(Transaction.TransactionType.PAYMENT);
@@ -211,7 +218,7 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
         txn.setAmount(amount);
         txn.setTransactionDate(transactionDate);
         txn.setDescription(description);
-        txn.setRemark(null);
+        txn.setRemark(remark);
         txn.setCreatedBy(createdBy);
         txn.setUpdatedBy(null);
         txn.setApprovalStatus(Transaction.ApprovalStatus.APPROVED);

@@ -32,9 +32,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Payment History: Win/Loss (Bank Process + Data Capture + manual Adjustment/Profit/Rate-middleman)
- * and Domain Payment (Cr/Dr) are built separately, then merged by the public orchestrator so Domain
- * rules do not leak into Win/Loss logic.
+ * 交易记录：Win/Loss 和 Domain Payment（Cr/Dr）分开构建，最后统一合并，避免两边规则互相影响。
  */
 @Service
 public class TransactionHistoryServiceImpl implements TransactionHistoryService {
@@ -134,7 +132,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
 
         Map<String, BigDecimal> bfByCurrency = new LinkedHashMap<>();
         addBfRows(bfByCurrency, transactionHistoryDao.aggregateDomainPaymentBfByAccount(
-                tenantId, accountId, dateFrom, currencyCodes));
+                tenantId, accountId, dateFrom, currencyCodes, c168ProfitView));
 
         List<TransactionHistoryLineRow> lines = new ArrayList<>();
         List<TransactionHistoryLineRow> domainLines = transactionHistoryDao.findDomainPaymentHistoryLines(
@@ -144,12 +142,22 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
                 if (line == null) {
                     continue;
                 }
+                boolean isDomainFeeOrCommission = isDomainFeeOrCommissionRemark(line.getRemark());
+                boolean isDomainNetProfit = isDomainNetProfitRemark(line.getRemark());
+                if (isDomainFeeOrCommission || isDomainNetProfit) {
+                    // 内部记账标记，任何视角都不展示给用户
+                    line.setRemark(null);
+                }
                 if (c168ProfitView) {
-                    if (!isNetProfitDescription(line.getDescription())) {
+                    // C168/PROFIT 自身余额要排除收取的手续费和支付的佣金（过手资金），
+                    // 但保留 Net Profit 行和真实的手动转账
+                    if (isDomainFeeOrCommission) {
                         continue;
                     }
-                    // Retained profit as Cr/Dr (not self-leg net 0).
-                    line.setSignedAmount(TransactionMoneyFormat.nz(line.getAmount()));
+                    if (isDomainNetProfit) {
+                        // 留存利润按 Cr/Dr 记全额（而非自引用抵消为 0）
+                        line.setSignedAmount(TransactionMoneyFormat.nz(line.getAmount()));
+                    }
                 }
                 if (!applyRateHistoryPresentation(line, accountId)) {
                     applyManualTransferHistoryPresentation(line, accountId);
@@ -162,13 +170,9 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
     }
 
     /*
-     * leg2 from account 自己的 Payment History：Rate-Mul 和 Service Fee 这两笔（对本账号是 −WL）
-     * 直接并进 leg2 主记录的 Cr/Dr，不单独显示；middleman 自己看到的 +WL 是另一个账号，不受影响。
-     * Platform Fee 单边、无对手方，永远自己一行（见 toHistoryRow，走 Cr/Dr，product "Fee"）。
-     *
-     * Service Fee 存库金额是 Fee − Platform Fee 的净额（middleman 收入已扣过一次 Platform Fee），
-     * 直接并进来会让本账号被 Platform Fee 多扣一次，所以这里把净额还原成扣满额，Platform Fee 的
-     * 影响只体现在它自己那一行。
+     * leg2 账号的 Rate-Mul/Service Fee 并入主记录的 Cr/Dr，不单独显示；Platform Fee 单边、
+     * 无对手方，始终单独一行（走 Cr/Dr，product "Fee"）。
+     * Service Fee 存库金额已扣过一次 Platform Fee，这里还原成全额，避免重复扣减。
      */
     private static void mergeRateMiddlemanDeductionsIntoMainLeg(List<TransactionHistoryLineRow> lines, Integer accountId) {
         Map<String, TransactionHistoryLineRow> mainLineByGroup = new LinkedHashMap<>();
@@ -194,8 +198,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         }
         List<TransactionHistoryLineRow> toRemove = new ArrayList<>();
         for (TransactionHistoryLineRow line : lines) {
-            // Double-sided middleman leg only (Rate-Mul / Service Fee) — Platform Fee has no
-            // fromAccountId and is left alone.
+            // 仅处理双边中间人行（Rate-Mul/Service Fee），Platform Fee 无 fromAccountId，跳过
             if (!Boolean.TRUE.equals(line.getRateMiddlemanFee()) || line.getFromAccountId() == null) {
                 continue;
             }
@@ -309,8 +312,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         boolean isAdjustment = isManualAdjustmentLine(line);
         boolean isProfit = isManualProfitLine(line);
         boolean isRateMiddlemanFee = Boolean.TRUE.equals(line.getRateMiddlemanFee());
-        // Platform Fee: the only single-sided (no fromAccountId) Rate-Mul/Fee-kind row — Cr/Dr,
-        // product "Fee", never Win/Loss (unlike Rate-Mul/Service Fee shown on middleman's own view).
+        // Platform Fee：唯一单边（无 fromAccountId）的 Rate-Mul/Fee 行，走 Cr/Dr，product "Fee"
         boolean isPlatformFee = isRateMiddlemanFee && line.getFromAccountId() == null;
 
         TransactionHistoryResult.Row row = new TransactionHistoryResult.Row();
@@ -435,10 +437,9 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
     }
 
     /*
-     * RATE History description (display only — always rebuilt; DB may store audit text with both FROM+TO):
-     * Transfer legs: {@code EXCH RATE {rate} {ccy1} {amount} > {ccy2} | FROM|TO {accountCode}}
-     * Middle-Man fee leg: {@code MARKUP {rate} {ccy1} {amt} > {ccy2} | FROM {leg1 To}} — middleman account only.
-     * Direction follows leg1→leg2 currencies. FROM on payer (To), TO on receiver (From) — same as PAYMENT.
+     * RATE 记录描述（仅展示用，每次重新生成）：
+     * 转账腿：EXCH RATE {rate} {ccy1} {amount} > {ccy2} | FROM|TO {accountCode}
+     * 中间人手续费腿：MARKUP {rate} {ccy1} {amt} > {ccy2} | FROM {leg1 To}
      */
     static boolean applyRateHistoryPresentation(
             TransactionHistoryLineRow line,
@@ -456,20 +457,20 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             applyRateMiddlemanHistoryPresentation(line, viewedAccountId);
             return true;
         }
-        // Always rebuild viewpoint text so stored audit descriptions do not change History UI.
+        // 每次重新生成视角文案，避免存库审计文本影响 History 展示
         String rate = trimToEmpty(line.getRateExpression());
         String ccy1 = trimToEmpty(line.getRateCurrencyFromCode()).toUpperCase(Locale.ROOT);
         String ccy2 = trimToEmpty(line.getRateCurrencyToCode()).toUpperCase(Locale.ROOT);
         String amountText = formatRateHistoryAmount(line.getRateAmountFrom());
         if (rate.isEmpty() || ccy1.isEmpty() || ccy2.isEmpty()) {
-            // Fallback to PAYMENT-style if FX header missing
+            // FX 信息缺失时退化为 PAYMENT 样式
             applyManualTransferHistoryPresentation(line, viewedAccountId);
             return true;
         }
         String prefix = "EXCH RATE " + rate + " " + ccy1 + " " + amountText + " > " + ccy2;
         String payerCode = trimToEmpty(line.getToAccountCode()).toUpperCase(Locale.ROOT);
         String receiverCode = trimToEmpty(line.getFromAccountCode()).toUpperCase(Locale.ROOT);
-        // Receiver (From): TO {payer}; payer (To): FROM {receiver} — same as PAYMENT.
+        // 收款方(From)显示 TO {付款方}；付款方(To)显示 FROM {收款方}，与 PAYMENT 一致
         if (line.getFromAccountId() != null && viewedAccountId.equals(line.getFromAccountId())) {
             line.setDescription(prefix + " | TO " + payerCode);
             return true;
@@ -482,16 +483,15 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
     }
 
     /*
-     * Middle-Man History (middleman / From leg only):
-     * Rate: {@code MARKUP {rate} {ccy1} {amt} > {ccy2} | FROM {leg1 To}}
-     * Fee:  {@code MARKUP X {ccy1} {amt} > {ccy2} | FROM {leg1 To}}
+     * 中间人视角记录（仅 middleman/From 腿）：
+     * Rate: MARKUP {rate} {ccy1} {amt} > {ccy2} | FROM {leg1 To}
+     * Fee:  MARKUP X {ccy1} {amt} > {ccy2} | FROM {leg1 To}
      */
     static void applyRateMiddlemanHistoryPresentation(
             TransactionHistoryLineRow line,
             Integer viewedAccountId) {
         if (line.getFromAccountId() == null) {
-            // Single-sided (Platform Fee): no middleman counterparty — always show the stored
-            // "CHARGE {ccy} {amt} PLATFORM FEE" description as-is, never rewritten.
+            // 单边的 Platform Fee 无中间人对手方，保留原始描述不改写
             return;
         }
         boolean middlemanView = viewedAccountId.equals(line.getFromAccountId());
@@ -499,7 +499,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             return;
         }
         line.setDescription(formatRateMiddlemanMarkupDescription(line));
-        // Middleman's own Rate/Fee row view never shows the transaction's general remark.
+        // 中间人自己视角不展示交易的通用 remark
         line.setRemark(null);
     }
 
@@ -529,12 +529,10 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
     }
 
     /*
-     * Rate-Mul token 的展示规则（跟 RateMulCalculator 的两种"有效"模式一一对应，points 模式没有
-     * 对应的减法，维持原样显示 middleman 输入）：
-     * - 乘法模式（FX 非除法写法，"新汇率"场景）：原汇率 − middleman 输入，例 3 − 2.9 = 0.1。
-     * - 除法模式（FX 也必然是除法写法，否则佣金算出来是 0、根本不会写这笔分录）：
-     *   middleman 除数 − FX 除数，例 1.305 − 1.32 = -0.015。
-     * 统一四舍五入到 6 位小数，位数不够就按实际位数显示（formatRateHistoryDecimal）。
+     * Rate-Mul token 展示规则：
+     * - 乘法模式：原汇率 − middleman 输入，如 3 − 2.9 = 0.1
+     * - 除法模式：middleman 除数 − FX 除数，如 1.305 − 1.32 = -0.015
+     * 统一四舍五入到 6 位小数，末尾 0 省略
      */
     static String formatRateMiddlemanRateToken(TransactionHistoryLineRow line) {
         RateMulCalculator.ParsedRate parsed =
@@ -588,10 +586,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         return TransactionMoneyFormat.formatMoney(amount);
     }
 
-    /*
-     * Manual PAYMENT / CLAIM / CLEAR / CONTRA / PROFIT History display (viewpoint text).
-     * Domain / system lines with other descriptions are left as stored.
-     */
+    /* 手动 PAYMENT/CLAIM/CLEAR/CONTRA/PROFIT 的视角文案展示，其他 Domain/系统记录保持原样 */
     static void applyManualTransferHistoryPresentation(
             TransactionHistoryLineRow line,
             Integer viewedAccountId) {
@@ -619,10 +614,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         }
     }
 
-    /*
-     * Blank (legacy) or stored audit {@code TYPE FROM … TO …} → rewrite for History.
-     * Other stored text (e.g. domain {@code PAY DOMAIN FEE}) is kept.
-     */
+    /* 空白（旧数据）或存库的 "TYPE FROM … TO …" 审计文本才改写，其他文本（如 PAY DOMAIN FEE）保留 */
     static boolean shouldRewriteManualTransferHistoryDescription(String description, String type) {
         if (description == null || description.isBlank()) {
             return true;
@@ -640,9 +632,15 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         return description == null || description.isBlank();
     }
 
-    static boolean isNetProfitDescription(String description) {
-        String d = description != null ? description.trim().toUpperCase(Locale.ROOT) : "";
-        return d.startsWith("NET PROFIT");
+    static boolean isDomainFeeOrCommissionRemark(String remark) {
+        String r = remark != null ? remark.trim() : "";
+        return DomainFeeChargeServiceImpl.REMARK_DOMAIN_FEE.equals(r)
+                || DomainFeeChargeServiceImpl.REMARK_DOMAIN_COMMISSION.equals(r);
+    }
+
+    static boolean isDomainNetProfitRemark(String remark) {
+        String r = remark != null ? remark.trim() : "";
+        return DomainFeeChargeServiceImpl.REMARK_DOMAIN_NET_PROFIT.equals(r);
     }
 
     private static BigDecimal signedAmountFallback(String transactionType, BigDecimal amount) {

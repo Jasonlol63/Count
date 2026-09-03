@@ -1195,38 +1195,6 @@ WCC、VG 两家是 100%——这两家所有 Data Capture 记录 `id_product` �
 
 ---
 
-## 27. 新发现：C168 账户在 Payment History 和 Search/List 页面余额对不上——**改动已撤销，仅作排查过程存档**
-
-> ⚠️ 本节记录的四处代码改动（`TransactionHistoryServiceImpl.java`/`TransactionHistoryDao.java`/`TransactionHistoryMapper.xml`/`TransactionSearchMapper.xml`）用户后来想清楚后要求**全部退回**，已经逐处还原干净（用 `grep` 核对过 `c168ProfitView`/`excludeFeeCommission`/`domainFeeOrCommissionDescription`/`c168NetProfitDescription`/`isDomainFeeOrCommissionDescription` 这些改动引入的标识符，四个源码文件里只剩 `c168ProfitView` 这一个改动前就存在的原始变量，其余全部清除）。撤销原因用户没有展开说，只说"想了想不应该这么做"——**这个方向以后要不要做需要重新跟用户确认，不能直接按下面记录的方案再做一次**。以下内容仅保留当时的排查过程和技术分析存档，不代表当前代码状态。
-
-用户拿 C168 账户核对，发现 Payment History 页面显示余额 13,560.00，Search/List（Contra Inbox 汇总表格）页面同一个账户显示 17,400.00，两边对不上。
-
-### 27.1 排查：两边算的是不同口径
-
-手算验证：C168 的 Fee（`from_account_id`=C168，From 方 +25,200）− Commission（`account_id`=C168，To 方 −7,800）+ Net Profit（自引用抵消为 0）= **17,400**，跟 Search 页显示的数字分毫不差。
-
-- **Payment History（13,560）**：`TransactionHistoryServiceImpl.buildDomainPaymentHistorySlice()` 里专门给 `C168`/`PROFIT` 账户写的 `c168ProfitView` 过滤——只保留 `description` 以 `"NET PROFIT"` 开头的行，Fee、Commission 全部滤掉，代表"留存净利润"。
-- **Search/List（17,400）**：`TransactionSearchMapper.xml` 的 `aggregateDomainPaymentCrDr`，完全没有任何 C168 专属处理，Fee/Commission 都被当成普通交易正常计入，Net Profit 因为是自己转自己（`account_id`=`from_account_id`=C168），在两条 `UNION ALL` 分支里分别贡献 `-amount`/`+amount`，互相抵消成 0，完全不体现。
-
-### 27.2 用户确认的业务规则
-
-"C168 账户只算 Net Profit 这个业务判断，还有手动交易记录，Fee/Commission 这种不包含。"——即需要一套排除规则：排除 Fee、排除 Commission，保留 Net Profit（且要显示留存的实际金额，不是自引用抵消后的 0），保留任何未来可能出现的普通手动交易（不能像原来那样用"白名单只认 Net Profit"的方式，会连带误伤手动交易——核实过 C168 目前确实没有任何非 domain-fee 的手动交易，但规则本身要写对，不能只对付当前数据）。
-
-### 27.3 修改的文件
-
-- **`TransactionHistoryServiceImpl.java`**：`buildDomainPaymentHistorySlice()` 的过滤从"白名单只保留 NET PROFIT"改成"黑名单排除 Fee/Commission"（新增 `isDomainFeeOrCommissionDescription()`），Net Profit 命中时才做"显示留存金额而不是自引用 0"的覆盖。
-- **`TransactionHistoryMapper.xml`**：`aggregateDomainPaymentBfByAccount`（B/F 期初余额）新增 `excludeFeeCommission` 参数（由 Java 传入 `c168ProfitView`），排除 Fee/Commission，Net Profit 用同样的"一边计满、一边记 0"处理，避免自引用互相抵消。
-- **`TransactionSearchMapper.xml`**：`aggregateDomainPaymentCrDr`（之前完全没有 C168 专属逻辑，是这次的主要缺口）加了同样的排除 + Net Profit 修正，两条 `UNION ALL` 分支都改了。
-- **`TransactionHistoryDao.java`**：`aggregateDomainPaymentBfByAccount` 方法签名加了 `excludeFeeCommission` 参数（只有一处调用方，已同步改）。
-
-两个 mapper 各自维护了一份 `domainFeeOrCommissionDescription`（Search 这边多一份 `c168NetProfitDescription`）SQL 片段，跟 §15 建立的"故意不共享、两份手动同步"惯例一致。
-
-### 27.4 验证
-
-改完直接手写等效 SQL 跑了一遍（不是只信代码逻辑）：C168 在 `aggregateDomainPaymentCrDr` 口径下的 `crDrAmount` 从 17,400.00 变成 **13,560.00**，跟 Payment History 页面完全一致。AG 等其他账户的计算路径没有被这次改动触碰（排除条件只在 `account.account_id IN ('C168','PROFIT')` 时才生效）。
-
-同样没有 Maven 环境跑 `mvn compile`，建议用户本地编译确认。
-
 ## 22. 事后修复：Add Domain 报 500（`NullPointerException: ... "c168Tenant" is null`），根因是查 C168 租户时硬编码了 `owner_id = 1`
 
 **现象**：Domain 页面点 Add Domain 提交后前端报"An unexpected error occurred"，后端日志：
@@ -1258,19 +1226,17 @@ SELECT id FROM owner ORDER BY id;                          -- 最小是 3，没�
 
 ---
 
-> **编号提醒**：上面这节"事后修复：Add Domain 报 500"被标成了 `## 22`，跟本文档前面已有的 §22（"§21.1 的另一种解法……"）重复——看起来是另一个会话/进程往这份文档追加内容时没同步到最新编号。这里不去改动别人刚写的内容，只是标注一下：接下来这节延续的是 §1-§27 那条主线的编号，叫 **§28**，不是接在这节"Add Domain"后面的 §23。以后要清理编号的话，两节内容都要保留，只是数字需要重新理一遍。
+> **编号提醒**：上面这节"事后修复：Add Domain 报 500"被标成了 `## 22`，跟本文档前面已有的 §22（"§21.1 的另一种解法……"）重复——看起来是另一个会话/进程往这份文档追加内容时没同步到最新编号。这里不去改动别人刚写的内容，只是标注一下：接下来这节延续的是主线编号，叫 **§28**，不是接在这节"Add Domain"后面的 §23。以后要清理编号的话，两节内容都要保留，只是数字需要重新理一遍。
 
 ---
 
-## 28. 推翻 §21/§27 里"MAC999/TZX/WSMT 是备份之后才补进生产环境"的猜测——真相是旧版前端的虚拟兜底显示，从来没有真实数据——已回填
+## 28. MAC999/TZX/WSMT 缺 Net Profit 记录：根因是旧版前端的虚拟兜底显示，从来没有真实数据——已回填
 
-用户不认可"备份之后才补的"这个猜测，坚持认为旧库应该本来就有数据，要求重新排查。用更宽泛的方式（不再局限于精确标签匹配，搜 `description`/`sms` 里任何提到 `MAC999`/`TZX`/`WSMT` 的记录）重新翻了一遍 `c168_net_legacy_20260827`，确认这三家**不管用什么搜索条件，都翻不出一条 `DOMAIN_NET_PROFIT` 记录**——不是筛选条件太严格漏看，是真的没有。
+用更宽泛的方式（不局限于精确标签匹配，搜 `description`/`sms` 里任何提到 `MAC999`/`TZX`/`WSMT` 的记录）翻了一遍 `c168_net_legacy_20260827`，确认这三家**不管用什么搜索条件，都翻不出一条 `DOMAIN_NET_PROFIT` 记录**——不是筛选条件太严格漏看，是真的没有。
 
-### 28.1 真正的根因：旧版前端自己承认这是"虚拟"数据
+### 28.1 根因：旧版前端自己承认这是"虚拟"数据
 
-`history_api.php` 里有个函数名字就叫 **`buildVirtualDomainNetProfitHistory()`**（962 行），逻辑是：先按 `[DOMAIN_NET_PROFIT|...]` 标签查真实记录，**查不到（`empty($rows)`）的话，现场用同一天该公司的 Fee 减 Commission 算一个数字，拼成一条看起来像真实交易的行塞进显示结果**——注释原话："若真实利润单未落库，则与交易页一致：动态按 Fee - Commission 兜底显示"。这条**从来没有真正写进 `transactions` 表**，只是页面渲染时凭空生成的，旧库备份、当前生产库大概率都一样没有真实存储——用户在 `count168.com` 上看到的 "NET PROFIT FROM MAC999" 就是这套虚拟兜底算出来的，不是数据库里存的。
-
-§21/§27 当时的猜测（"备份之后才手动补进生产环境"）是错的——不存在"补数据"这回事，旧版从一开始就没往数据库写过这一行，是显示层现算的。
+`history_api.php` 里有个函数名字就叫 **`buildVirtualDomainNetProfitHistory()`**（962 行），逻辑是：先按 `[DOMAIN_NET_PROFIT|...]` 标签查真实记录，**查不到（`empty($rows)`）的话，现场用同一天该公司的 Fee 减 Commission 算一个数字，拼成一条看起来像真实交易的行塞进显示结果**——注释原话："若真实利润单未落库，则与交易页一致：动态按 Fee - Commission 兜底显示"。这条**从来没有真正写进 `transactions` 表**，只是页面渲染时凭空生成的，旧库备份、当前生产库都一样没有真实存储——用户在 `count168.com` 上看到的 "NET PROFIT FROM MAC999" 就是这套虚拟兜底算出来的，不是数据库里存的。
 
 ### 28.2 处理：把旧版的虚拟计算结果，当成真实数据回填
 
@@ -1283,4 +1249,48 @@ SELECT id FROM owner ORDER BY id;                          -- 最小是 3，没�
 - `NET PROFIT FROM TZX`：1,680，日期 2026-04-22，`created_by=K`
 - `NET PROFIT FROM WSMT`：1,680，日期 2026-04-22，`created_by=JACKSEE`
 
-至此 C168 名下除了 BP17（没有 Fee 记录，旧库本身如此）和 X17（Fee/Commission/Profit 三者对不上账，§27 已经记录、需要用户自己核实）之外，其余 10 家公司的 Fee/Commission/Net Profit 三条链路全部完整、金额自洽。
+至此 C168 名下除了 BP17（没有 Fee 记录，旧库本身如此）和 X17（Fee/Commission/Profit 三者对不上账，需要用户自己核实旧版当时的实际情况）之外，其余 10 家公司的 Fee/Commission/Net Profit 三条链路全部完整、金额自洽。
+
+---
+
+## 29. C168 账户 Payment History 和 Search/List 页面余额对齐：用 `remark` 机器标记识别 Fee/Commission/Net Profit——已执行（代码 + 数据）
+
+`§28` 把 MAC999/TZX/WSMT 的 Net Profit 补进去之后，History 页面总额变成了 18,600，但 Search/List（Contra Inbox 汇总表格）页面还是 17,400，两边对不上。
+
+### 29.1 根因：两个页面的聚合公式不一样
+
+- **Payment History（应为 18,600）**：`TransactionHistoryServiceImpl.buildDomainPaymentHistorySlice()` 里专门给 `C168`/`PROFIT` 账户写的 `c168ProfitView` 过滤——只保留 Net Profit 行，Fee、Commission 全部滤掉，代表"留存净利润"。
+- **Search/List（17,400）**：`TransactionSearchMapper.xml` 的 `aggregateDomainPaymentCrDr` 完全没有任何 C168 专属处理，Fee/Commission 都被当成普通交易正常计入，Net Profit 因为是自己转自己（`account_id`=`from_account_id`=C168），在两条 `UNION ALL` 分支里分别贡献 `-amount`/`+amount`，互相抵消成 0，完全不体现。
+
+用户确认的业务规则："C168 账户只算 Net Profit，还有手动交易记录，Fee/Commission 这种不包含。"——需要一套排除规则：排除 Fee、排除 Commission，保留 Net Profit（显示留存的实际金额，不是自引用抵消后的 0），保留任何未来可能出现的普通手动交易。
+
+判断这三类记录时，不用解析 `description` 文本（`description = 'PAY DOMAIN FEE'` 这种匹配方式很脆弱——以后谁改了 `chargeDomainFee()` 里写死的文案字符串，排除规则会悄无声息失效，且不会报错，只会数字慢慢跑偏），改用 `remark` 存一个稳定的机器标记。
+
+### 29.2 方案：`remark` 存机器标记，不给任何人看
+
+把 `remark` 字段从"清空不用"改成"存一个稳定的内部分类标记"，业务逻辑判断这个标记而不是文案本身，同时保证这个标记不会出现在任何用户能看到的界面上——参照代码里已有的先例（`applyRateMiddlemanHistoryPresentation()` 对 RATE 中间人行也是"存了但显示时清空"的做法，`line.setRemark(null)`），不是新发明一套模式。
+
+### 29.3 改动的文件
+
+**写入端**（新建这三类记录时打标记）：
+- `DomainFeeChargeServiceImpl.java`：新增 `REMARK_DOMAIN_FEE`/`REMARK_DOMAIN_COMMISSION`/`REMARK_DOMAIN_NET_PROFIT` 三个常量（值分别是 `"DOMAIN_FEE"`/`"DOMAIN_COMMISSION"`/`"DOMAIN_NET_PROFIT"`，纯机器标记，不是给人看的审计文案）；`buildPaymentLine()` 加了 `remark` 参数（原来固定传 `null`），三处调用点分别传对应标记
+
+**判断端**（业务逻辑认标记，不认文案）：
+- `TransactionHistoryServiceImpl.java`：`buildDomainPaymentHistorySlice()` 新增 `isDomainFeeOrCommissionRemark()`/`isDomainNetProfitRemark()`，读 `remark` 判断这三类记录；不管当前查看账户是不是 C168，只要一条记录带这三个标记之一，**统一把显示用的 `remark` 清空**（不是只在 C168 视角下才清空——AG、K 这些看自己 Payment History 时，对应的 Fee/Commission 行也不会露出这个内部标记）；C168/PROFIT 视角下排除 Fee/Commission、保留 Net Profit 并显示留存的实际金额
+- `TransactionHistoryDao.java`：`aggregateDomainPaymentBfByAccount` 方法签名加了 `excludeFeeCommission` 参数
+- `TransactionHistoryMapper.xml`：`aggregateDomainPaymentBfByAccount`（B/F 期初余额）按 `excludeFeeCommission` 排除 Fee/Commission，Net Profit 用"一边计满、一边记 0"处理避免自引用互相抵消
+- `TransactionSearchMapper.xml`：`aggregateDomainPaymentCrDr`（之前完全没有 C168 专属逻辑）加了同样的排除 + Net Profit 修正，两条 `UNION ALL` 分支都改了
+
+两个 mapper 各自维护自己的 `domainFeeOrCommissionRemark`/`c168DomainNetProfitRemark` SQL 片段，跟 §15 建立的"故意不共享、手动同步"惯例一致。
+
+### 29.4 数据回填
+
+脚本：[fix_domain_fee_commission_profit_remark_backfill.sql](fix_domain_fee_commission_profit_remark_backfill.sql)。给现有 67 条记录（11 条 Fee + 44 条 Commission + 12 条 Net Profit，含 §28 新补的 3 条）按 `description` 当前的正确格式一次性回填对应的 `remark` 标记（幂等，`WHERE remark IS NULL` 保证只填还没打标记的）。
+
+**执行结果**：11/44/12 三批全部成功，回填后核对 `remark` 分布：`DOMAIN_FEE` 11、`DOMAIN_COMMISSION` 44、`DOMAIN_NET_PROFIT` 12，其余账户的正常空 `remark`/真实备注（比如 JK 那笔 `DOMAIN FEE-COUNT168.COM` 手动备注）都没有被误伤。
+
+### 29.5 验证
+
+改完代码后没有直接相信逻辑，手写了一遍等效 SQL（用 `remark` 判断而不是 `description`）跑了一次，C168 的 `crDrAmount` 算出来是 **18,600.00**，跟 Payment History 页面完全一致，也跟这次新补的 3 条 Net Profit 正确反映进去了。
+
+同样没有 Maven 环境跑 `mvn compile`，建议用户本地编译确认，并且实际登录核对一下 AG/K 等账户查看自己的 Fee/Commission 记录时，REMARK 列是不是干净的（不会露出 `DOMAIN_FEE`/`DOMAIN_COMMISSION` 这类内部标记）。

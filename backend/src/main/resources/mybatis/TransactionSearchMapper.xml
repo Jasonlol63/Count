@@ -2,12 +2,12 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.eazycount.dao.TransactionSearchDao">
 
-    <!-- Manual transfer Cr/Dr types: PAYMENT / CLAIM / CLEAR / CONTRA / RATE (To −, From +); bank_process_posted_id IS NULL -->
+    <!-- 手动转账 Cr/Dr 类型：PAYMENT/CLAIM/CLEAR/CONTRA/RATE（To −，From +）；仅未过账 bank_process -->
     <sql id="manualCrDrTransactionTypes">
         'PAYMENT', 'CLAIM', 'CLEAR', 'CONTRA', 'RATE'
     </sql>
 
-    <!-- RATE transfer legs only (exclude Middle-Man fee row in the same rate_group). -->
+    <!-- 仅 RATE 转账主腿（排除同 rate_group 下的中间人手续费行） -->
     <sql id="rateTransferLegOnly">
         (
             t.transaction_type &lt;&gt; 'RATE'
@@ -21,7 +21,18 @@
         )
     </sql>
 
-    <!-- RATE Middle-Man fee leg (legacy RATE_MIDDLEMAN_FEE or stored MARKUP X … text). -->
+    <!-- 域名手续费/佣金：按 remark 标记识别。C168/PROFIT 自身的 Cr/Dr 和 B/F 要排除这部分过手资金-->
+    <sql id="domainFeeOrCommissionRemark">
+        (t.remark = 'DOMAIN_FEE' OR t.remark = 'DOMAIN_COMMISSION')
+    </sql>
+
+    <!-- C168/PROFIT 自己的 Net Profit 行是自引用（account_id = from_account_id），两个 UNION 分支
+         若不特殊处理会互相抵消为 0，这里改为只在 account_id 一侧记全额 -->
+    <sql id="c168DomainNetProfitRemark">
+        (UPPER(a.account_id) IN ('C168', 'PROFIT') AND t.remark = 'DOMAIN_NET_PROFIT')
+    </sql>
+
+    <!-- RATE 中间人手续费行（旧版 RATE_MIDDLEMAN_FEE 或 MARKUP X … 文本） -->
     <sql id="rateMiddlemanFeeDescription">
         (
             t.description = 'RATE_MIDDLEMAN_FEE'
@@ -29,7 +40,7 @@
         )
     </sql>
 
-    <!-- RATE Middle-Man fee leg: same rate_group, not leg1/leg2. -->
+    <!-- RATE 中间人手续费行：同 rate_group 但非 leg1/leg2 -->
     <sql id="rateMiddlemanFeeLeg">
         EXISTS (
             SELECT 1
@@ -94,7 +105,7 @@
         ORDER BY currencyCode ASC, accountCode ASC
     </select>
 
-    <!-- Data Capture Summary Submit Win/Loss (bank_process_posted_id IS NULL; not the Bank Process posting flow above). -->
+    <!-- 数据录入汇总提交的输赢（未过账，区别于上面的银行处理流程） -->
     <select id="aggregateDataCaptureWinLoss" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
         SELECT
             a.id AS accountDbId,
@@ -147,7 +158,7 @@
         ORDER BY currencyCode ASC, accountCode ASC
     </select>
 
-    <!-- Domain Fee / manual transfer: To (−) + From (+) legs -->
+    <!-- 域名手续费/手动转账：To(−) + From(+) 两条腿 -->
     <select id="aggregateDomainPaymentCrDr" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
         SELECT
             x.accountDbId AS accountDbId,
@@ -166,10 +177,14 @@
                 a.role AS role,
                 UPPER(c.code) AS currencyCode,
                 CASE
+                    WHEN <include refid="c168DomainNetProfitRemark"/>
+                        THEN CASE WHEN t.transaction_date &lt; #{dateFrom} THEN t.amount ELSE 0 END
                     WHEN t.transaction_date &lt; #{dateFrom} THEN -t.amount
                     ELSE 0
                 END AS bfPart,
                 CASE
+                    WHEN <include refid="c168DomainNetProfitRemark"/>
+                        THEN CASE WHEN t.transaction_date &gt;= #{dateFrom} AND t.transaction_date &lt;= #{dateTo} THEN t.amount ELSE 0 END
                     WHEN t.transaction_date &gt;= #{dateFrom}
                      AND t.transaction_date &lt;= #{dateTo} THEN -t.amount
                     ELSE 0
@@ -187,6 +202,7 @@
               AND t.approval_status = 'APPROVED'
               AND t.transaction_type IN (<include refid="manualCrDrTransactionTypes"/>)
               AND <include refid="rateTransferLegOnly"/>
+              AND NOT (UPPER(a.account_id) IN ('C168', 'PROFIT') AND <include refid="domainFeeOrCommissionRemark"/>)
             <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
                 AND UPPER(c.code) IN
                 <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
@@ -209,10 +225,12 @@
                 a.role AS role,
                 UPPER(c.code) AS currencyCode,
                 CASE
+                    WHEN <include refid="c168DomainNetProfitRemark"/> THEN 0
                     WHEN t.transaction_date &lt; #{dateFrom} THEN t.amount
                     ELSE 0
                 END AS bfPart,
                 CASE
+                    WHEN <include refid="c168DomainNetProfitRemark"/> THEN 0
                     WHEN t.transaction_date &gt;= #{dateFrom}
                      AND t.transaction_date &lt;= #{dateTo} THEN t.amount
                     ELSE 0
@@ -231,6 +249,7 @@
               AND t.approval_status = 'APPROVED'
               AND t.transaction_type IN (<include refid="manualCrDrTransactionTypes"/>)
               AND <include refid="rateTransferLegOnly"/>
+              AND NOT (UPPER(a.account_id) IN ('C168', 'PROFIT') AND <include refid="domainFeeOrCommissionRemark"/>)
             <if test="currencyCodes != null and currencyCodes.size() &gt; 0">
                 AND UPPER(c.code) IN
                 <foreach collection="currencyCodes" item="code" open="(" separator="," close=")">
@@ -248,7 +267,7 @@
         ORDER BY currencyCode ASC, accountCode ASC
     </select>
 
-    <!-- Manual ADJUSTMENT: signed amount on To account → Win/Loss (not Cr/Dr) -->
+    <!-- 手动 ADJUSTMENT：To 账号带符号金额 → 计入输赢（非 Cr/Dr） -->
     <select id="aggregateManualAdjustmentWinLoss" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
         SELECT
             a.id AS accountDbId,
@@ -299,7 +318,7 @@
         ORDER BY currencyCode ASC, accountCode ASC
     </select>
 
-    <!-- Manual PROFIT: To (−) + From (+) → Win/Loss (not Cr/Dr) -->
+    <!-- 手动 PROFIT：To(−) + From(+) → 计入输赢（非 Cr/Dr） -->
     <select id="aggregateManualProfitWinLoss" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
         SELECT
             x.accountDbId AS accountDbId,
@@ -398,8 +417,8 @@
         ORDER BY currencyCode ASC, accountCode ASC
     </select>
 
-    <!-- RATE Middle-Man Win/Loss：只算 middleman 自己的 +amount。leg2 from account 的 −amount
-         那一半原本在这里另有一个分支，现在搬到下面的 aggregateManualRateMiddlemanCrDr（走 Cr/Dr）。 -->
+    <!-- RATE 中间人输赢：只算 middleman 自己的 +amount；leg2 的 −amount 部分已搬到下面的
+         aggregateManualRateMiddlemanCrDr（走 Cr/Dr） -->
     <select id="aggregateManualRateMiddlemanWinLoss" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
         SELECT
             x.accountDbId AS accountDbId,
@@ -411,7 +430,7 @@
             COALESCE(SUM(x.wlPart), 0) AS winLossAmount,
             COALESCE(SUM(x.periodCnt), 0) AS periodTxnCount
         FROM (
-            <!-- Fee single-sided: account_id = middleman, from NULL → +amount -->
+            <!-- 手续费单边：account_id = middleman，from 为空 → +amount -->
             SELECT
                 a.id AS accountDbId,
                 a.account_id AS accountCode,
@@ -457,7 +476,7 @@
 
             UNION ALL
 
-            <!-- Rate multiplier / legacy: From/middleman (+) -->
+            <!-- 汇率倍数/旧版：From/middleman (+) -->
             SELECT
                 a.id AS accountDbId,
                 a.account_id AS accountCode,
@@ -504,10 +523,9 @@
         ORDER BY currencyCode ASC, accountCode ASC
     </select>
 
-    <!-- RATE Middle-Man Cr/Dr：leg2 from account 的 −amount 那一半（Rate-Mul + Service Fee），
-         原本是上面 aggregateManualRateMiddlemanWinLoss 里"To (−)"那条分支，搬来这里改走 Cr/Dr，
-         跟 leg2 自己的毛额 Cr/Dr（aggregateDomainPaymentCrDr）合并成一个净额；middleman 的
-         +amount 视角还留在上面走 Win/Loss，不受影响。 -->
+    <!-- RATE 中间人 Cr/Dr：leg2 from account 的 −amount 部分（汇率倍数+服务费），
+         与 leg2 自身的毛额 Cr/Dr（aggregateDomainPaymentCrDr）合并成净额；
+         middleman 的 +amount 视角仍走上面的 Win/Loss，不受影响 -->
     <select id="aggregateManualRateMiddlemanCrDr" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
         SELECT
             a.id AS accountDbId,
@@ -557,7 +575,7 @@
         ORDER BY currencyCode ASC, accountCode ASC
     </select>
 
-    <!-- Account × currency matrix for Show all 0 balance (never-transacted shells). -->
+    <!-- 账号 × 币种矩阵，用于"显示全部 0 余额"（从未有交易的空壳账号） -->
     <select id="findAccountCurrencyShells" resultType="com.eazycount.dto.TransactionSearchAggregateRow">
         SELECT
             a.id AS accountDbId,
