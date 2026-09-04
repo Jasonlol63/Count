@@ -214,34 +214,31 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         if (middleman != null) {
             String leg1ToName = accountDisplayName(leg1.toAccount());
             String amountText = TransactionMoneyFormat.formatMoney(amountFrom);
-            // From=middleman（+WL），To=leg2 from account（−WL）——跟 PROFIT 同一套正负号，用第二币种。
             if (middleman.ratePortion() != null) {
                 String rateMarkup = formatMiddlemanMarkupDescription(
                         false, middleman.parsedRate(), leg1Ccy, amountText, leg2Ccy, leg1ToName);
                 Transaction rateTxn = insertApproved(
                         session, tenantId, Transaction.TransactionType.RATE,
-                        leg2.fromAccountId(), middleman.accountId(), leg2.currency().getId(),
+                        leg2.fromAccountId, middleman.accountId(), leg2.currency().getId(),
                         middleman.ratePortion(), transactionDate, remark,
                         rateMarkup, rateGroupId);
                 middlemanRateTxnId = rateTxn.getId();
             }
             if (middleman.feePortion() != null) {
-                // Fee 跟 Rate-Mul 一样是 +WL/−WL 一对：middleman +WL，leg2 from account −WL。
                 String feeMarkup = formatMiddlemanMarkupDescription(
                         true, null, leg1Ccy, amountText, leg2Ccy, leg1ToName);
                 Transaction feeTxn = insertApproved(
                         session, tenantId, Transaction.TransactionType.RATE,
-                        leg2.fromAccountId(), middleman.accountId(), leg2.currency().getId(),
+                        leg2.fromAccountId, middleman.accountId(), leg2.currency().getId(),
                         middleman.feePortion(), transactionDate, remark,
                         feeMarkup, rateGroupId);
                 middlemanFeeTxnId = feeTxn.getId();
             }
             if (middleman.platformFeeInput() != null) {
-                // Platform Fee 单边记录，只记在 leg2.fromAccountId() 上，没有对手方——在上面两项之外额外再扣一笔，不影响 to account。
                 String platformFeeDescription = formatPlatformFeeDescription(leg2Ccy, middleman.platformFeeInput());
                 Transaction platformFeeTxn = insertApproved(
                         session, tenantId, Transaction.TransactionType.RATE,
-                        leg2.fromAccountId(), null, leg2.currency().getId(),
+                        leg2.fromAccountId, null, leg2.currency().getId(),
                         middleman.platformFeeInput(), transactionDate, remark,
                         platformFeeDescription, rateGroupId);
                 middlemanPlatformFeeTxnId = platformFeeTxn.getId();

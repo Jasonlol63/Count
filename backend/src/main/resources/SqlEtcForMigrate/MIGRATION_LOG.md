@@ -1294,3 +1294,414 @@ SELECT id FROM owner ORDER BY id;                          -- 最小是 3，没�
 改完代码后没有直接相信逻辑，手写了一遍等效 SQL（用 `remark` 判断而不是 `description`）跑了一次，C168 的 `crDrAmount` 算出来是 **18,600.00**，跟 Payment History 页面完全一致，也跟这次新补的 3 条 Net Profit 正确反映进去了。
 
 同样没有 Maven 环境跑 `mvn compile`，建议用户本地编译确认，并且实际登录核对一下 AG/K 等账户查看自己的 Fee/Commission 记录时，REMARK 列是不是干净的（不会露出 `DOMAIN_FEE`/`DOMAIN_COMMISSION` 这类内部标记）。
+
+---
+
+## 30. 手动 Profit 转账记录（旧库 `WIN`/`LOSE` + `from_account_id`）误分类成 Data Capture 行——已回填，全库 80 条
+
+用户反馈：95 公司 EXPENSE 账号 Payment History 里 "PROFIT FROM KZ"/"PROFIT FROM RS" 这类手动利润分成记录，
+新版 ID PRODUCT 显示成 `DATA CAPTURE`、description 显示为空、Win/Loss 金额符号也跟旧版相反。
+
+根因：旧版 PHP 系统没有 `PROFIT` 这个 `transaction_type` 枚举值，"手动两账户转账、单行记账"这类记录当年就是
+用 `WIN`（+ `from_account_id` 有值）存的，旧前端渲染时靠 `from_account_id` 是否有值把它跟真正的 Data Capture
+Win/Loss 区分开、统一显示成 `ID PRODUCT = PROFIT`。`migrate_data_transactions_from_legacy.sql` 对
+`transaction_type` 是逐行原样搬（无重分类），这批记录进新库后还是 `WIN`，新系统按 `transaction_type` 精确匹配
+路由（`WIN`/`LOSE` + `bank_process_posted_id IS NULL` → Data Capture 分支；只有 `PROFIT` → 手动 Profit 分支），
+于是被误判成 Data Capture 行，`idProduct` 兜底显示 `DATA CAPTURE`，Win/Loss 符号也套用了 Data Capture 分支
+"WIN 恒正/LOSE 恒负"的规则而不是 PROFIT 分支"看账号是收款方还是付款方"的规则。
+
+跟 §5.2（21 条 process 该是 BANK 不是 GAME）、§8（TRUSTY HAULERS 的 `FULL_MONTH` 误分类）同一类问题：旧库字段值
+在旧系统语境下没错，只是新旧两套 schema 对同一业务事实的编码方式不同，迁移时字段值 1:1 保留导致新系统读出
+了错误的含义，不是这次迁移脚本本身写错。
+
+识别规则（全库核对过，命中 80 条，分布 AG 54、RS 10、95 10、23 3、TZX 3，全部 `WIN`、`description` 全为空、
+无对应 `data_capture_line`）：
+
+```sql
+transaction_type IN ('WIN','LOSE')
+AND from_account_id IS NOT NULL
+AND bank_process_posted_id IS NULL
+AND NOT EXISTS (SELECT 1 FROM data_capture_line dcl WHERE dcl.transaction_id = t.id)
+```
+
+用 [`ManualProfitTypeReclassifyTool.java`](ManualProfitTypeReclassifyTool.java) 把这 80 条的 `transaction_type`
+改成 `PROFIT`（只改这一个字段——`description` 本来就是空的，`TransactionHistoryServiceImpl` 对空 description 的
+`PROFIT` 行本来就会在读时现算 `"PROFIT FROM {code}"`，不需要额外写回文案）。全库核对：`transaction_type='PROFIT'`
+从 0 条变成 80 条，`WIN/LOSE` 里带 `from_account_id` 的行从 80 条变成 0 条。
+
+详细根因分析、逐条回填清单、验证过程见独立文档
+[`MANUAL_PROFIT_TYPE_RECLASSIFY_LOG.md`](MANUAL_PROFIT_TYPE_RECLASSIFY_LOG.md)。
+
+---
+
+## 31. Data Capture 明细行货币字段错配——已回填，全库 2946 条
+
+用户反馈：95 公司 NO 账号查看 Data Capture Payment History 时，`MAALLBET95SGD JDB` 这个 product 在旧版能看到，
+新版整行"消失"。排查确认不是数据丢失，是货币字段被记错了。
+
+根因：旧库 `data_captures`（批次头）和 `data_capture_details`（明细行）**各自有独立的 `currency_id`**，
+两者允许不同——批次头可能按某个游戏商的计价货币建（这批是 SGD），但具体某个账号那一行实际按**这个账号
+自己配置的货币**结算（这批是 MYR），`rate`/`rate_expression` 记录换算用的汇率。
+[`migrate_data_datacapture_from_legacy.sql`](migrate_data_datacapture_from_legacy.sql) 第 123 行给
+`data_capture_line.currency_id` 赋值时，误取了批次头的 `dc.currency_id`，而不是明细行自己的
+`dcd.currency_id`；`data_capture_formula` 那段迁移逻辑是对的，没受影响。这个错误货币又被 §18 的
+`migrate_data_capture_line_transactions_backfill.sql`（读 `data_capture_line.currency_id` 来定
+`transactions.currency_id`）一并传染进了 `transactions` 表。
+
+Payment History 按查看账号自己配置的货币过滤（`account_currency`），账号只配置 MYR 时，被错误标成 SGD 的
+记录会被查询条件直接排除——不会显示成"错误的 SGD"，而是完全不出现，看起来像记录凭空消失。
+
+全库核对 `data_capture_details.currency_id <> data_captures.currency_id`（合法的旧库业务场景，不是脏数据）
+命中 **2946 条**，全部在新库里被错误抄成了批次头的货币，覆盖 SGD/MYR/AUD/CNY/HKD/USD/PGK 等多种组合、
+多个 tenant。用 [`DataCaptureLineCurrencyFixTool.java`](DataCaptureLineCurrencyFixTool.java) 重建跟原迁移
+脚本一致的货币去重映射，把这 2946 条 `data_capture_line.currency_id` 改回明细行自己的正确货币，并同步
+传导到关联的 `transactions.currency_id`。全库核对：`transactions.currency_id <> data_capture_line.currency_id`
+的关联行数从 2946 变成 0。
+
+详细根因分析、迁移脚本原文对照、逐类货币统计见独立文档
+[`DATA_CAPTURE_LINE_CURRENCY_FIX_LOG.md`](DATA_CAPTURE_LINE_CURRENCY_FIX_LOG.md)。
+
+---
+
+## 32. Data Capture REMARK 列在新版显示为空——已修代码（`TransactionHistoryMapper.xml`）
+
+同一次用户反馈里发现：Data Capture 生成的 Payment History 行，REMARK 列（如 "2026 FEBRUARY"、
+"ADJUSTMENT"）在旧版能看到，新版整列空白。
+
+根因：这类"批次备注"存在 `data_captures`（批次头，一次 Submit 一条）的 `remark` 字段里，是用户提交整批
+Data Capture 时填的一句自由文本（比如说明这批数据补的是哪个月份）。`DataCaptureSummaryServiceImpl.toTransaction()`
+写 `transactions.remark` 时用的是 `resolveLineRemark()`——只取**单行自己**的 `description_main`/`description_sub`
+（GAME 多选 description 场景下才会填），从来不读批次头的 `remark`。`TransactionHistoryMapper.xml` 的
+`findDataCaptureHistoryLines` 又只选了 `t.remark`，没有 join 回 `data_captures` 拿批次头备注，于是这类"批次
+备注"从提交那一刻起就没有任何路径流到 Payment History——不只是这次迁移的历史数据缺，**新提交的记录以后
+一样会缺**，这是一个当前代码本身就有的展示缺口，不是纯粹的迁移遗留问题。
+
+旧版 PHP 的 `history_api.php` 直接读 `data_capture_details` join 回它的 `data_captures` 头表，所以同一批
+提交下的每一行 REMARK 都能看到批次头的备注。
+
+修复：`TransactionHistoryMapper.xml` 的 `findDataCaptureHistoryLines` 新增 `LEFT JOIN data_captures dc ON
+dc.id = dcl.capture_id`，REMARK 改成 `COALESCE(NULLIF(TRIM(t.remark), ''), dc.remark)`——优先显示单行自己的
+备注（如果提交时真的填了），没有则回退显示批次头的备注，两种场景都能覆盖，且对未来新提交的记录同样生效
+（不需要额外的数据回填，纯代码改动）。
+
+---
+
+## 33. `account.account_id` 全库唯一一条小写脏数据（`jb-tiger`）——已回填，1 条
+
+用户在报表页面发现 `jb-tiger` 这个账号显示成小写，其他账号全部是大写，怀疑是不是大小写转换逻辑漏了哪里。
+
+排查结论：**不是运行时逻辑问题，是原始数据本身就是小写**——对比旧库 `c168_net_legacy_20260827.account`
+同一个 `id=5584`，`account_id` 就已经是 `'jb-tiger'`，迁移脚本原样 1:1 搬过来，行为正确，不是迁移引入的。
+
+全库按区分大小写扫描确认：
+
+```sql
+SELECT id, account_id FROM account WHERE BINARY account_id <> BINARY UPPER(account_id);
+-- 只有 1 条：id=5584, account_id='jb-tiger'
+```
+
+新旧两版后端都**没有在保存账号时做服务端强制转大写**——所有账号能保持大写纯粹是前端创建表单的输入转换
+习惯，不是数据库或后端业务逻辑强制的。这个账号大概率是当年通过某个绕开了前端大写转换的路径创建的（批量
+导入 / 更早版本的表单），漏网存成了小写。因为 `account_id` 所在字段是不区分大小写的排序规则（collation），
+所有按业务码做的 `WHERE`/`JOIN` 查找都不受影响（大小写不同也能匹配上），只有像这次报表这种**直接把
+`account_id` 原样输出、不额外包一层 `UPPER()`** 的地方才会露出这个大小写差异——这也是全库其它字段/查询
+从未受影响、"就这一个账号出问题"的原因。
+
+修复：[`AccountIdCaseFixTool.java`](AccountIdCaseFixTool.java)，一次性把这一条改成 `'JB-TIGER'`
+（`account_id` 只是显示用的业务码，关联全靠 `account.id` 数字主键，改这个字符串不影响任何外键关系）。
+执行结果：`non_uppercase_account_ids_before=1 updated=1`，回填后全库扫描确认 0 条残留。
+
+---
+
+## 34. RATE leg1/leg2 FROM/TO 方向：两次历史修复叠加导致 leg1 被误伤——部分已回填（124/182 组）
+
+用户反馈：95 公司 KZ 账号（SGD 币种）某笔 RATE 交易，新版显示 `FROM XE`、Cr/Dr −7000；旧版显示 `TO XE`、
++7000。用户明确指出：之前反馈过的"RATE from/to 倒反"问题**只应该发生在 leg2**，leg1 一直是对的、不该被动，
+但现在这条 leg1 也跟着错了。
+
+### 根因：两次互相矛盾的历史修复叠加
+
+**修复一（较早）**：`TransactionHistoryMapper.xml`/`TransactionSearchMapper.xml` 里给"旧库迁移过来的
+RATE 记录"（`rate_group_id LIKE 'RATE_%'`）加了一条 SQL `CASE`，把 Cr/Dr 符号统一反过来算——leg1/leg2
+不做区分，一视同仁。当时的设计注释明确写着"不动 `account_id`/`from_account_id` 这两列本身，免得连带把
+FROM/TO 文案也带歪"。
+
+**修复二（后来，[fix_migrated_rate_leg_account_direction_swap.sql](fix_migrated_rate_leg_account_direction_swap.sql)）**：
+改用完全不同的思路——直接把 `account_id`/`from_account_id` 两列物理对调，让"不做任何特殊处理的默认公式"
+自然算对。这次改动**用 `UNION` 把 `leg1_transaction_id` 和 `leg2_transaction_id` 合在一起，统一处理，
+没有区分两条腿**，覆盖全部 182 组、364 行。
+
+**用真实数据核对**（95 公司 KZ/XE，`rate_group_id=RATE_1787825923_1982`，SGD 7000 ↔ MYR 22120，
+`exchange_rate=3.16`）：旧库原始 `transactions`（leg1=id 18537，leg2=id 18538）两条腿的 `account_id`/
+`from_account_id` **完全相同**（都是 `account_id=XE(4373)`、`from_account_id=KZ(3803)`）。用"不做任何处理
+的默认公式"直接算旧库原始 leg1：`TO XE`、+7000——跟旧版截图完全吻合。但如果 leg2 也用同样的原始值、同样
+的默认公式，会跟 leg1 显示成一模一样的方向（`TO XE`、+22120），而这是一笔换汇，一条腿付出、一条腿收到，
+两条腿方向理应相反——leg2 必须靠物理对调才能显示成相反方向（`FROM XE`、−22120）。
+
+**结论**：修复二的"物理对调"本来只该用在 leg2，leg1 一直是对的、不需要动。但修复二的 SQL 用 `UNION` 把
+两条腿混在一起处理，把本来就对的 leg1 也一起换错了方向。
+
+**修复三（这次会话之前，working tree 里已存在的未提交改动）**：有人已经把修复一那条 SQL `CASE` 补丁删掉
+了——这个删除本身是对的（修复二物理对调之后，再叠加修复一的符号反转就是"反两次=没反"，是多余/有害的），
+但只解决了"双重反转"，没有触及"leg1 本不该被物理对调"这个真正的根因，所以 leg1 目前还停留在被修复二错误
+对调的状态。
+
+### 涉及范围与分批处理
+
+全库核对 `rate_group_id LIKE 'RATE_%'` 且挂在 `transactions_rate` 上的记录，共 **182 组、364 条腿**，横跨
+5 个 tenant（95:93组、AG:64组、CX:16组、RS:8组、BK1:1组）。按"旧库里 leg1/leg2 的 `account_id`/
+`from_account_id` 是否完全相同"分成两批：
+
+- **124 组**：leg1/leg2 在旧库完全相同（跟 KZ/XE 这个已验证案例同一种模式）——**本次已处理**。
+- **58 组**（含 23 组带中间人里的 20 组）：leg1/leg2 在旧库本来就不一样（比如一笔钱从同一个 From 账号
+  分别付给两个不同的 To 账号），结构更复杂，不属于已验证的"重复模式"——**本次未处理**，留待逐组核对旧版
+  真实显示后再修，且带中间人的组还要额外核对
+  [`mergeRateMiddlemanDeductionsIntoMainLeg`](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)
+  （靠 `fromAccountId == 查看账号` 找"该把中间人手续费并进哪条主记录"）会不会被换回原值的 leg1 误伤。
+
+### 修复（已执行部分）
+
+[`RateLeg1DirectionRevertTool.java`](RateLeg1DirectionRevertTool.java)：只处理上述 124 组的 leg1（一组一条，
+共 124 行），把 `account_id`/`from_account_id` **改回旧库原始值**（不是靠公式反推，是直接读
+`c168_net_legacy_20260827.transactions` 里还留着的原始值）。leg2 不动，Java/mapper 代码都不用改（修复三
+删掉那条 SQL `CASE` 补丁的决定是对的，继续保留删除状态）。
+
+执行结果：`in_scope_leg1_rows=124 updated=124`。回填后核对：这 124 条 leg1 的 `account_id`/`from_account_id`
+跟旧库原始值 100% 一致（`matches_legacy=124/124`）。抽查 KZ/XE 这组：leg1（18537）从 `3803/4373`
+（被误换）改回 `4373/3803`（旧库原值），leg2（18538）保持 `3803/4373` 不变——两条腿现在方向相反，
+`applyRateHistoryPresentation`/默认 Cr/Dr 公式不用任何改动就能分别推出 `TO XE`/+7000（leg1）和
+`FROM XE`/−22120（leg2），跟旧版一致。
+
+### 第二批：30 组（用户实测报出的另外 3 组带出的扩大排查）——已处理
+
+用户又反馈了 3 组具体案例（95 公司 XE/API-DS/KZ 的 CNY 换汇；PG-TAN 的两笔 EUR 换汇），逐一核对旧库原始值
+后确认**同一套"leg1 改回旧库原始值"的做法照样成立**——即使 leg1/leg2 在旧库里账号本来就不一样（比如
+XE→API-DS→KZ 这种三方场景），leg1 单独用旧库原始值 + 现有公式，算出来照样跟旧版页面吻合。这说明"leg1 从
+一开始就没问题、只有 leg2 需要物理对调"这条结论，不依赖"leg1/leg2 账号是否恰好相同"这个表面特征，可以
+推广到更大范围。
+
+据此把 58 组剩余的按"回填后 leg1 的 `from_account_id` 会不会跟 leg2 当前的 `from_account_id` 撞到一起"
+重新分类（撞车会让 [`mergeRateMiddlemanDeductionsIntoMainLeg`](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)
+"哪条是该并入手续费的主记录"判断产生歧义）：
+
+- **30 组无撞车风险**（含用户报出的 3 组）——**本次已处理**，用
+  [`RateLeg1DirectionRevertPhase2Tool.java`](RateLeg1DirectionRevertPhase2Tool.java)，逻辑跟第一批完全
+  一样（只读旧库原始值回填 leg1，不碰 leg2、不改代码）。执行结果：`in_scope_leg1_rows=30 updated=30`。
+  回填后核对：全库范围内"leg1 未回填 且 不撞车"的记录数 = 0。抽查用户报的 3 组（txn 17969/3614/7735）
+  逐一核对 `account_id`/`from_account_id` 均已改回旧库原始值。
+- **28 组仍有撞车风险**（其中 18 组带中间人）——**仍未处理**。这批的账号高度集中在两三个固定账号
+  （4641/4580，部分带中间人 4640），像是同一批"经常性换汇往来"业务，回填后 leg1/leg2 会共享同一个
+  `from_account_id`，需要先确认这种"共享 from_account_id"在旧版页面本来就是这样、还是本身另有蹊跷，
+  再决定怎么处理，不能照搬前两批的机械做法。
+
+累计进度：182 组中已处理 154 组（124 + 30），剩余 28 组（含 18 组带中间人）待专门排查。
+
+### 第三批：剩余 28 组（含 18 组带中间人）——排查一度走偏，最终确认同一套规则依然成立，已处理
+
+用户又报出 AG110（LOON）账号一大批 RATE 记录方向不对，抽查后发现这批账号结构比前两批复杂得多——leg1/leg2
+往往涉及三个不同账号（比如 LOON 用 SGD 跟 XE 换汇，换回来的 MYR 却是从另一个第三方账号结算），部分还挂着
+一个叫"RATE"的中间人账号。
+
+**排查中间走了一段弯路**：写了一个只读稽核工具（[`RateComplexGroupsAuditTool.java`](RateComplexGroupsAuditTool.java)）
+对比"leg1/leg2 都用旧库原值、都不做任何对调"这个假设，发现这样算出来的 **FROM/TO 文案方向**跟"leg1 改
+回旧值、leg2 保持对调"这套已验证的规则会给出不一样的文案结果，一度怀疑连已经修完的 154 组 leg2 那一半
+也可能是错的，需要用户帮忙核对。
+
+**用户核对后澄清了关键点**：description 文案本来就对不上是**预期内的、不需要修**——旧版 RATE 功能经历过
+一次"大优化"，优化前用的是写死的旧格式文案，优化后（也是当前新系统采用的格式）才是按查看者视角动态现算
+`TO X`/`FROM X`。这两种格式本来就不是同一套东西，旧库迁移过来的历史 RATE 记录用新版逻辑重新渲染文案后，
+文字对不上是必然的、可以接受的，**用户真正在意的、需要修的只有 Cr/Dr 的正负号**。用户拿真实旧版网站核对
+了 XE 账号一大批记录（含 AG110 那组 MYR 145,500 的 leg2），确认**金额正负号在当前（leg2 仍保持对调）状态
+下已经是对的**，只有文案方向不同——证明"leg1 改、leg2 不动"这条规则本身没错，154 组不需要重新核对，
+之前的怀疑是虚惊一场。
+
+**结论**：剩余 28 组照搬同一套规则处理即可，不需要特殊对待。用
+[`RateLeg1DirectionRevertPhase3Tool.java`](RateLeg1DirectionRevertPhase3Tool.java) 把这 28 条 leg1 也改回
+旧库原始值，leg2 不动。执行结果：`in_scope_leg1_rows=28 (with_middleman=18) updated=28`。
+
+**中间人合并逻辑的顾虑已排除**：担心 leg1 改回去后会跟 leg2 共享同一个 `from_account_id`，可能让
+`mergeRateMiddlemanDeductionsIntoMainLeg`"该把中间人手续费并进哪条主记录"的判断产生歧义。查证后发现这
+23 组"带中间人"的记录（`transactions_rate.middleman_account_id` 有值）在 `transactions` 表里**每组都只有
+leg1+leg2 两条记录，没有第三条真实的手续费流水**——`middleman_account_id` 只是历史迁移保留的参考字段，
+`mergeRateMiddlemanDeductionsIntoMainLeg` 只有存在第三条记录时才会触发，所以这批数据完全不受影响，无需
+额外处理。
+
+### 最终结果
+
+全库核对：182 组、182 条 leg1，`account_id`/`from_account_id` 100% 跟旧库原始值一致
+（`leg1_matches_legacy=182/182`）。至此 RATE leg1/leg2 方向错乱问题全部处理完毕。
+
+---
+
+## 35. 旧版遗留的单边"Rate charge"中间人手续费记录：回填分组 + 改造成新版记录形状——已处理，22 组
+
+用户核对某账号（AG110、XE）汇总页余额跟 History 页对不上，差额精确等于一笔 `RATE CHARGE (xN) FROM CCY amount`
+记录的金额。排查过程见 §34 讨论区（本节是这条线索的收尾）。
+
+### 根因（两层）
+
+**第一层——`rate_group_id` 缺失**：旧版 PHP 的 RATE 中间人 Markup 手续费，记录方式是**两条各自独立的单边
+交易**（一条挂在"RATE"利润账号自己的 `account_id` 下，另一条挂在真实交易对手账号的 `account_id` 下，两条
+`from_account_id` 都是空的，金额、日期、描述文字完全相同），旧库schema 本身就没有 `rate_group_id`/
+`transactions_rate` 这套分组概念，迁移过来自然是空的——不是脚本漏填，是旧数据没有这个字段可搬。
+
+这批"孤儿"记录因为没有 `rate_group_id`，现有的 `rateMiddlemanFeeLeg`（要求精确匹配 `rate_group_id`）判断
+不出来，两边汇总查询都排除掉了，导致外面 Search/List 汇总页少算了这笔金额（Payment History 页因为没用
+这条过滤条件，反而是对的）。
+
+**第二层——记录形状本身也不对**：即使补上 `rate_group_id`，这批记录还是"两条独立单边记录"的旧形状，跟
+新版 `TransactionSubmitServiceImpl#submitRate()` 现在提交中间人手续费时的形状（**只插入一条**记录，
+`account_id`=付钱的对手方，`from_account_id`=中间人账号本身）对不上。用户实测在 RATE 账号自己的 Payment
+History 页发现：因为 `from_account_id` 是空的，代码把这批记录误判成"单边、无对手方"的 Platform Fee
+（`TransactionHistoryServiceImpl#toHistoryRow` 的 `isPlatformFee = isRateMiddlemanFee && fromAccountId ==
+null`），结果：走 Cr/Dr 列显示负数、ID Product 显示"Fee"、描述文字不会重新计算——旧版原本是 Win/Loss
+列显示正数、重新计算成"MARKUP..."文案。用户确认："收款方（中间人）正常应该是正数，不应该是负数"。
+
+### 识别与匹配（只读核对，写代码前先验证）
+
+用描述文字里 `from {币种} {金额}` 反查 `transactions_rate`（按 tenant + 币种 + `amount_from` + leg1 交易
+日期精确匹配）：全库 **47 条**"Rate charge"格式的孤儿记录，**47/47 精确匹配到唯一一个 RATE 分组**，零歧义
+零漏配（用
+[`RateChargeOrphanBackfillTool.java`](RateChargeOrphanBackfillTool.java) 回填 `rate_group_id`，
+`total=47 matched=47`）。
+
+回填后按 `rate_group_id` 分组核对这 47 条能不能两两配对成"中间人一条 + 对手方一条"：
+
+- **22 组**：干净配对，金额完全一致，其中一侧的 `account_id` 正好等于该分组 `transactions_rate.
+  middleman_account_id`——可以安全批量处理。
+- **1 组**（tenant 95, `RATE_1773841967_5105`）：金额匹配、但该分组的 `middleman_account_id` 本身是空的
+  （旧数据同样缺这个字段）——顺手一并回填（依据是这一对里 `role=PROFIT` 的那一侧账号）。
+- **1 组**（tenant AG，7979.99997900 vs 7979.99998000）：小数点第 8 位的取整误差，不是真实金额不一致，按
+  匹配处理。
+- **1 组**（tenant BK1，108.50 vs 110.00）：真实金额不一致，差 1.50，**明确排除，不处理**，留给用户后续
+  自己判断。
+- **1 条**（tenant CX，id 17756，AUD 1.50）：只有单独一条 RATE 账号自己的记录，反查不到对手方——**明确
+  排除，不处理**。
+
+合计 22 组（21 干净配对 + 1 组顺带回填了 middleman_account_id）进入批量处理，2 处例外留空。
+
+### 修复
+
+[`RateChargeOrphanReshapeTool.java`](RateChargeOrphanReshapeTool.java)：对这 22 组，把对手方那条记录的
+`from_account_id` 改成中间人账号 id（改造成跟新版提交数据完全一样的形状），然后**删除**中间人账号自己那条
+现在多余的重复记录（留着会导致中间人视角的金额翻倍）。全程不改任何 mapper/Java 代码——一旦记录形状跟新版
+一致，现有查询逻辑（`aggregateManualRateMiddlemanCrDr`/`aggregateManualRateMiddlemanWinLoss`/
+`applyRateMiddlemanHistoryPresentation`）会自动正确识别，不需要新增任何判断分支。
+
+执行结果：`groups_seen=23 processed=22 skipped=1 middleman_backfilled=1 updated=22 deleted=22`。
+
+### 验证
+
+- AG110（tenant AG, account 4641）：`aggregateDomainPaymentCrDr` 汇总 −232,886.22 + `
+  aggregateManualRateMiddlemanCrDr` 汇总 −613.78 = **−233,500.00**，跟 Payment History 显示的最终余额
+  完全一致。
+- XE（tenant AG, account 4580）：domain 22,823.00 + middleman crdr −19,523.00 = 3,300.00，加上 Win/Loss
+  （−3,300，§30 那批已重分类的 PROFIT 记录）= **0.00**，跟 History 完全一致。
+- RATE 账号自己（account 4640）：`aggregateManualRateMiddlemanWinLoss` 汇总变成 **+147,671.78**（正数），
+  跟旧版页面"中间人收取手续费应显示正数、Balance 逐步走高"的实际表现一致，不再是负数。
+
+### 遗留
+
+- BK1 那组金额不一致的记录（108.50 vs 110.00）和 CX 那条落单的记录（id 17756），还没处理，需要用户自己
+  核实清楚业务含义后再决定怎么修。
+- ~~这次的回填/改造是一次性数据订正，不影响以后新提交的 RATE 中间人手续费（那些从一开始就是正确形状，
+  `TransactionSubmitServiceImpl#submitRate()` 没有改动）。~~ **此结论后来被推翻，见 §36**：
+  `submitRate()` 本身也有同一类 bug，已经一并修掉。
+
+---
+
+## 36. `submitRate()` 本身的 bug：中间人手续费记到了 leg2 的 From 账号，应该是 To 账号——已修复（代码）
+
+§35 核对旧数据时确认了"中间人手续费的真实扣款对象是 leg2 的 To 账号"这条规律（三组样本精确核对，`UP028`/
+`CASH B`/`AG110` 分别都对上各自分组 leg2 的 `account_id`，跟 `from_account_id` 完全不沾边）。用户据此追问
+现在 Spring Boot 新版提交新的 RATE 交易时是不是也这样写——查证发现**不是**：
+[`TransactionSubmitServiceImpl.java`](../../java/com/eazycount/service/impl/TransactionSubmitServiceImpl.java)
+的 `submitRate()` 给 Rate-Mul/Service Fee/Platform Fee 这三笔中间人扣费记录写的 `account_id` 用的是
+`leg2.fromAccountId()`——用旧数据反过来验证的规律看，这个方向反了，应该是 `leg2.toAccountId()`。
+
+这不是数据问题，是新版代码本身的 bug，会影响**以后所有新提交**的带中间人 RATE 交易（不只是这次要修的旧
+数据）。
+
+### 修复
+
+`submitRate()` 里三处 `insertApproved(..., leg2.fromAccountId(), middleman.accountId(), ...)`（Rate-Mul、
+Service Fee、Platform Fee）全部改成 `leg2.toAccountId()`；`leg2Txn` 本身的 `account_id`/`from_account_id`
+没有变（`leg2.toAccountId()`/`leg2.fromAccountId()`，这本来就是对的，只是相关注释顺手一并更新，说明"扣减
+记在 leg2 收款方身上"而不是"付款方身上"）。
+
+### 附带影响：`mergeRateMiddlemanDeductionsIntoMainLeg` 对新数据不再触发，但不算回归
+
+[`TransactionHistoryServiceImpl.java`](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)
+里 `mergeRateMiddlemanDeductionsIntoMainLeg()` 是在"付款方查看自己账本"时，把中间人手续费的影响**合并进
+leg2 主记录的 Cr/Dr**、不单独显示一行——这套合并逻辑是照着"手续费记在 leg2 From 账号"这个（现已确认是
+错的）假设写的：靠 `line.getFromAccountId() == 查看账号` 找主记录、`line.getToAccountId() == 查看账号`
+找手续费行，两个条件用的是同一个 `accountId`，只有在旧的错误假设下才可能同时成立。
+
+`account_id` 改成 `leg2.toAccountId()` 之后，这两个条件不可能再被同一个查看账号同时满足，`
+mergeRateMiddlemanDeductionsIntoMainLeg` 对**新提交的数据**会静默失效（走到最后 `toRemove` 永远是空的，
+`removeAll` 不删任何东西，不会报错、不会崩，只是合并不再发生）——效果是：中间人手续费从"合并进主记录一
+行显示"变成"跟 §35 那批改造好的旧数据一样，单独显示一行"。用户已经在 §35 确认过这种"新版拆成两行显示"
+是可以接受的（只要金额对，不强求跟旧版一样合并成一行），所以这不算功能回归，只是记录一下这个连带效应，
+以免以后有人以为 `mergeRateMiddlemanDeductionsIntoMainLeg` 还在正常工作。
+
+---
+
+### 36.1 事后修正：以上结论被推翻，`submitRate()` 已经改回 `leg2.fromAccountId()`——用户最终选择保留原样
+
+上面这次"改成 `leg2.toAccountId()`"的结论后来被用户推翻了，**`submitRate()` 已经手动改回 `leg2.
+fromAccountId()`**（`TransactionSubmitServiceImpl.java` 三处中间人分录的账号，Rate-Mul/Service Fee/
+Platform Fee 都是），跟本节开头描述的"bug 修复前"状态一致——也就是说 **§36 描述的这次改动最终没有采纳**，
+本节保留只是为了记录排查过程和推翻的理由，不代表当前代码的真实状态。
+
+**推翻的原因**：用户在实测过程中发现，`account_id = leg2.fromAccountId()` 这个（原以为是 bug 的）写法，
+配合 `mergeRateMiddlemanDeductionsIntoMainLeg` 的合并逻辑，能在"付款方账号恰好等于 leg2 付款方"这种结构
+下把中间人手续费**合并进主记录一行显示**——这正是用户想要的效果（更接近旧版"直接合并扣除，不单开一笔"的
+观感）。用户最终确认的设计是：
+
+- **leg2 那笔记录本身仍然记满额**（`grossTo`，没有改成净额），中间人手续费继续走独立分录，但账号回到
+  `leg2.fromAccountId()`（不是 `leg2.toAccountId()`）
+- §35 那批旧数据的改造（`RateChargeOrphanReshapeTool.java` 回填 `rate_group_id` + 补 `from_account_id` +
+  删除 RATE 账号自己的重复行）**没有被撤销**，仍然保留——用户明确说"只复原代码，数据不用动"
+- `TransactionHistoryServiceImpl.java` 里那处曾经改过的 `formatRateMiddlemanMarkupDescription`（取
+  `toAccountCode` 而不是 `rateLeg1ToAccountCode`）也已经**完全复原**成改动前的样子
+
+**遗留提醒**：§35 那批旧数据改造时，`account_id` 设成的是各自分组"真实的付款方"（比如 UP028/CASH B/
+AG110，经核对精确等于 leg2 的 **To** 账号），跟现在 `submitRate()` 恢复的 `leg2.fromAccountId()`（**From**
+账号）方向不一致——这批旧数据和以后新提交的数据，中间人手续费记录挂账的账号逻辑目前是**两套不同的规则**
+（旧数据挂 leg2 To，新数据挂 leg2 From）。这是用户当前确认要的状态，此处只是记录清楚，避免以后有人拿
+§35 的旧数据结论去"纠正" `submitRate()`，或反过来拿 `submitRate()` 的写法去怀疑 §35 那批数据改错了。
+
+### 36.2 最终调整：扣款归属不变，中间人自己视角的 description 文案改成显示 leg2 收款方
+
+用户实测发现：中间人（BOSS）自己查看 Payment History 时，MARKUP 那行文案显示 "FROM A1"——这是因为
+`formatRateMiddlemanMarkupDescription()` 取的是 **leg1 的收款方**（`rateLeg1ToAccountCode`），这个测试例子
+里 leg1 是 "FROM A2 TO A1"，所以显示成了 A1。用户要的是显示 **leg2 的收款方**（这个例子里是 A2，因为 leg2
+是 "FROM A1 TO A2"）——**只改文案显示对象，扣款归属（`account_id`/`from_account_id`）完全不动，继续记在
+`leg2.fromAccountId()` 上**，这是纯展示层的调整，跟 36.1 的账号归属决定没有冲突。
+
+**改动**：
+- [`TransactionHistoryMapper.xml`](../../mybatis/TransactionHistoryMapper.xml) 的 `findDomainPaymentHistoryLines`
+  新增 `LEFT JOIN transactions leg2_t / LEFT JOIN account leg2_to`，查出 leg2 自己的收款方账号，新增字段
+  `rateLeg2ToAccountCode`
+- [`TransactionHistoryLineRow.java`](../../java/com/eazycount/dto/TransactionHistoryLineRow.java) 新增对应字段
+- [`TransactionHistoryServiceImpl.java`](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)
+  的 `formatRateMiddlemanMarkupDescription()` 取值来源从 `rateLeg1ToAccountCode` 换成 `rateLeg2ToAccountCode`
+
+**验证**：拿用户最新一次实测数据核对（txn 151377，A1/A2/BOSS 那组），`rateLeg1ToAccountCode=A1`、
+`rateLeg2ToAccountCode=A2`，改完后 BOSS 视角会显示 "MARKUP 2.9 SGD 1000 > MYR | FROM A2"，扣款那笔记录
+（`account_id=A1`）本身没有变。
+
+**这一处改动跟 §35 最初发现的"FROM XE"bug 是同一个根子，一并解决了**：拿 §35 里核对过的几组分组反查
+`rateLeg2ToAccountCode`（新字段）对比 `rateLeg1ToAccountCode`（旧字段）：
+
+| 分组 | `rateLeg1ToAccountCode`（旧，错） | `rateLeg2ToAccountCode`（新，对） |
+|---|---|---|
+| RATE_1776175159_5381 | XE | **UP028** |
+| RATE_1778660913_7130 | XE | **CASH B** |
+| RATE_1784115008_8176 | AG110 | AG110（这组本来两者一样） |
+| RATE_1786120872_2566 | XE | XE（这组本来两者一样） |
+
+`rateLeg2ToAccountCode` 精确等于 §35 回填 `rate_group_id`/改造 `from_account_id` 时用的那批真实对手方
+账号，所以不需要再单独为 §35 那批旧数据打补丁——36.2 这一处 mapper/展示层改动，新提交数据和旧数据的
+"中间人视角文案对手方显示错"是同一个问题，同一次改动一起修好了。
+

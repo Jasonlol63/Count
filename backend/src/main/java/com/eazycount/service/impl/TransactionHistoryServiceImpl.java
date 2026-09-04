@@ -484,8 +484,11 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
 
     /*
      * 中间人视角记录（仅 middleman/From 腿）：
-     * Rate: MARKUP {rate} {ccy1} {amt} > {ccy2} | FROM {leg1 To}
-     * Fee:  MARKUP X {ccy1} {amt} > {ccy2} | FROM {leg1 To}
+     * Rate: MARKUP {rate} {ccy1} {amt} > {ccy2} | FROM {leg2 To}
+     * Fee:  MARKUP X {ccy1} {amt} > {ccy2} | FROM {leg2 To}
+     *
+     * "FROM" 后面显示 leg2 的收款方（rateLeg2ToAccountCode），不是 leg1 的收款方——这只影响文案展示，
+     * 手续费记录自己的 account_id/from_account_id（扣款归属）不受影响，仍然是 leg2.fromAccountId()。
      */
     static void applyRateMiddlemanHistoryPresentation(
             TransactionHistoryLineRow line,
@@ -509,7 +512,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         String ccy1 = trimToEmpty(line.getRateCurrencyFromCode()).toUpperCase(Locale.ROOT);
         String ccy2 = trimToEmpty(line.getRateCurrencyToCode()).toUpperCase(Locale.ROOT);
         String amountText = formatRateHistoryDecimal(line.getRateAmountFrom(), 6);
-        String leg1ToCode = trimToEmpty(line.getRateLeg1ToAccountCode()).toUpperCase(Locale.ROOT);
+        String leg2ToCode = trimToEmpty(line.getRateLeg2ToAccountCode()).toUpperCase(Locale.ROOT);
 
         StringBuilder sb = new StringBuilder("MARKUP");
         if (!rateToken.isEmpty()) {
@@ -522,8 +525,8 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             }
             sb.append(" > ").append(ccy2);
         }
-        if (!leg1ToCode.isEmpty()) {
-            sb.append(" | FROM ").append(leg1ToCode);
+        if (!leg2ToCode.isEmpty()) {
+            sb.append(" | FROM ").append(leg2ToCode);
         }
         return sb.toString();
     }

@@ -118,14 +118,6 @@
                 UPPER(c.code) AS currencyCode,
                 CASE
                     WHEN #{excludeFeeCommission} = TRUE AND t.remark = 'DOMAIN_NET_PROFIT' THEN t.amount
-                    <!-- Legacy-migrated RATE leg1/leg2 (rate_group_id LIKE 'RATE_%'): account_id/
-                         from_account_id were copied verbatim from the old PHP DB and don't follow the
-                         current app's leg-insert convention (account_id = leg.toAccountId()), so the
-                         plain formula below is inverted for these rows — reverse it here instead of
-                         swapping the stored columns (which would also flip the FROM/TO description
-                         text, that already matches legacy on its own). New RATE groups use 'RG-%' and
-                         are unaffected. -->
-                    WHEN t.transaction_type = 'RATE' AND t.rate_group_id LIKE 'RATE\_%' THEN t.amount
                     ELSE -t.amount
                 END AS bfPart
             FROM transactions t
@@ -153,8 +145,6 @@
                 UPPER(c.code) AS currencyCode,
                 CASE
                     WHEN #{excludeFeeCommission} = TRUE AND t.remark = 'DOMAIN_NET_PROFIT' THEN 0
-                    <!-- Mirror of the legacy-RATE exception above, for the from_account_id branch. -->
-                    WHEN t.transaction_type = 'RATE' AND t.rate_group_id LIKE 'RATE\_%' THEN -t.amount
                     ELSE t.amount
                 END AS bfPart
             FROM transactions t
@@ -220,6 +210,14 @@
       findBankProcessHistoryLines). No bank_process_accounting_posted/bank_process join — these never
       go through the Bank Process posting flow, so cardOwner is NULL. bankProcessLine is still set TRUE
       so History renders them in the Win/Loss column like Bank Process lines (see toHistoryRow()).
+
+      remark: prefer the line's own remark (DataCaptureSummaryServiceImpl.resolveLineRemark — MAIN/SUB
+      description text, when the submitter filled it in for that specific line) and fall back to the
+      capture header's free-text remark (data_captures.remark, e.g. a period label like "2026 FEBRUARY"
+      typed once for the whole batch) when the line has none. Old PHP history_api.php read straight off
+      data_capture_details joined to its data_captures header, so every line under a batch showed the
+      header's note — t.remark alone (which only ever holds the per-line text) dropped that for any
+      batch where the submitter used the header note instead of per-line notes, which is the common case.
     -->
     <select id="findDataCaptureHistoryLines" resultType="com.eazycount.dto.TransactionHistoryLineRow">
         SELECT
@@ -229,7 +227,7 @@
             CASE WHEN t.transaction_type = 'WIN' THEN t.amount ELSE -t.amount END AS signedAmount,
             t.transaction_date AS transactionDate,
             t.description AS description,
-            t.remark AS remark,
+            COALESCE(NULLIF(TRIM(t.remark), ''), dc.remark) AS remark,
             t.created_by AS createdBy,
             t.created_at AS createdAt,
             UPPER(c.code) AS currencyCode,
@@ -241,6 +239,7 @@
         FROM transactions t
         INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
         LEFT JOIN data_capture_line dcl ON dcl.transaction_id = t.id
+        LEFT JOIN data_captures dc ON dc.id = dcl.capture_id
         WHERE t.tenant_id = #{tenantId}
           AND t.account_id = #{accountId}
           AND t.bank_process_posted_id IS NULL
@@ -268,11 +267,6 @@
                  AND <include refid="rateMiddlemanFeeDescription"/>
                 THEN t.amount
                 WHEN t.account_id = #{accountId} AND t.from_account_id = #{accountId} THEN 0
-                <!-- Legacy-migrated RATE leg1/leg2 only (rate_group_id LIKE 'RATE_%'): see the
-                     matching comment in aggregateDomainPaymentBfByAccount above for why this is
-                     reversed instead of swapping account_id/from_account_id. -->
-                WHEN t.transaction_type = 'RATE' AND t.rate_group_id LIKE 'RATE\_%' AND t.account_id = #{accountId} THEN t.amount
-                WHEN t.transaction_type = 'RATE' AND t.rate_group_id LIKE 'RATE\_%' THEN -t.amount
                 WHEN t.account_id = #{accountId} THEN -t.amount
                 ELSE t.amount
             END AS signedAmount,
@@ -304,6 +298,7 @@
                 ELSE FALSE
             END AS rateMiddlemanFee,
             UPPER(leg1_to.account_id) AS rateLeg1ToAccountCode,
+            UPPER(leg2_to.account_id) AS rateLeg2ToAccountCode,
             tr.middleman_rate AS rateMiddlemanRate,
             tr.middleman_rate_expression AS rateMiddlemanRateExpression,
             tr.exchange_rate AS rateExchangeRate,
@@ -326,6 +321,8 @@
         LEFT JOIN currency ct ON ct.id = tr.currency_to_id AND ct.tenant_id = t.tenant_id
         LEFT JOIN transactions leg1_t ON leg1_t.id = tr.leg1_transaction_id
         LEFT JOIN account leg1_to ON leg1_to.id = leg1_t.account_id
+        LEFT JOIN transactions leg2_t ON leg2_t.id = tr.leg2_transaction_id
+        LEFT JOIN account leg2_to ON leg2_to.id = leg2_t.account_id
         WHERE t.tenant_id = #{tenantId}
           AND t.bank_process_posted_id IS NULL
           AND t.approval_status = 'APPROVED'

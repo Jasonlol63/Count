@@ -37,6 +37,7 @@ public class TransactionHistoryLineRow {
     private String rateCurrencyToCode;
     private Boolean rateMiddlemanFee;
     private String rateLeg1ToAccountCode;
+    private String rateLeg2ToAccountCode;
     private BigDecimal rateMiddlemanRate;
     private String rateMiddlemanRateExpression;
     private BigDecimal rateExchangeRate;
