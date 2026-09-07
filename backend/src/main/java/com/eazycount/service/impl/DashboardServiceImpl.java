@@ -69,7 +69,9 @@ public class DashboardServiceImpl implements DashboardService {
 
         BigDecimal profit = amountForRole(ROLE_PROFIT, winLossByRole, crDrByRole);
         BigDecimal expenses = amountForRole(ROLE_EXPENSES, winLossByRole, crDrByRole);
-        BigDecimal netProfit = profit.subtract(expenses);
+        // expenses is already signed negative (EXPENSES role nets to a debit/outflow), so a
+        // plain add gives profit - |expenses|; subtract would double-negate into profit + |expenses|.
+        BigDecimal netProfit = profit.add(expenses);
 
         dto.setProfit(profit);
         dto.setExpenses(expenses);
