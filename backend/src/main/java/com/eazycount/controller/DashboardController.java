@@ -1,0 +1,77 @@
+package com.eazycount.controller;
+
+import com.eazycount.common.BusinessException;
+import com.eazycount.dao.TenantDao;
+import com.eazycount.dto.DashboardKpiDTO;
+import com.eazycount.entity.Tenant;
+import com.eazycount.service.DashboardService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDate;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/dashboard")
+public class DashboardController {
+
+    @Autowired
+    private DashboardService dashboardService;
+
+    // Reused only to resolve a "C168"-style tenant code to an id, same helper as TenantOwnershipController.
+    @Autowired
+    private TenantDao tenantDao;
+
+    private Integer resolveTenantId(String tenantIdStr) {
+        if (tenantIdStr == null || tenantIdStr.isBlank()) {
+            throw new BusinessException("tenant_id is required");
+        }
+        try {
+            return Integer.valueOf(tenantIdStr.trim());
+        } catch (NumberFormatException e) {
+            Tenant tenant = tenantDao.findTenantByCode(tenantIdStr.trim());
+            if (tenant != null) {
+                return tenant.getId();
+            } else {
+                throw new BusinessException("Tenant '" + tenantIdStr + "' not found");
+            }
+        }
+    }
+
+    @GetMapping("/kpi")
+    public ResponseEntity<Map<String, Object>> getKpi(
+            @RequestParam(value = "tenant_id", required = true) String tenantIdStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        try {
+            Integer tenantId = resolveTenantId(tenantIdStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+
+            DashboardKpiDTO kpi = dashboardService.getKpi(tenantId, dateFrom, dateTo);
+
+            body.put("status", "success");
+            body.put("success", true);
+            body.put("message", "");
+            body.put("data", kpi);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
+    private static ResponseEntity<Map<String, Object>> error(String message) {
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("status", "error");
+        body.put("success", false);
+        body.put("message", message);
+        body.put("data", null);
+        return ResponseEntity.ok(body);
+    }
+}

@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.DashboardDao">
+
+    <!-- RATE 主腿限定：排除同 rate_group 下的中间人手续费行（与 TransactionSearchMapper 的
+         rateTransferLegOnly 同一份逻辑，按本项目惯例在各 mapper 里各自维护一份拷贝） -->
+    <sql id="dashboardRateTransferLegOnly">
+        (
+            t.transaction_type &lt;&gt; 'RATE'
+            OR EXISTS (
+                SELECT 1
+                FROM transactions_rate tr
+                WHERE tr.tenant_id = t.tenant_id
+                  AND tr.rate_group_id = t.rate_group_id
+                  AND (t.id = tr.leg1_transaction_id OR t.id = tr.leg2_transaction_id)
+            )
+        )
+    </sql>
+
+    <!-- Win/Loss 桶：WIN(+)/LOSE(-)/ADJUSTMENT(原样) 记在 account_id 一侧；
+         手动 PROFIT 类型转账 To(-)/From(+)，按 role 汇总 -->
+    <select id="aggregateWinLossByRole" resultType="com.eazycount.dto.DashboardKpiRoleAmount">
+        SELECT x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
+        FROM (
+            SELECT
+                a.role AS role,
+                CASE
+                    WHEN t.transaction_type = 'WIN' THEN t.amount
+                    WHEN t.transaction_type = 'LOSE' THEN -t.amount
+                    WHEN t.transaction_type = 'ADJUSTMENT' THEN t.amount
+                    ELSE 0
+                END AS amt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.account_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_date &gt;= #{dateFrom}
+              AND t.transaction_date &lt;= #{dateTo}
+              AND t.transaction_type IN ('WIN', 'LOSE', 'ADJUSTMENT')
+              AND UPPER(a.role) IN
+              <foreach collection="roles" item="r" open="(" separator="," close=")">
+                  UPPER(#{r})
+              </foreach>
+
+            UNION ALL
+
+            SELECT a.role AS role, -t.amount AS amt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.account_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_date &gt;= #{dateFrom}
+              AND t.transaction_date &lt;= #{dateTo}
+              AND t.transaction_type = 'PROFIT'
+              AND UPPER(a.role) IN
+              <foreach collection="roles" item="r" open="(" separator="," close=")">
+                  UPPER(#{r})
+              </foreach>
+
+            UNION ALL
+
+            SELECT a.role AS role, t.amount AS amt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.from_account_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.from_account_id IS NOT NULL
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_date &gt;= #{dateFrom}
+              AND t.transaction_date &lt;= #{dateTo}
+              AND t.transaction_type = 'PROFIT'
+              AND UPPER(a.role) IN
+              <foreach collection="roles" item="r" open="(" separator="," close=")">
+                  UPPER(#{r})
+              </foreach>
+        ) x
+        GROUP BY x.role
+    </select>
+
+    <!-- Cr/Dr 桶：PAYMENT/CLAIM/CONTRA/RATE(仅主腿) To(-)/From(+)，按 role 汇总；
+         CLEAR 不在类型列表里 —— Dashboard KPI 对 PROFIT/EXPENSES 永远排除 CLEAR -->
+    <select id="aggregateCrDrByRole" resultType="com.eazycount.dto.DashboardKpiRoleAmount">
+        SELECT x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
+        FROM (
+            SELECT a.role AS role, -t.amount AS amt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.account_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_date &gt;= #{dateFrom}
+              AND t.transaction_date &lt;= #{dateTo}
+              AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
+              AND <include refid="dashboardRateTransferLegOnly"/>
+              AND UPPER(a.role) IN
+              <foreach collection="roles" item="r" open="(" separator="," close=")">
+                  UPPER(#{r})
+              </foreach>
+
+            UNION ALL
+
+            SELECT a.role AS role, t.amount AS amt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.from_account_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.from_account_id IS NOT NULL
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_date &gt;= #{dateFrom}
+              AND t.transaction_date &lt;= #{dateTo}
+              AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
+              AND <include refid="dashboardRateTransferLegOnly"/>
+              AND UPPER(a.role) IN
+              <foreach collection="roles" item="r" open="(" separator="," close=")">
+                  UPPER(#{r})
+              </foreach>
+        ) x
+        GROUP BY x.role
+    </select>
+
+    <!-- 当前（live）股权行：Earnings 卡片乘数来源，当月/未指定历史月份时查询 -->
+    <select id="findLiveOwnership" resultType="com.eazycount.entity.TenantOwnership">
+        SELECT
+            id,
+            tenant_id AS tenantId,
+            account_id AS accountId,
+            owner_type AS ownerType,
+            partner_tenant_id AS partnerTenantId,
+            percentage,
+            read_only AS readOnly,
+            sort_order AS sortOrder
+        FROM tenant_ownership
+        WHERE tenant_id = #{tenantId}
+          AND account_id = #{accountId}
+          AND owner_type = #{ownerType}
+        LIMIT 1
+    </select>
+
+    <!-- 历史股权快照行：查过去月份的 Dashboard 数字时用，effectiveMonth 传该月第一天 -->
+    <select id="findHistoricalOwnership" resultType="com.eazycount.entity.TenantOwnershipHistory">
+        SELECT
+            id,
+            tenant_id AS tenantId,
+            effective_month AS effectiveMonth,
+            account_id AS accountId,
+            owner_type AS ownerType,
+            partner_tenant_id AS partnerTenantId,
+            percentage,
+            read_only AS readOnly,
+            saved_by AS savedBy,
+            saved_at AS savedAt
+        FROM tenant_ownership_history
+        WHERE tenant_id = #{tenantId}
+          AND account_id = #{accountId}
+          AND owner_type = #{ownerType}
+          AND effective_month = #{effectiveMonth}
+        LIMIT 1
+    </select>
+
+</mapper>

@@ -1,8 +1,8 @@
 # Transactions / Bank Process 域：没迁进 `count_real` 的数据清单
 
-> 只覆盖这两个域（对应脚本 [`migrate_data_transactions_from_legacy.sql`](migrate_data_transactions_from_legacy.sql)、
-> [`migrate_data_bank_process_from_legacy.sql`](migrate_data_bank_process_from_legacy.sql)、
-> [`migrate_data_bank_process_accounting_due_from_legacy.sql`](migrate_data_bank_process_accounting_due_from_legacy.sql)）。
+> 只覆盖这两个域（对应脚本 [`migrate_data_transactions_from_legacy.sql`](../legacy_full_migration/migrate_data_transactions_from_legacy.sql)、
+> [`migrate_data_bank_process_from_legacy.sql`](../legacy_full_migration/migrate_data_bank_process_from_legacy.sql)、
+> [`migrate_data_bank_process_accounting_due_from_legacy.sql`](../legacy_full_migration/migrate_data_bank_process_accounting_due_from_legacy.sql)）。
 > 完整的迁移决策记录见 [`MIGRATION_LOG.md`](MIGRATION_LOG.md) §12/§13，这份文档只做"哪些数据没进新库、为什么"的汇总速查，细节以 MIGRATION_LOG.md 为准。
 > 其他域（Data Capture description 桥表、user 精细 ACL 等）的已知缺口不在这份清单里，见 MIGRATION_LOG.md §2/§5/§8。
 

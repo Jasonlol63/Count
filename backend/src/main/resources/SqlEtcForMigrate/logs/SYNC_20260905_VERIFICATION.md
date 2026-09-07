@@ -81,8 +81,8 @@
 
 用"account_id + amount"反查 `count_real.transactions`,一开始显示 C168 51 条、95(tenant `95`)94 条、AG 60 条"查不到"。深入查证后发现:**这些都不是真的缺失**,而是命中了两个你们之前已经做过的、有意为之的一次性数据修正脚本:
 
-- [`fix_domain_fee_commission_account_direction_swap.sql`](fix_domain_fee_commission_account_direction_swap.sql) —— C168 的 domain fee / commission 交易,`account_id`/`from_account_id` 两列做过对调(为了让 Payment History 的 Cr/Dr 方向跟旧系统一致)
-- [`fix_migrated_rate_leg_account_direction_swap.sql`](fix_migrated_rate_leg_account_direction_swap.sql) —— 95/AG/CX/RS/BK1 这几家的 RATE 交易(364 条),同样做过 `account_id`/`from_account_id` 对调
+- [`fix_domain_fee_commission_account_direction_swap.sql`](../fixes/fix_domain_fee_commission_account_direction_swap.sql) —— C168 的 domain fee / commission 交易,`account_id`/`from_account_id` 两列做过对调(为了让 Payment History 的 Cr/Dr 方向跟旧系统一致)
+- [`fix_migrated_rate_leg_account_direction_swap.sql`](../fixes/fix_migrated_rate_leg_account_direction_swap.sql) —— 95/AG/CX/RS/BK1 这几家的 RATE 交易(364 条),同样做过 `account_id`/`from_account_id` 对调
 
 举例验证:旧库 transaction_id=19335(C168,Pay Domain Fee,account_id=4837)在 `count_real` 里 id 同样是 19335,但 `account_id` 是 **5678**(对调后的值),所以我最初按 account_id 直接匹配查不到,其实数据一直都在。同理 transaction_id=17954(95,RATE)在 count_real 里 account_id/from_account_id 也是对调过的。
 
@@ -118,7 +118,7 @@
 
 ### 6.1 `transaction_id` 从未生成(126 条全部,已修复)
 
-新版 Payment History 读的是 `transactions` 表,不是 `data_capture_line`——这 126 条明细行迁移时没有同步生成对应的 WIN/LOSE `transactions` 记录,导致金额"看不见"。已用 [`migrate_delta_datacapture_line_transactions_backfill_20260905.sql`](migrate_delta_datacapture_line_transactions_backfill_20260905.sql) 补建。你最早反馈的 RS 公司 BZA-312 账号 9/3 那 5 条记录就在这批里:
+新版 Payment History 读的是 `transactions` 表,不是 `data_capture_line`——这 126 条明细行迁移时没有同步生成对应的 WIN/LOSE `transactions` 记录,导致金额"看不见"。已用 [`migrate_delta_datacapture_line_transactions_backfill_20260905.sql`](../delta_sync/migrate_delta_datacapture_line_transactions_backfill_20260905.sql) 补建。你最早反馈的 RS 公司 BZA-312 账号 9/3 那 5 条记录就在这批里:
 
 | data_capture_line id | capture_id | 账号 | 金额 | 生成的 transaction id |
 |---|---|---|---|---|
@@ -208,7 +208,7 @@
 
 ### 9.3 已经处理
 
-写了 [fix_transactions_deleted_bank_process_posted_id_backfill.sql](fix_transactions_deleted_bank_process_posted_id_backfill.sql),用每条已删除记录自己在旧库里的 `source_bank_process_id`/`source_bank_process_period_type` 反查出正确的过账记录(业务字段匹配,不依赖任何数字 id 的巧合),分两轮跑完:
+写了 [fix_transactions_deleted_bank_process_posted_id_backfill.sql](../fixes/fix_transactions_deleted_bank_process_posted_id_backfill.sql),用每条已删除记录自己在旧库里的 `source_bank_process_id`/`source_bank_process_period_type` 反查出正确的过账记录(业务字段匹配,不依赖任何数字 id 的巧合),分两轮跑完:
 
 - 第一轮:精确匹配(tenant+bank_process+过账日期+周期类型全部对上),补了 **581 条**
 - 第二轮:同一个 (tenant, bank_process, 过账日期) 组合下只有唯一一条候选时也认,补了 **38 条**
@@ -301,7 +301,7 @@ bap.id = COALESCE((SELECT new_id FROM _new_bap_map WHERE legacy_id = lp.id), lp.
 
 ### 12.2 已处理:5 条无歧义记录
 
-用 [fix_tenant18_stale_superseded_transactions_cleanup.sql](fix_tenant18_stale_superseded_transactions_cleanup.sql) 处理:每条先按旧库自己的 `deleted_at`/`deleted_by`(owner K23)迁入 `transactions_deleted`(保留审计痕迹),再从活的 `transactions` 表删除。
+用 [fix_tenant18_stale_superseded_transactions_cleanup.sql](../tenant18_adhoc/fix_tenant18_stale_superseded_transactions_cleanup.sql) 处理:每条先按旧库自己的 `deleted_at`/`deleted_by`(owner K23)迁入 `transactions_deleted`(保留审计痕迹),再从活的 `transactions` 表删除。
 
 | count_real id | 类型 | 金额 | 交易日期 | 账号 |
 |---|---|---|---|---|
@@ -338,7 +338,7 @@ bap.id = COALESCE((SELECT new_id FROM _new_bap_map WHERE legacy_id = lp.id), lp.
 
 ### 13.3 执行内容(已完成)
 
-1. [fix_tenant18_bank_process_posted_id_relink_20260905round.sql](fix_tenant18_bank_process_posted_id_relink_20260905round.sql) —— 70 条 `bank_process_posted_id` 重新关联,执行前后各做了行数核对(应该是 70 条,实际更新 70 条)。
+1. [fix_tenant18_bank_process_posted_id_relink_20260905round.sql](../tenant18_adhoc/fix_tenant18_bank_process_posted_id_relink_20260905round.sql) —— 70 条 `bank_process_posted_id` 重新关联,执行前后各做了行数核对(应该是 70 条,实际更新 70 条)。
 
    | 正确合约 | 正确公司 | 修复前误挂 | 条数 | count_real id |
    |---|---|---|---|---|
@@ -360,7 +360,7 @@ bap.id = COALESCE((SELECT new_id FROM _new_bap_map WHERE legacy_id = lp.id), lp.
    | 692 | THE QIN RESTAURANT | FLORA LUXE / SERENA MALA | 8 | 151441-151444, 151455-151458 |
    | 693 | THE QIN RESTAURANT | VPA TRADING | 4 | 151459-151462 |
 
-2. [fix_tenant18_superseded_bank_process_predecessors_cleanup.sql](fix_tenant18_superseded_bank_process_predecessors_cleanup.sql) —— 72 条旧记录清理。执行前确认过这 72 条**全部已经各自有一份归档记录**(避免重演 §12 那次重复插入的失误),所以这次脚本只做了"从活的 `transactions` 删除",没有再插入 `transactions_deleted`。执行前后行数核对都是 72,无误。
+2. [fix_tenant18_superseded_bank_process_predecessors_cleanup.sql](../tenant18_adhoc/fix_tenant18_superseded_bank_process_predecessors_cleanup.sql) —— 72 条旧记录清理。执行前确认过这 72 条**全部已经各自有一份归档记录**(避免重演 §12 那次重复插入的失误),所以这次脚本只做了"从活的 `transactions` 删除",没有再插入 `transactions_deleted`。执行前后行数核对都是 72,无误。
 
 3. 重新跑了 `BankProcessDescriptionBackfillTool`(--tenant=18 --apply):243 条相关交易里 69 条描述文字改回正确公司名(撤销了 §8.2 那次因为挂错关联而写错的文字),164 条本来就对不需要改,10 条因为工具自身的已知限制(账期字段缺失导致的计算异常/账号不在供应商客户分成名单里)没法重新生成——但这 10 条**旧的描述文字本来就写对了公司名**,核实过不影响数据正确性。
 
@@ -393,7 +393,7 @@ bap.id = COALESCE((SELECT new_id FROM _new_bap_map WHERE legacy_id = lp.id), lp.
 
 ### 14.3 已处理
 
-用 [fix_tenant18_2024_stale_resend_charges_cleanup.sql](fix_tenant18_2024_stale_resend_charges_cleanup.sql) 处理:这 7 条**没有**像 §12/§13 那样已经有对应的归档记录(检查过,0 条),所以这次是先插入 `transactions_deleted`(用旧库的 deleted_at/deleted_by 信息),再从活表删除。执行前后核对都是 7 条,无误。
+用 [fix_tenant18_2024_stale_resend_charges_cleanup.sql](../tenant18_adhoc/fix_tenant18_2024_stale_resend_charges_cleanup.sql) 处理:这 7 条**没有**像 §12/§13 那样已经有对应的归档记录(检查过,0 条),所以这次是先插入 `transactions_deleted`(用旧库的 deleted_at/deleted_by 信息),再从活表删除。执行前后核对都是 7 条,无误。
 
 **最终核对:tenant 18 范围内,`transaction_date` 早于 2026-08-01 的活跃交易记录数 = 0。** 8 月份 B/F 异常的问题到这里解决。
 
@@ -433,13 +433,13 @@ bap.id = COALESCE((SELECT new_id FROM _new_bap_map WHERE legacy_id = lp.id), lp.
 
 你确认"23 GROUP"账号下也有同样的多一条问题(跟 CR10/AG4/SU13 是同一批,都挂在 `bank_process_accounting_posted` id=2815 下),并确认要把多出来的去掉。
 
-用 [fix_tenant18_moda_house_bp629_duplicate_cleanup.sql](fix_tenant18_moda_house_bp629_duplicate_cleanup.sql) 处理:4 个账号各一条(CR10/AG4/SU13/23 GROUP),保留较早迁移进来的那一批(id 19960/19961/19962/19963,2026-09-02 迁移),删除较晚的那一批(id 151418/151419/151420/151421,2026-09-03 迁移)——先迁入 `transactions_deleted`(标记 `SYSTEM_DEDUP`,因为旧库自己没有撤销记录可以直接沿用),再从活表删除。执行前后核对都是 4 条,无误。
+用 [fix_tenant18_moda_house_bp629_duplicate_cleanup.sql](../tenant18_adhoc/fix_tenant18_moda_house_bp629_duplicate_cleanup.sql) 处理:4 个账号各一条(CR10/AG4/SU13/23 GROUP),保留较早迁移进来的那一批(id 19960/19961/19962/19963,2026-09-02 迁移),删除较晚的那一批(id 151418/151419/151420/151421,2026-09-03 迁移)——先迁入 `transactions_deleted`(标记 `SYSTEM_DEDUP`,因为旧库自己没有撤销记录可以直接沿用),再从活表删除。执行前后核对都是 4 条,无误。
 
 ### 16.2 SU25 两条 THE QIN RESTAURANT 记录:已补建缺失的过账记录
 
 你确认这两条(151446、151449)对应的银行合约 693,resend 周期照旧系统显示的走"9月1日-9月30日"整月(`RESEND_END=2026-09-30`),照着它两个兄弟合约(691→bap 3212、692→bap 2927)同样的格式补建。
 
-用 [fix_tenant18_bp693_missing_bap_backfill.sql](fix_tenant18_bp693_missing_bap_backfill.sql) 处理:新建了 `bank_process_accounting_posted`(tenant=18, bank_process=693, posted_date=2026-08-31, period_type=RESEND_CONSOLIDATED, outcome=POSTED,新 id=3231),把 151446/151449 的 `bank_process_posted_id` 关联过去。
+用 [fix_tenant18_bp693_missing_bap_backfill.sql](../tenant18_adhoc/fix_tenant18_bp693_missing_bap_backfill.sql) 处理:新建了 `bank_process_accounting_posted`(tenant=18, bank_process=693, posted_date=2026-08-31, period_type=RESEND_CONSOLIDATED, outcome=POSTED,新 id=3231),把 151446/151449 的 `bank_process_posted_id` 关联过去。
 
 重新跑了描述回填工具——这两条因为 `billing_start/billing_end` 字段缺失(新建的过账记录没有这两个字段值)还是没能重新生成新格式文字,但**旧的描述文字本来就正确显示"THE QIN RESTAURANT"**(因为之前这两条从没被错误关联过、也就没被 §8.2 的工具写错过),所以显示上没有问题,页面现在能正确关联显示了(不再是"DATA CAPTURE"占位文字)。
 

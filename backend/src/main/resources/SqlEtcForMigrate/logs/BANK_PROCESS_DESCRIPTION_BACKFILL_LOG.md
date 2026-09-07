@@ -12,9 +12,9 @@
 
 ### 1.1 Description 大面积显示旧格式
 
-新版 [`TransactionHistoryServiceImpl.toHistoryRow`](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java) 对 Bank Process 行只是把
+新版 [`TransactionHistoryServiceImpl.toHistoryRow`](../../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java) 对 Bank Process 行只是把
 `transactions.description` 原样回显（`row.setDescription(trimToEmpty(line.getDescription()))`），从不重新计算。
-description 只在**生成过账记录的那一刻**由 [`BankAccountingDueServiceImpl.buildPostDescription`](../../java/com/eazycount/service/impl/BankAccountingDueServiceImpl.java) 算一次并写死进库。
+description 只在**生成过账记录的那一刻**由 [`BankAccountingDueServiceImpl.buildPostDescription`](../../../java/com/eazycount/service/impl/BankAccountingDueServiceImpl.java) 算一次并写死进库。
 
 旧版 PHP 系统（`count168.site`）恰恰相反：Payment History 页面从不信任存库的 description，而是查询时用
 `bank_process.day_start`/`day_end`/`cost`/`price`/`profit` 等结构化字段现算（见旧仓库
@@ -28,7 +28,7 @@ posting 流程的记录极少 —— 迁移时 description 原样保留了旧文
 [`TransactionHistoryMapper.xml`](../../mybatis/TransactionHistoryMapper.xml) 按 `t.bank_process_posted_id`
 是否为空把 Win/Loss 行分流进两条 SQL：不为空走 `findBankProcessHistoryLines`（`INNER JOIN bank_process_accounting_posted`/`bank_process`
 取 `card_owner` 作为 ID PRODUCT）；为空则被当成 Data Capture 行处理，`card_owner` 恒为 NULL，最终命中
-[`TransactionHistoryServiceImpl`](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java) 里的兜底值 `"DATA CAPTURE"`。
+[`TransactionHistoryServiceImpl`](../../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java) 里的兜底值 `"DATA CAPTURE"`。
 
 根因是 §13 迁移脚本（`migrate_data_bank_process_accounting_due_from_legacy.sql`）只成功回填了
 509 条里的 494 条 `bank_process_posted_id`，剩下 15 条对应的旧账本记录本身就是孤儿数据，回填不了
@@ -46,7 +46,7 @@ posting 流程的记录极少 —— 迁移时 description 原样保留了旧文
 ## 2. 关键代码不变量（用来做无损回填的依据）
 
 - `billing_start` **恒等于** `posted_date`（验证于三处生成逻辑：
-  [`buildFirstOfMonthDueForMonth`](../../java/com/eazycount/service/impl/BankAccountingDueServiceImpl.java)、
+  [`buildFirstOfMonthDueForMonth`](../../../java/com/eazycount/service/impl/BankAccountingDueServiceImpl.java)、
   Weekly 生成、`BankProcessResendServiceImpl#resolveWindow`）。
 - `PARTIAL_FIRST_MONTH`/`DAY_END_TAIL` 的 `billing_end` 能从 `bank_process.day_start`/`day_end` 按现有代码规则精确算出。
 - `RESEND_CONSOLIDATED` 的 `billing_end`：旧版 PHP 写入时会在 description 里留一个
@@ -64,7 +64,7 @@ posting 流程的记录极少 —— 迁移时 description 原样保留了旧文
 `BankAccountingDueServiceImpl` 里生成 description 用的静态方法，保证回填出来的文案和新记录一模一样的格式）。
 都是纯 JDBC 实现，不依赖 Spring 容器，默认**只预览、不写库**，加 `--apply` 才真正执行。
 
-### 3.1 [`BankProcessDescriptionBackfillTool.java`](BankProcessDescriptionBackfillTool.java)
+### 3.1 [`BankProcessDescriptionBackfillTool.java`](../tools/BankProcessDescriptionBackfillTool.java)
 
 第一轮：对所有 `bank_process_posted_id IS NOT NULL`（已正确关联）的交易，按 leg（supplier/customer/company/share）
 取对应的 `bank_process` 原始价格作为 `baseAmount`，调用
@@ -75,7 +75,7 @@ java -cp <classpath> com.eazycount.service.impl.BankProcessDescriptionBackfillTo
     [--tenant=82] [--apply] [--report=xxx.txt]
 ```
 
-### 3.2 [`BankProcessLedgerBackfillTool.java`](BankProcessLedgerBackfillTool.java)
+### 3.2 [`BankProcessLedgerBackfillTool.java`](../tools/BankProcessLedgerBackfillTool.java)
 
 第二轮，分三个阶段：
 
@@ -90,7 +90,7 @@ java -cp <classpath> com.eazycount.service.impl.BankProcessDescriptionBackfillTo
 java -cp <classpath> com.eazycount.service.impl.BankProcessLedgerBackfillTool [--apply] [--report=xxx.txt]
 ```
 
-### 3.3 [`BankProcessDayEndTailFixTool.java`](BankProcessDayEndTailFixTool.java)
+### 3.3 [`BankProcessDayEndTailFixTool.java`](../tools/BankProcessDayEndTailFixTool.java)
 
 第三个工具，范围很窄、针对性很强，详见 [第 8 节](#8-后续修复trusty-haulers--supper-service-的-full_month-误分类2026-09-03用户复查发现)。
 
@@ -111,7 +111,7 @@ Phase 1/2 写入后的效果），只是最后按 `--apply` 决定 `COMMIT` 还�
 
 只有一处生产代码改动，且是**纯可见性放宽，没有改任何逻辑**：
 
-[`BankAccountingDueServiceImpl.java`](../../java/com/eazycount/service/impl/BankAccountingDueServiceImpl.java)
+[`BankAccountingDueServiceImpl.java`](../../../java/com/eazycount/service/impl/BankAccountingDueServiceImpl.java)
 把 `buildLineDescription` 和 `isCompensationPost` 从 `private static` 改成包内可见的 `static`，
 以便两个回填工具类（同包）可以直接复用，保证回填文案和新记录用的是**完全相同**的一套格式规则。
 
@@ -185,7 +185,7 @@ FROM transactions;
 ### 8.2 根因
 
 这两个 `bank_process` 都设置了 `day_end_monthly_cap_enabled=1`，且 `day_end`（2026-08-11，本地日历 08/12）落在
-8 月月中——按现有代码 [`buildFirstOfMonthDueForMonth`](../../java/com/eazycount/service/impl/BankAccountingDueServiceImpl.java) 的规则，
+8 月月中——按现有代码 [`buildFirstOfMonthDueForMonth`](../../../java/com/eazycount/service/impl/BankAccountingDueServiceImpl.java) 的规则，
 这种情况应该生成 `period_type=DAY_END_TAIL`，但 `bank_process_accounting_posted`（`id=1696`/`1697`）里存的却是 `FULL_MONTH`。
 
 核实过**不是这次两个回填工具造成的**——两个工具从未写过 `period_type` 这一列；回填前的原始旧文案
@@ -198,7 +198,7 @@ FROM transactions;
 排查过全库，符合"该判 DAY_END_TAIL 却存成 FULL_MONTH/FIRST_MONTH"这个模式的一共 5 条台账记录，
 其余 3 条（tenant 94/96）名下都没有挂交易、不影响任何人看到的数据，只有这 2 条（共 6 笔交易）需要处理。
 
-### 8.3 工具：[`BankProcessDayEndTailFixTool.java`](BankProcessDayEndTailFixTool.java)
+### 8.3 工具：[`BankProcessDayEndTailFixTool.java`](../tools/BankProcessDayEndTailFixTool.java)
 
 范围写死成人工核实过的两个台账 id（`TARGET_LEDGER_IDS = {1696, 1697}`），不是通用的"全库扫描修复"工具——
 刻意避免碰到那 3 条没有交易的空台账，也避免用一个没有单独复核过的宽泛查询条件去动数据。
@@ -232,7 +232,7 @@ mode=APPLY  ledger_fixed=2  description_changed=6
 `PRORATED(17/5 - 16/6 | 31 DAYS)@MONTHLY 500 | OCBC`，新版却是 `MONTHLY BILL 500 | OCBC`，丢失了补单覆盖的日期区间信息。
 
 **排查后确认：这不是迁移遗留问题，而是本次回填工具（`BankProcessDescriptionBackfillTool`）自己触发的一次回归**，
-根子在 [`buildPostDescription`](../../java/com/eazycount/service/impl/BankAccountingDueServiceImpl.java) 本身的一个代码空档：
+根子在 [`buildPostDescription`](../../../java/com/eazycount/service/impl/BankAccountingDueServiceImpl.java) 本身的一个代码空档：
 
 ```java
 if (frequency == BankProcess.Frequency.MONTHLY) {

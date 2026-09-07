@@ -41,7 +41,7 @@
 **3. 权限模型：不迁 per-user 覆盖**
 旧 `user.permissions`（JSON，侧边栏模块清单）在同一个角色内因人而异（比如 42 个 admin 里有 8 个是空权限），是真实的 per-user 覆盖，不是角色能推出来的。
 
-最初以为新 schema 没地方放这个、是个缺口——后来核实：这就是产品有意做的简化（[`docs/admin-permission-rbac-hierarchy.md`](../../../../docs/admin-permission-rbac-hierarchy.md)、[`docs/admin-permission-account-override.md`](../../../../docs/admin-permission-account-override.md)），新系统统一走角色默认权限（`user_role_permission`），2026-08-27 那次改动另外加了 `user_permission_override` 支持账号级覆盖，但那是**面向未来新建/编辑账号**用的，不是用来接旧数据的。**决定：旧库 `user.permissions` 这批个性化设置不迁**，迁移后所有账号统一按角色默认权限，`permission_mode` 留默认值 `ROLE_DEFAULT`。
+最初以为新 schema 没地方放这个、是个缺口——后来核实：这就是产品有意做的简化（[`docs/admin-permission-rbac-hierarchy.md`](../../../../../../docs/admin-permission-rbac-hierarchy.md)、[`docs/admin-permission-account-override.md`](../../../../../../docs/admin-permission-account-override.md)），新系统统一走角色默认权限（`user_role_permission`），2026-08-27 那次改动另外加了 `user_permission_override` 支持账号级覆盖，但那是**面向未来新建/编辑账号**用的，不是用来接旧数据的。**决定：旧库 `user.permissions` 这批个性化设置不迁**，迁移后所有账号统一按角色默认权限，`permission_mode` 留默认值 `ROLE_DEFAULT`。
 
 **4. `company`/`groups` 合并进 `tenant` 需要重新分配 ID**
 `company.id` 和 `groups.id` 是两套独立的自增序列，合并进同一张 `tenant` 表后 ID 必然重新生成。脚本里用一张 session 级临时表 `_map_tenant(old_type, old_id, new_tenant_id)`，通过业务码（`company.company_id`/`groups.group_code` ↔ `tenant.code`）建立映射，后续所有引用旧 `company_id`/`group_id` 的表都通过这张表转换。
@@ -172,7 +172,7 @@ tenant 归属是通过它引用的 `currency` 行"继承"来的（`currency` 本
 - `status` 完全不能拿来判断"哪条记录是真正在用的"——`AB33888` 那组最典型：当前 `status='active'` 的那条实际 0 次提交，真正有 1 次真实提交的反而是 `status='waiting'` 的那条
 - 6 组里有 5 组是**同一件事按时间顺序换了个记录继续做**（比如 `EC23`：一条记录从 4 月每周提交到 8 月 16 号，共 11 次；8 月 23 号那一周开始换了另一条记录继续提交），不是无意义的废弃数据
 
-**处理方式**（[fix_process_true_duplicates.sql](fix_process_true_duplicates.sql)）：每组选"旧库 `data_captures` 历史记录数最多"的那条作为存活记录（不是按 `status`），删除前把要删的记录名下的 `process_day`、`process_submitted` 先转移到存活记录（`process_submitted.process_id` 对 `process` 是 `ON DELETE CASCADE`，不先转移直接删会把已提交记录一起删掉）。
+**处理方式**（[fix_process_true_duplicates.sql](../fixes/fix_process_true_duplicates.sql)）：每组选"旧库 `data_captures` 历史记录数最多"的那条作为存活记录（不是按 `status`），删除前把要删的记录名下的 `process_day`、`process_submitted` 先转移到存活记录（`process_submitted.process_id` 对 `process` 是 `ON DELETE CASCADE`，不先转移直接删会把已提交记录一起删掉）。
 
 新建了一张**永久保留**的表 `process_duplicate_merge_map`（不是临时表），记录这 7 条旧 id 该合并到哪条——因为 Data Capture 域（真正的金额数据）还没迁，写那个脚本时必须 JOIN 这张表，把这几条历史金额正确转到存活记录上，否则会丢真实提交（已确认 `4538`/`4700` 这两个旧 id 各自对应 1 次真实的 `data_captures` 提交）。
 
@@ -180,7 +180,7 @@ tenant 归属是通过它引用的 `currency` 行"继承"来的（`currency` 本
 
 ### 4.3 配套的 schema/应用层改动：`process.code` 允许重复
 
-因为 §4.1 确认了"同一个 code 拆成几条、各自不同 description"是合法的业务场景，`process` 表原来的 `UNIQUE(tenant_id, category, code)` 约束改成了允许 code 重复、但 `(tenant, category, code, description)` 不能重复——用数据库触发器强制（不只是 Service 层校验，避免并发竞态绕过）。这是一次独立的 schema + 代码改动，不是数据迁移本身，完整细节记录在 [`TABLE_MIGRATION.md`](../sql/TABLE_MIGRATION.md) 的脚本索引里（`migrate_process_code_allow_duplicate.sql`），这里只是提一下它跟这次 Process 域迁移的关系：没有这次改动，§4.1 的"不合并、逐条保留"方案在新建 process 时会重新撞上旧的唯一约束。
+因为 §4.1 确认了"同一个 code 拆成几条、各自不同 description"是合法的业务场景，`process` 表原来的 `UNIQUE(tenant_id, category, code)` 约束改成了允许 code 重复、但 `(tenant, category, code, description)` 不能重复——用数据库触发器强制（不只是 Service 层校验，避免并发竞态绕过）。这是一次独立的 schema + 代码改动，不是数据迁移本身，完整细节记录在 [`TABLE_MIGRATION.md`](../../sql/TABLE_MIGRATION.md) 的脚本索引里（`migrate_process_code_allow_duplicate.sql`），这里只是提一下它跟这次 Process 域迁移的关系：没有这次改动，§4.1 的"不合并、逐条保留"方案在新建 process 时会重新撞上旧的唯一约束。
 
 ---
 
@@ -267,7 +267,7 @@ tenant 归属是通过它引用的 `currency` 行"继承"来的（`currency` 本
 
 ## 8. 还没做的域
 
-按 [`TABLE_MIGRATION.md`](../sql/TABLE_MIGRATION.md) 的顺序，接下来还有：`data_capture_description`（Data Capture 域收尾，见 §5 明确没做部分）。Transactions/RATE 已完成，见 §12；Bank Process 已完成，见 §13（含跳过数据清单 [`SKIPPED_DATA_TRANSACTIONS_BANKPROCESS.md`](SKIPPED_DATA_TRANSACTIONS_BANKPROCESS.md)）。
+按 [`TABLE_MIGRATION.md`](../../sql/TABLE_MIGRATION.md) 的顺序，接下来还有：`data_capture_description`（Data Capture 域收尾，见 §5 明确没做部分）。Transactions/RATE 已完成，见 §12；Bank Process 已完成，见 §13（含跳过数据清单 [`SKIPPED_DATA_TRANSACTIONS_BANKPROCESS.md`](SKIPPED_DATA_TRANSACTIONS_BANKPROCESS.md)）。
 
 ---
 
@@ -345,7 +345,7 @@ tenant 归属是通过它引用的 `currency` 行"继承"来的（`currency` 本
 
 `tenant_feature_module` 表（每个 tenant 属于 GAME 还是 BANK 业务模块，参见 `schema.sql`）**从头到尾没有被任何一个迁移脚本覆盖**——本文档 §1-§9 列出的所有域都没提到它。迁移跑完后这张表是空的（`SELECT COUNT(*) FROM tenant_feature_module` = 0）。
 
-这张表直接决定 `hasGame`/`hasBank`（[`PermissionServiceImpl`](../../java/com/eazycount/service/impl/PermissionServiceImpl.java)，从 `TenantDao.findActiveFeatureModulesByTenantId` 查出来），而 `SessionUser.buildMenu`（[`SessionUser.java`](../../java/com/eazycount/security/SessionUser.java)）里 `dataCapture` 这一项的显示条件是 `keys.contains("datacapture") && (hasGame || hasBank || isGroupLogin)`——表是空的，`hasGame`/`hasBank` 恒为 `false`，所以哪怕角色权限里确实有 `DATACAPTURE`，这个入口也永远不显示。Maintenance 下的三个子菜单同理依赖同一个 `hasGame`/`hasBank` 判断。跟 §2 提到的"per-user 权限不迁"是两个独立问题——那个是故意的产品决定，这个是纯粹的遗漏。
+这张表直接决定 `hasGame`/`hasBank`（[`PermissionServiceImpl`](../../../java/com/eazycount/service/impl/PermissionServiceImpl.java)，从 `TenantDao.findActiveFeatureModulesByTenantId` 查出来），而 `SessionUser.buildMenu`（[`SessionUser.java`](../../../java/com/eazycount/security/SessionUser.java)）里 `dataCapture` 这一项的显示条件是 `keys.contains("datacapture") && (hasGame || hasBank || isGroupLogin)`——表是空的，`hasGame`/`hasBank` 恒为 `false`，所以哪怕角色权限里确实有 `DATACAPTURE`，这个入口也永远不显示。Maintenance 下的三个子菜单同理依赖同一个 `hasGame`/`hasBank` 判断。跟 §2 提到的"per-user 权限不迁"是两个独立问题——那个是故意的产品决定，这个是纯粹的遗漏。
 
 ### 数据来源 & 修复
 
@@ -355,7 +355,7 @@ tenant 归属是通过它引用的 `currency` 行"继承"来的（`currency` 本
 - `company.permissions` 含 `"Bank"` → `feature_module.id=2`（BANK）
 - GROUP 类型 tenant 统一按 GAME 处理（跟 `DomainServiceImpl.ensureDefaultGroupFeatureModule`/`PermissionServiceImpl` 里"group ledger 永远按 Games 身份处理"的既有约定保持一致，`groups.permissions` 里非 NULL 的值也确实全部是 `["Games"]`，两边互相印证）
 
-新增脚本 [`migrate_data_feature_module_from_legacy.sql`](migrate_data_feature_module_from_legacy.sql)，按 `tenant.code` 关联 `company.company_id`/`groups.group_code` 回填。已经在本地 `count_real` 跑过：迁移前 `tenant_feature_module` 0 行，跑完 28 行，正好等于 `tenant` 总行数（28 个 tenant 每个恰好 1 行），JK 名下的 `95`/`AG`/`C168`/`RS`/`VG` 都是 GAME、`CX` 是 BANK，跟旧库 `company.permissions` 一一对应。
+新增脚本 [`migrate_data_feature_module_from_legacy.sql`](../legacy_full_migration/migrate_data_feature_module_from_legacy.sql)，按 `tenant.code` 关联 `company.company_id`/`groups.group_code` 回填。已经在本地 `count_real` 跑过：迁移前 `tenant_feature_module` 0 行，跑完 28 行，正好等于 `tenant` 总行数（28 个 tenant 每个恰好 1 行），JK 名下的 `95`/`AG`/`C168`/`RS`/`VG` 都是 GAME、`CX` 是 BANK，跟旧库 `company.permissions` 一一对应。
 
 **这个信息是在登录/切换 tenant 时算进 session（JWT）里的，不是每次请求实时查库**（见 `AuthServiceImpl.switchSessionTenant`/`SessionUser.from`），所以补完数据后，已经登录的账号需要重新登录一次或切换一次 tenant，侧边栏才会刷新。
 
@@ -375,13 +375,13 @@ tenant 归属是通过它引用的 `currency` 行"继承"来的（`currency` 本
 
 `data_capture_draft_cell.col_index` 在新版后端里的约定是 **1-based**——`DataCaptureServiceImpl.normalizeCells`/`extractCellsFromTableData` 两处都把 `colIndex < 1` 当无效值直接丢弃，前端表格列头也是从 "1" 开始编号，即 UI 上的列 "1" 对应 `col_index=1`。
 
-[`migrate_data_datacapture_draft_from_legacy.sql`](migrate_data_datacapture_draft_from_legacy.sql) 最初的版本按旧 JSON 里 `cidx.i`（0..20 的固定展开范围）**原样**存成 `col_index`，也就是 0-based——旧 JSON 数组里第一个 "data" 类型元素（对应 UI 列 "1"，比如 `KAIYUAN`）被存成了 `col_index=0`。这个值本身在数据库里是对的（没丢数据），但只要经过 `getBankDraft` 返回给前端，前端按"列头从 1 开始"的约定去匹配，`col_index=0` 的那一格找不到对应列头，直接被忽略掉；`col_index=1`（原本对应 UI 列 "2"，比如 `3000`）就顶替显示到列头 "1" 下面，造成"整体左移一格、行标签消失"的现象。
+[`migrate_data_datacapture_draft_from_legacy.sql`](../legacy_full_migration/migrate_data_datacapture_draft_from_legacy.sql) 最初的版本按旧 JSON 里 `cidx.i`（0..20 的固定展开范围）**原样**存成 `col_index`，也就是 0-based——旧 JSON 数组里第一个 "data" 类型元素（对应 UI 列 "1"，比如 `KAIYUAN`）被存成了 `col_index=0`。这个值本身在数据库里是对的（没丢数据），但只要经过 `getBankDraft` 返回给前端，前端按"列头从 1 开始"的约定去匹配，`col_index=0` 的那一格找不到对应列头，直接被忽略掉；`col_index=1`（原本对应 UI 列 "2"，比如 `3000`）就顶替显示到列头 "1" 下面，造成"整体左移一格、行标签消失"的现象。
 
 抽查全部 8 条已成功解析的迁移草稿（`draft_id` 1/17/23/26/28/30/39/53），`col_index` 全部是从 0 开始的，确认是这个脚本的系统性 bug，不是个例。
 
 ### 修复
 
-- **迁移脚本**：[`migrate_data_datacapture_draft_from_legacy.sql`](migrate_data_datacapture_draft_from_legacy.sql) 里 `data_capture_draft_cell` 那段 INSERT 的 `col_index` 已经从 `cidx.i` 改成 `cidx.i + 1`，往后对着一个全新空库重新跑这个脚本会直接得到正确的 1-based 值，不需要额外补救。
+- **迁移脚本**：[`migrate_data_datacapture_draft_from_legacy.sql`](../legacy_full_migration/migrate_data_datacapture_draft_from_legacy.sql) 里 `data_capture_draft_cell` 那段 INSERT 的 `col_index` 已经从 `cidx.i` 改成 `cidx.i + 1`，往后对着一个全新空库重新跑这个脚本会直接得到正确的 1-based 值，不需要额外补救。
 - **已经跑过迁移、库里已有数据的情况**（这次本地 `count_real` 就是这种情况）：脚本改了不会回头修正已经插入的旧行，需要对现有数据做一次性订正：
   ```sql
   UPDATE data_capture_draft_cell SET col_index = col_index + 1;
@@ -396,7 +396,7 @@ tenant 归属是通过它引用的 `currency` 行"继承"来的（`currency` 本
 
 ## 12. Transactions / RATE 域（`migrate_data_transactions_from_legacy.sql`）
 
-依赖第 2、3 节的结果（`tenant`/`owner`/`user`/`account`/`currency` 已经迁完）。覆盖旧库 `transactions`、`transactions_rate`、`transactions_deleted`；`transaction_entry`/`transactions_rate_details` 按 [`TABLE_MIGRATION.md`](../sql/TABLE_MIGRATION.md) §2.6 是冗余的旧版双分录明细表，不迁——但 `transactions_rate_details` 在脚本里被当**只读桥表**用来找出 RATE 的两条腿分别是哪两行 `transactions`，本身内容不落库。
+依赖第 2、3 节的结果（`tenant`/`owner`/`user`/`account`/`currency` 已经迁完）。覆盖旧库 `transactions`、`transactions_rate`、`transactions_deleted`；`transaction_entry`/`transactions_rate_details` 按 [`TABLE_MIGRATION.md`](../../sql/TABLE_MIGRATION.md) §2.6 是冗余的旧版双分录明细表，不迁——但 `transactions_rate_details` 在脚本里被当**只读桥表**用来找出 RATE 的两条腿分别是哪两行 `transactions`，本身内容不落库。
 
 ### 关于合并掉的 7 个 process id 的排查结论
 
@@ -519,7 +519,7 @@ tenant 归属是通过它引用的 `currency` 行"继承"来的（`currency` 本
 | └ SKIPPED | 71 |
 | transactions.bank_process_posted_id 回填 | 494 行（509 条带 `source_bank_process_id` 的 transactions 里，494 条能对回一条有效的 POSTED 记录，其余 15 条对应的 posted 记录本身也是孤儿，回填不了） |
 
-脚本：[migrate_data_bank_process_accounting_due_from_legacy.sql](migrate_data_bank_process_accounting_due_from_legacy.sql)。至此 Bank Process 域全部完成，Transactions/RATE（§12）+ Bank Process（§13）两个之前排在优先级最前的域都已经迁完。
+脚本：[migrate_data_bank_process_accounting_due_from_legacy.sql](../legacy_full_migration/migrate_data_bank_process_accounting_due_from_legacy.sql)。至此 Bank Process 域全部完成，Transactions/RATE（§12）+ Bank Process（§13）两个之前排在优先级最前的域都已经迁完。
 
 ---
 
@@ -545,7 +545,7 @@ tenant 归属是通过它引用的 `currency` 行"继承"来的（`currency` 本
 
 ### 处理
 
-新增脚本 [fix_bank_process_resend_skipped_due_gaps.sql](fix_bank_process_resend_skipped_due_gaps.sql)，给 `bank_process_id=189` 补了 3 条 SKIPPED 记录：
+新增脚本 [fix_bank_process_resend_skipped_due_gaps.sql](../fixes/fix_bank_process_resend_skipped_due_gaps.sql)，给 `bank_process_id=189` 补了 3 条 SKIPPED 记录：
 
 | posted_date | period_type | outcome |
 |---|---|---|
@@ -622,7 +622,7 @@ BC009 (BILLION PAY SGD) 账户的 Payment History 里，一条 "RATE CHARGE (X0.
 
 ### 处理
 
-新增脚本 [fix_rate_charge_self_referencing_from_account.sql](fix_rate_charge_self_referencing_from_account.sql)。排查全库后确认这类自引用 RATE 记录一共 **22 条**，按"同 tenant + 同一天的 RATE 头"匹配对应的 `transactions_rate.middleman_account_id`，金额最接近的那个头视为匹配（同一天同一 tenant 可能有多笔 RATE 提交，用金额打破平局）：
+新增脚本 [fix_rate_charge_self_referencing_from_account.sql](../fixes/fix_rate_charge_self_referencing_from_account.sql)。排查全库后确认这类自引用 RATE 记录一共 **22 条**，按"同 tenant + 同一天的 RATE 头"匹配对应的 `transactions_rate.middleman_account_id`，金额最接近的那个头视为匹配（同一天同一 tenant 可能有多笔 RATE 提交，用金额打破平局）：
 
 - **21 条**成功匹配并回填（19 条金额完全对得上；1 条有极小的小数点误差，唯一候选，安全；1 条金额对不上但当天当 tenant 只有这一个候选头，按排除法也是唯一解）
 - **1 条**（id=2917，tenant 95，2026-03-16，108.84）在 `transactions_rate`、`transactions_rate_details`、`transaction_entry` 三张表里都找不到任何线索，无法恢复，保持自引用原状，没有编造数据
@@ -724,7 +724,7 @@ BC009 (BILLION PAY SGD) 账户的 Payment History 里，一条 "RATE CHARGE (X0.
 
 ### 处理
 
-新增脚本 [migrate_data_capture_line_transactions_backfill.sql](migrate_data_capture_line_transactions_backfill.sql)。字段映射完全照抄现在系统自己提交新数据时的规则（`DataCaptureSummaryServiceImpl.toTransaction()`/`toLineEntity()`），保证补出来的记录跟真实提交的长得一模一样：
+新增脚本 [migrate_data_capture_line_transactions_backfill.sql](../fixes/migrate_data_capture_line_transactions_backfill.sql)。字段映射完全照抄现在系统自己提交新数据时的规则（`DataCaptureSummaryServiceImpl.toTransaction()`/`toLineEntity()`），保证补出来的记录跟真实提交的长得一模一样：
 
 | 字段 | 取值 |
 |---|---|
@@ -790,7 +790,7 @@ BC009 (BILLION PAY SGD) 账户的 Payment History 里，一条 "RATE CHARGE (X0.
 
 抽查了 `user_id=284`（在 CX 公司）：旧库 JSON 里 38 个账号，新库落地 37 条（1 条指向的账号已经不存在，跳过），跟预期完全对上。
 
-脚本：[migrate_data_user_acl_from_legacy.sql](migrate_data_user_acl_from_legacy.sql)。
+脚本：[migrate_data_user_acl_from_legacy.sql](../legacy_full_migration/migrate_data_user_acl_from_legacy.sql)。
 
 ---
 
@@ -807,7 +807,7 @@ BC009 (BILLION PAY SGD) 账户的 Payment History 里，一条 "RATE CHARGE (X0.
 - 对应的 `tenant_auto_renew` 记录也在（`id=3`，AJ 公司，approved），通过 `(tenant_id, expiration_snapshot)` 这个唯一键能精确对上
 - 全库搜索 `description LIKE '%Renew AJ%'` 确认这笔续费只有这一条交易（旧系统一个申请只记一条流水，不是新版 `chargeDomainFee` 那种一次审批出付款/佣金/利润好几条腿的模式，所以这次只补 1 行是符合预期的，不是漏抓）
 
-脚本：[fix_tenant_auto_renew_transaction_backfill.sql](fix_tenant_auto_renew_transaction_backfill.sql)（`NOT EXISTS` 幂等保护，可安全重跑）。
+脚本：[fix_tenant_auto_renew_transaction_backfill.sql](../fixes/fix_tenant_auto_renew_transaction_backfill.sql)（`NOT EXISTS` 幂等保护，可安全重跑）。
 
 **执行结果**：插入 1 行（`request_id=3` ↔ `transaction_id=17044`）。已核对该行落库正确。
 
@@ -825,7 +825,7 @@ BC009 (BILLION PAY SGD) 账户的 Payment History 里，一条 "RATE CHARGE (X0.
 
 （`LOL` 是 legacy `groups.id=18`，是构成 `count_real.tenant` 28 行里 5 个 GROUP 之一的真实集团，不是悬空引用。）
 
-脚本：[fix_user_group_map_backfill.sql](fix_user_group_map_backfill.sql)。`account_acl_mode`/`process_acl_mode` 按 §2 同样的约定给默认值 `ALL`（`user_group_map` 本身不带任何 ACL 细节可还原，跟 §2 当时"迁移出来的 `user_tenant_access` 统一 ALL"的处理方式一致）。`NOT EXISTS` 幂等保护，可安全重跑。
+脚本：[fix_user_group_map_backfill.sql](../fixes/fix_user_group_map_backfill.sql)。`account_acl_mode`/`process_acl_mode` 按 §2 同样的约定给默认值 `ALL`（`user_group_map` 本身不带任何 ACL 细节可还原，跟 §2 当时"迁移出来的 `user_tenant_access` 统一 ALL"的处理方式一致）。`NOT EXISTS` 幂等保护，可安全重跑。
 
 **执行结果**：插入 3 行。已核对：532 现在能进 LOL；533 在原有 BK1（`CUSTOM`/`NONE`）之外新增了 LOL（`ALL`/`ALL`）；534 在原有 RS（`CUSTOM`/`CUSTOM`）之外新增了 IG（`ALL`/`ALL`）——原有行的 ACL 设置没有被覆盖，纯新增。
 
@@ -886,7 +886,7 @@ sms/remark  = "[AUTO_RENEW|COMMISSION|AJ|2026-08-05|ROLE:SALES|AID:4844]"
 
 也就是说旧版把这一整行的"产品名"和"描述文案"**都不认存库的 `description`**，全部靠 `remark` 里那个 `[AUTO_RENEW|COMMISSION|来源|日期|ROLE:角色|AID:账号]` 标签现算——这也解释了描述文案的第三处差异：旧版显示 `SALES COMMISSION FROM AJ`（角色 + "Commission From" + 来源公司，重新拼的），新版显示的是存库原文 `Sales Commision for AJ`（连拼写错误"Commision"都原样带出来了，介词也是 "for" 不是 "From"）——两个问题同源：新版既没有走"从 remark 重建文本"这条路径，也没有走 §21.4 的"按视角改写方向词"那条路径（这一行不匹配 `^(TYPE) (FROM|TO) (.+)$` 那个正则，因为它本来就不是标准 `"{TYPE} {FROM|TO} {账号}"` 格式，是自由文本）。
 
-新版 `resolveDomainHistoryProduct()`/`domainProductFromDescription()`（[TransactionHistoryServiceImpl.java:391-434](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)）目前只会拿存库 `description` 做字符串匹配兜底，其中还有个小 bug：第 405 行判断 `d.contains("COMMISSION")`（两个 S，拼写正确）——但这批数据实际存的是旧版一直沿用的错别字 `"COMMISION"`（一个 S），转大写后是 `"SALES COMMISION FOR AJ"`，压根不会命中这个 `contains("COMMISSION")` 判断，直接落空返回 `""`，前端显示 `-`。即使把这个拼写改成兼容两种写法，也只能治标——**真正要对齐旧版，需要照抄 `historyResolveDomainShareRoleLabel`/`historyResolveAutoRenewCommissionSourceCompany` 那套"从 remark 标签重建产品名和描述"的逻辑，而不是猜字符串**。
+新版 `resolveDomainHistoryProduct()`/`domainProductFromDescription()`（[TransactionHistoryServiceImpl.java:391-434](../../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)）目前只会拿存库 `description` 做字符串匹配兜底，其中还有个小 bug：第 405 行判断 `d.contains("COMMISSION")`（两个 S，拼写正确）——但这批数据实际存的是旧版一直沿用的错别字 `"COMMISION"`（一个 S），转大写后是 `"SALES COMMISION FOR AJ"`，压根不会命中这个 `contains("COMMISSION")` 判断，直接落空返回 `""`，前端显示 `-`。即使把这个拼写改成兼容两种写法，也只能治标——**真正要对齐旧版，需要照抄 `historyResolveDomainShareRoleLabel`/`historyResolveAutoRenewCommissionSourceCompany` 那套"从 remark 标签重建产品名和描述"的逻辑，而不是猜字符串**。
 
 **影响范围**：所有 `[AUTO_RENEW|COMMISSION|...]`（自动续费佣金分成）和 `[DOMAIN_SHARE_COMMISSION|...]`（股权分成佣金）标记的交易——CR/DR 符号、ID PRODUCT、描述文案三处同时受影响，不只是 K 这一个账户。
 
@@ -953,7 +953,7 @@ AG 是这两笔 CONTRA 的 `from_account_id`，按上面第二条规则应该被
 
 ### 22.1 根因：不是显示层缺例外，是新旧两版的写入方向本来就反了
 
-直接读 [`DomainFeeChargeServiceImpl.java`](../../java/com/eazycount/service/impl/DomainFeeChargeServiceImpl.java) 的 `chargeDomainFee()`：
+直接读 [`DomainFeeChargeServiceImpl.java`](../../../java/com/eazycount/service/impl/DomainFeeChargeServiceImpl.java) 的 `chargeDomainFee()`：
 - Pay Domain Fee 行（139-140 行）：`buildPaymentLine(c168TenantId, payerAccountId, profitAccountId, ...)` → `account_id` = 付款方，`from_account_id` = C168
 - Commission 行（165 行）：`buildPaymentLine(c168TenantId, profitAccountId, row.getAccountId(), ...)` → `account_id` = C168，`from_account_id` = 收佣金的人
 - Net Profit 行（176 行）：`buildPaymentLine(c168TenantId, profitAccountId, profitAccountId, ...)` → `account_id`=`from_account_id`=C168 自己（自引用）
@@ -998,11 +998,11 @@ WHERE ...;
 
 用一次性修复脚本（未留档，属于当场手工订正，逻辑等价于：Fee 行 `SET from_account_id=4837 WHERE account_id=from_account_id`；Commission 行 `SET from_account_id = CAST(REPLACE(REGEXP_SUBSTR(remark,'AID:[0-9]+'),'AID:','') AS UNSIGNED) WHERE account_id=from_account_id`）把这 55 条修复回正确状态，修复后逐条核对了全部 55 条（AG/K 两个已知例子 + 全量列表跟 §22.2 的清单一一核对），确认跟预期完全一致。
 
-**已经把 [fix_domain_fee_commission_account_direction_swap.sql](fix_domain_fee_commission_account_direction_swap.sql) 改成了安全写法**（`UPDATE ... JOIN (SELECT ... 快照子查询) src ON ... SET t.col = src.col`，SET 读的是子查询快照而不是同一张表正在被改的行，不会再复现这个问题），脚本文件顶部加了醒目的坑位说明，避免以后有人照着最初那个直觉写法重写一遍。
+**已经把 [fix_domain_fee_commission_account_direction_swap.sql](../fixes/fix_domain_fee_commission_account_direction_swap.sql) 改成了安全写法**（`UPDATE ... JOIN (SELECT ... 快照子查询) src ON ... SET t.col = src.col`，SET 读的是子查询快照而不是同一张表正在被改的行，不会再复现这个问题），脚本文件顶部加了醒目的坑位说明，避免以后有人照着最初那个直觉写法重写一遍。
 
 ### 22.4 执行结果
 
-三个脚本（[fix_domain_fee_commission_account_direction_swap.sql](fix_domain_fee_commission_account_direction_swap.sql) 修复后的安全版本 + [fix_domain_net_profit_self_reference.sql](fix_domain_net_profit_self_reference.sql)）全部执行完毕并核对通过：
+三个脚本（[fix_domain_fee_commission_account_direction_swap.sql](../fixes/fix_domain_fee_commission_account_direction_swap.sql) 修复后的安全版本 + [fix_domain_net_profit_self_reference.sql](../fixes/fix_domain_net_profit_self_reference.sql)）全部执行完毕并核对通过：
 
 | 类别 | 条数 | 执行后状态 |
 |---|---|---|
@@ -1029,7 +1029,7 @@ WHERE ...;
 
 **排查中顺带发现的一个旧库自身的 bug**：40 条 `DOMAIN_SHARE_COMMISSION`（不含 4 条 `AUTO_RENEW|COMMISSION`）的 `description` 全部硬编码写死成 `"... Commision for K"`——不管实际付费公司是 MAC999/TZX/WSMT/95/AG/RS/WCC/BP17/X17/23/UG 哪一个，文案里的公司代码永远是 `K`（K 是旧版后台处理这类分成的操作账号，不是付费公司）。真正的付费公司代码只留在 `remark` 标签里（比如 `[DOMAIN_SHARE_COMMISSION|AG|ROLE:SALES|AID:4841]` 里的 `AG`），所以订正描述文案时，是先从即将清空的 `remark` 里把 `ROLE:` 和付费公司代码取出来拼成新文案，再清空 `remark`，不是直接拿旧 `description` 改字。
 
-**脚本**：[fix_domain_fee_commission_description_normalize.sql](fix_domain_fee_commission_description_normalize.sql)。范围：
+**脚本**：[fix_domain_fee_commission_description_normalize.sql](../fixes/fix_domain_fee_commission_description_normalize.sql)。范围：
 - 44 条 Commission：`description` 重建成 `{ROLE} COMMISSION FROM {payer}`（如 `SALES COMMISSION FROM AJ`），`remark` 清空
 - 9 条 Net Profit：`description` 重建成 `NET PROFIT FROM {payer}`（如 `NET PROFIT FROM AJ`），`remark` 清空
 - 11 条 Fee（10 条 `DOMAIN_LIST_FEE` + 1 条 `AUTO_RENEW`）：`description` 不动——`DOMAIN_LIST_FEE` 那 10 条本来就是 `"Pay Domain Fee"`，转大写后跟 `domainProductFromDescription()` 的 `d.startsWith("PAY DOMAIN FEE")` 已经能匹配上，不需要改；`AUTO_RENEW` 那 1 条（`id=17044`，文案是 `"Renew AJ | 1 year"`）目前新版没有对应的写入路径可以照抄，先不编一个文案出来，只清空 `remark`，ID PRODUCT 会继续显示空白，留作已知的小缺口。这 11 条只清空 `remark`。
@@ -1093,7 +1093,7 @@ return upper.startsWith(typeToken + " FROM ") && upper.contains(" TO ");
 
 ### 23.3 修复
 
-脚本：[fix_manual_transfer_description_two_sided_format.sql](fix_manual_transfer_description_two_sided_format.sql)。用 `UPDATE ... JOIN (快照子查询)` 的安全写法（吸取 §22.3 那次事故的教训），把 `description` 重写成 `"{TYPE} FROM {付款方代码} TO {收款方代码}"`（代码来自 `account_id`/`from_account_id` 关联出的 `account.account_id`）——具体文字内容不影响正确性，因为一旦通过门槛判断，显示层会按查看账户重新拼一遍最终文案，这里只需要让它"看起来是双边格式"即可。
+脚本：[fix_manual_transfer_description_two_sided_format.sql](../fixes/fix_manual_transfer_description_two_sided_format.sql)。用 `UPDATE ... JOIN (快照子查询)` 的安全写法（吸取 §22.3 那次事故的教训），把 `description` 重写成 `"{TYPE} FROM {付款方代码} TO {收款方代码}"`（代码来自 `account_id`/`from_account_id` 关联出的 `account.account_id`）——具体文字内容不影响正确性，因为一旦通过门槛判断，显示层会按查看账户重新拼一遍最终文案，这里只需要让它"看起来是双边格式"即可。
 
 **执行结果**：一次性影响 10,567 条，全部成功，0.42 秒完成。执行后核对：全库不再有匹配"单边旧格式"条件的行；AG 那两笔 CONTRA（`id=14124`/`14126`）确认变成 `"CONTRA FROM AG TO EXPENSES"`；额外抽查了 78/81 租户的几条 `PAYMENT`/`CONTRA`/`CLEAR`，格式都正确。幂等（`description NOT LIKE '% TO %'` 这个门槛订正后自然不再匹配），可安全重跑。
 
@@ -1101,7 +1101,7 @@ return upper.startsWith(typeToken + " FROM ") && upper.contains(" TO ");
 
 ## 24. §21 清单的 Bug 2 + 附带的 B/F 日期问题：已改代码（不是数据订正）
 
-这两处是这次唯一的**应用层代码改动**（§22/§23 都是数据订正，没碰代码），改在 [`TransactionHistoryServiceImpl.java`](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)。
+这两处是这次唯一的**应用层代码改动**（§22/§23 都是数据订正，没碰代码），改在 [`TransactionHistoryServiceImpl.java`](../../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)。
 
 ### 24.1 Bug 2：History 合并排序改成按 `transaction_date`
 
@@ -1172,7 +1172,7 @@ WCC、VG 两家是 100%——这两家所有 Data Capture 记录 `id_product` �
 
 ### 25.3 修复：直接回填 DB，不改代码
 
-脚本：[fix_data_capture_line_id_product_backfill.sql](fix_data_capture_line_id_product_backfill.sql)。用跟旧版 `history_api.php` 读取侧一样的兜底规则回填：`product_type='SUB'` 且 `id_product_sub` 非空 → 用 `id_product_sub`；否则用 `id_product_main`。回填完之后，现有的 `TransactionHistoryServiceImpl`（`dcl.id_product AS idProduct`，读到空才兜底显示 `"DATA CAPTURE"`）不用改一行代码，自然就能读对。
+脚本：[fix_data_capture_line_id_product_backfill.sql](../fixes/fix_data_capture_line_id_product_backfill.sql)。用跟旧版 `history_api.php` 读取侧一样的兜底规则回填：`product_type='SUB'` 且 `id_product_sub` 非空 → 用 `id_product_sub`；否则用 `id_product_main`。回填完之后，现有的 `TransactionHistoryServiceImpl`（`dcl.id_product AS idProduct`，读到空才兜底显示 `"DATA CAPTURE"`）不用改一行代码，自然就能读对。
 
 **执行结果**：一次性影响 59,615 行，3.18 秒完成。执行后核对：全库不再有 `id_product` 为空的行；AG 已知的几条（`transaction_id=42741/42743/51354/51356/66324/66326`）确认变成 `"HONG MING SOON"`/`"LEW ZHEN CHENG"`，跟 `id_product_main` 一致；按公司逐一核对空值数也全部归零。幂等（`id_product IS NULL OR id_product=''` 这个门槛回填后自然不再匹配），可安全重跑。
 
@@ -1189,7 +1189,7 @@ WCC、VG 两家是 100%——这两家所有 Data Capture 记录 `id_product` �
 - 新版 `DomainFeeChargeServiceImpl.chargeDomainFee()` 是**唯一**的扣费入口，不管是普通域名费还是续费触发的扣费，写的都是同一个字面量 `"PAY DOMAIN FEE"`（第 143-144 行）——新版压根不区分"域名费"和"续费扣费"这两种场景，不存在"没有对应代码路径"这回事。
 - 旧版这边独立地也走到了同一个结论：`history_api.php` 判断"是不是域名费类交易"时，`historyIsAutoRenewFeeSms()` 本来就会让 `[AUTO_RENEW|...]` 标签命中跟 `[DOMAIN_LIST_FEE|...]` 同一条 `isDomainListFee` 分支，命中后不管原始 `description` 是什么，一律强制显示成 `"Pay Domain Fee"`——这正是用户截图里旧版显示 `"PAY DOMAIN FEE"` 的原因，尽管这条底层存的原文其实是 `"Renew AJ | 1 year"`。
 
-**处理**：`id=17044` 的 `description` 订正成 `"PAY DOMAIN FEE"`，跟另外 10 条 Fee 行一致——现有的 `domainProductFromDescription()` 会命中 `d.startsWith("PAY DOMAIN FEE")`，ID PRODUCT 显示 `PAYMENT`，不用改代码。[fix_domain_fee_commission_description_normalize.sql](fix_domain_fee_commission_description_normalize.sql) 补了第 4 条语句覆盖这条（幂等，`WHERE description='Renew AJ | 1 year'` 保证只影响还没修的状态），同时更新了脚本顶部的说明，去掉了之前"这条先不处理"的过时结论。
+**处理**：`id=17044` 的 `description` 订正成 `"PAY DOMAIN FEE"`，跟另外 10 条 Fee 行一致——现有的 `domainProductFromDescription()` 会命中 `d.startsWith("PAY DOMAIN FEE")`，ID PRODUCT 显示 `PAYMENT`，不用改代码。[fix_domain_fee_commission_description_normalize.sql](../fixes/fix_domain_fee_commission_description_normalize.sql) 补了第 4 条语句覆盖这条（幂等，`WHERE description='Renew AJ | 1 year'` 保证只影响还没修的状态），同时更新了脚本顶部的说明，去掉了之前"这条先不处理"的过时结论。
 
 至此 domain fee 相关的 65 条（64 条 + 这条 `id=17044` 的补充修复）全部对齐新版格式。
 
@@ -1210,7 +1210,7 @@ SELECT id, code, owner_id FROM tenant WHERE code='C168';  -- id=77, owner_id=3
 SELECT id FROM owner ORDER BY id;                          -- 最小是 3，没有 1
 ```
 
-但 [DomainServiceImpl.java](../../java/com/eazycount/service/impl/DomainServiceImpl.java) 里 `createDomain`/`updateDomain`/`deleteAllTenants` 三处、以及 [DomainFeeChargeServiceImpl.java:98](../../java/com/eazycount/service/impl/DomainFeeChargeServiceImpl.java) 都写死了 `domainDao.findTenantByCodeAndOwnerId("C168", 1)`——这个 `1` 是早年在 `testcount` 手工测试库里 C168 恰好挂在 `owner_id=1` 下留下的硬编码假设，迁移到 `count_real` 后这个假设不成立，查询直接查不到行返回 `null`。`createDomain` 里对返回值没做判空就直接 `c168Tenant.getId()`，于是空指针；`DomainFeeChargeServiceImpl` 那处虽然判了空但因此永远抛 `BusinessException("C168 ledger tenant not found")`，功能上同样是坏的。
+但 [DomainServiceImpl.java](../../../java/com/eazycount/service/impl/DomainServiceImpl.java) 里 `createDomain`/`updateDomain`/`deleteAllTenants` 三处、以及 [DomainFeeChargeServiceImpl.java:98](../../../java/com/eazycount/service/impl/DomainFeeChargeServiceImpl.java) 都写死了 `domainDao.findTenantByCodeAndOwnerId("C168", 1)`——这个 `1` 是早年在 `testcount` 手工测试库里 C168 恰好挂在 `owner_id=1` 下留下的硬编码假设，迁移到 `count_real` 后这个假设不成立，查询直接查不到行返回 `null`。`createDomain` 里对返回值没做判空就直接 `c168Tenant.getId()`，于是空指针；`DomainFeeChargeServiceImpl` 那处虽然判了空但因此永远抛 `BusinessException("C168 ledger tenant not found")`，功能上同样是坏的。
 
 `AutoRenewServiceImpl.java:109` 早就用的是不依赖 owner 的 `tenantDao.findTenantByCode("C168")`（`TenantDao`/`TenantMapper.xml` 里现成的方法）——C168 在 `tenant` 表里本来就是全局唯一一行（不按 owner 区分），按 owner 过滤本身就是多余且错误的前提。
 
@@ -1242,7 +1242,7 @@ SELECT id FROM owner ORDER BY id;                          -- 最小是 3，没�
 
 新版 `chargeDomainFee()` 每次扣费只要利润 > 0 就**一定**会真实写入 Net Profit 记录（`DomainFeeChargeServiceImpl.java:175-178`），不存在"没写就现算"这种兜底机制——所以不是去新版代码里补一套"虚拟计算"逻辑，而是把这三条按新版自己的写入方式，当成真实数据回填进去，这样新版反而比旧版更完整、更一致。
 
-脚本：[fix_domain_net_profit_backfill_mac999_tzx_wsmt.sql](fix_domain_net_profit_backfill_mac999_tzx_wsmt.sql)。金额用旧版同一套算法（Fee 2400 − Commission 720 = 1680，跟其他公司的 Net Profit 金额规律完全一致）；`account_id`=`from_account_id`=4837（C168 自己，自引用，跟 §22 订正后其余 9 条 Net Profit 的形状一致）；`transaction_date`/`created_by`/`approved_by`/`created_at`/`approved_at` 沿用各自 Fee 批次里同一批次的值（`id=7269`/`7274`/`7279`），当成是在补完那次历史批次本来就该有的一步，不是编造成"现在"发生的。
+脚本：[fix_domain_net_profit_backfill_mac999_tzx_wsmt.sql](../fixes/fix_domain_net_profit_backfill_mac999_tzx_wsmt.sql)。金额用旧版同一套算法（Fee 2400 − Commission 720 = 1680，跟其他公司的 Net Profit 金额规律完全一致）；`account_id`=`from_account_id`=4837（C168 自己，自引用，跟 §22 订正后其余 9 条 Net Profit 的形状一致）；`transaction_date`/`created_by`/`approved_by`/`created_at`/`approved_at` 沿用各自 Fee 批次里同一批次的值（`id=7269`/`7274`/`7279`），当成是在补完那次历史批次本来就该有的一步，不是编造成"现在"发生的。
 
 **执行结果**：插入 3 条（`id=93762/93763/93764`），全部核对通过：
 - `NET PROFIT FROM MAC999`：1,680，日期 2026-04-22，`created_by=JACKSEE`（跟 MAC999 那笔 Fee 一致）
@@ -1285,7 +1285,7 @@ SELECT id FROM owner ORDER BY id;                          -- 最小是 3，没�
 
 ### 29.4 数据回填
 
-脚本：[fix_domain_fee_commission_profit_remark_backfill.sql](fix_domain_fee_commission_profit_remark_backfill.sql)。给现有 67 条记录（11 条 Fee + 44 条 Commission + 12 条 Net Profit，含 §28 新补的 3 条）按 `description` 当前的正确格式一次性回填对应的 `remark` 标记（幂等，`WHERE remark IS NULL` 保证只填还没打标记的）。
+脚本：[fix_domain_fee_commission_profit_remark_backfill.sql](../fixes/fix_domain_fee_commission_profit_remark_backfill.sql)。给现有 67 条记录（11 条 Fee + 44 条 Commission + 12 条 Net Profit，含 §28 新补的 3 条）按 `description` 当前的正确格式一次性回填对应的 `remark` 标记（幂等，`WHERE remark IS NULL` 保证只填还没打标记的）。
 
 **执行结果**：11/44/12 三批全部成功，回填后核对 `remark` 分布：`DOMAIN_FEE` 11、`DOMAIN_COMMISSION` 44、`DOMAIN_NET_PROFIT` 12，其余账户的正常空 `remark`/真实备注（比如 JK 那笔 `DOMAIN FEE-COUNT168.COM` 手动备注）都没有被误伤。
 
@@ -1324,7 +1324,7 @@ AND bank_process_posted_id IS NULL
 AND NOT EXISTS (SELECT 1 FROM data_capture_line dcl WHERE dcl.transaction_id = t.id)
 ```
 
-用 [`ManualProfitTypeReclassifyTool.java`](ManualProfitTypeReclassifyTool.java) 把这 80 条的 `transaction_type`
+用 [`ManualProfitTypeReclassifyTool.java`](../tools/ManualProfitTypeReclassifyTool.java) 把这 80 条的 `transaction_type`
 改成 `PROFIT`（只改这一个字段——`description` 本来就是空的，`TransactionHistoryServiceImpl` 对空 description 的
 `PROFIT` 行本来就会在读时现算 `"PROFIT FROM {code}"`，不需要额外写回文案）。全库核对：`transaction_type='PROFIT'`
 从 0 条变成 80 条，`WIN/LOSE` 里带 `from_account_id` 的行从 80 条变成 0 条。
@@ -1342,7 +1342,7 @@ AND NOT EXISTS (SELECT 1 FROM data_capture_line dcl WHERE dcl.transaction_id = t
 根因：旧库 `data_captures`（批次头）和 `data_capture_details`（明细行）**各自有独立的 `currency_id`**，
 两者允许不同——批次头可能按某个游戏商的计价货币建（这批是 SGD），但具体某个账号那一行实际按**这个账号
 自己配置的货币**结算（这批是 MYR），`rate`/`rate_expression` 记录换算用的汇率。
-[`migrate_data_datacapture_from_legacy.sql`](migrate_data_datacapture_from_legacy.sql) 第 123 行给
+[`migrate_data_datacapture_from_legacy.sql`](../legacy_full_migration/migrate_data_datacapture_from_legacy.sql) 第 123 行给
 `data_capture_line.currency_id` 赋值时，误取了批次头的 `dc.currency_id`，而不是明细行自己的
 `dcd.currency_id`；`data_capture_formula` 那段迁移逻辑是对的，没受影响。这个错误货币又被 §18 的
 `migrate_data_capture_line_transactions_backfill.sql`（读 `data_capture_line.currency_id` 来定
@@ -1353,7 +1353,7 @@ Payment History 按查看账号自己配置的货币过滤（`account_currency`�
 
 全库核对 `data_capture_details.currency_id <> data_captures.currency_id`（合法的旧库业务场景，不是脏数据）
 命中 **2946 条**，全部在新库里被错误抄成了批次头的货币，覆盖 SGD/MYR/AUD/CNY/HKD/USD/PGK 等多种组合、
-多个 tenant。用 [`DataCaptureLineCurrencyFixTool.java`](DataCaptureLineCurrencyFixTool.java) 重建跟原迁移
+多个 tenant。用 [`DataCaptureLineCurrencyFixTool.java`](../tools/DataCaptureLineCurrencyFixTool.java) 重建跟原迁移
 脚本一致的货币去重映射，把这 2946 条 `data_capture_line.currency_id` 改回明细行自己的正确货币，并同步
 传导到关联的 `transactions.currency_id`。全库核对：`transactions.currency_id <> data_capture_line.currency_id`
 的关联行数从 2946 变成 0。
@@ -1407,7 +1407,7 @@ SELECT id, account_id FROM account WHERE BINARY account_id <> BINARY UPPER(accou
 `account_id` 原样输出、不额外包一层 `UPPER()`** 的地方才会露出这个大小写差异——这也是全库其它字段/查询
 从未受影响、"就这一个账号出问题"的原因。
 
-修复：[`AccountIdCaseFixTool.java`](AccountIdCaseFixTool.java)，一次性把这一条改成 `'JB-TIGER'`
+修复：[`AccountIdCaseFixTool.java`](../tools/AccountIdCaseFixTool.java)，一次性把这一条改成 `'JB-TIGER'`
 （`account_id` 只是显示用的业务码，关联全靠 `account.id` 数字主键，改这个字符串不影响任何外键关系）。
 执行结果：`non_uppercase_account_ids_before=1 updated=1`，回填后全库扫描确认 0 条残留。
 
@@ -1426,7 +1426,7 @@ RATE 记录"（`rate_group_id LIKE 'RATE_%'`）加了一条 SQL `CASE`，把 Cr/
 不做区分，一视同仁。当时的设计注释明确写着"不动 `account_id`/`from_account_id` 这两列本身，免得连带把
 FROM/TO 文案也带歪"。
 
-**修复二（后来，[fix_migrated_rate_leg_account_direction_swap.sql](fix_migrated_rate_leg_account_direction_swap.sql)）**：
+**修复二（后来，[fix_migrated_rate_leg_account_direction_swap.sql](../fixes/fix_migrated_rate_leg_account_direction_swap.sql)）**：
 改用完全不同的思路——直接把 `account_id`/`from_account_id` 两列物理对调，让"不做任何特殊处理的默认公式"
 自然算对。这次改动**用 `UNION` 把 `leg1_transaction_id` 和 `leg2_transaction_id` 合在一起，统一处理，
 没有区分两条腿**，覆盖全部 182 组、364 行。
@@ -1456,12 +1456,12 @@ FROM/TO 文案也带歪"。
 - **58 组**（含 23 组带中间人里的 20 组）：leg1/leg2 在旧库本来就不一样（比如一笔钱从同一个 From 账号
   分别付给两个不同的 To 账号），结构更复杂，不属于已验证的"重复模式"——**本次未处理**，留待逐组核对旧版
   真实显示后再修，且带中间人的组还要额外核对
-  [`mergeRateMiddlemanDeductionsIntoMainLeg`](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)
+  [`mergeRateMiddlemanDeductionsIntoMainLeg`](../../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)
   （靠 `fromAccountId == 查看账号` 找"该把中间人手续费并进哪条主记录"）会不会被换回原值的 leg1 误伤。
 
 ### 修复（已执行部分）
 
-[`RateLeg1DirectionRevertTool.java`](RateLeg1DirectionRevertTool.java)：只处理上述 124 组的 leg1（一组一条，
+[`RateLeg1DirectionRevertTool.java`](../tools/RateLeg1DirectionRevertTool.java)：只处理上述 124 组的 leg1（一组一条，
 共 124 行），把 `account_id`/`from_account_id` **改回旧库原始值**（不是靠公式反推，是直接读
 `c168_net_legacy_20260827.transactions` 里还留着的原始值）。leg2 不动，Java/mapper 代码都不用改（修复三
 删掉那条 SQL `CASE` 补丁的决定是对的，继续保留删除状态）。
@@ -1481,11 +1481,11 @@ XE→API-DS→KZ 这种三方场景），leg1 单独用旧库原始值 + 现有�
 推广到更大范围。
 
 据此把 58 组剩余的按"回填后 leg1 的 `from_account_id` 会不会跟 leg2 当前的 `from_account_id` 撞到一起"
-重新分类（撞车会让 [`mergeRateMiddlemanDeductionsIntoMainLeg`](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)
+重新分类（撞车会让 [`mergeRateMiddlemanDeductionsIntoMainLeg`](../../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)
 "哪条是该并入手续费的主记录"判断产生歧义）：
 
 - **30 组无撞车风险**（含用户报出的 3 组）——**本次已处理**，用
-  [`RateLeg1DirectionRevertPhase2Tool.java`](RateLeg1DirectionRevertPhase2Tool.java)，逻辑跟第一批完全
+  [`RateLeg1DirectionRevertPhase2Tool.java`](../tools/RateLeg1DirectionRevertPhase2Tool.java)，逻辑跟第一批完全
   一样（只读旧库原始值回填 leg1，不碰 leg2、不改代码）。执行结果：`in_scope_leg1_rows=30 updated=30`。
   回填后核对：全库范围内"leg1 未回填 且 不撞车"的记录数 = 0。抽查用户报的 3 组（txn 17969/3614/7735）
   逐一核对 `account_id`/`from_account_id` 均已改回旧库原始值。
@@ -1502,7 +1502,7 @@ XE→API-DS→KZ 这种三方场景），leg1 单独用旧库原始值 + 现有�
 往往涉及三个不同账号（比如 LOON 用 SGD 跟 XE 换汇，换回来的 MYR 却是从另一个第三方账号结算），部分还挂着
 一个叫"RATE"的中间人账号。
 
-**排查中间走了一段弯路**：写了一个只读稽核工具（[`RateComplexGroupsAuditTool.java`](RateComplexGroupsAuditTool.java)）
+**排查中间走了一段弯路**：写了一个只读稽核工具（[`RateComplexGroupsAuditTool.java`](../tools/RateComplexGroupsAuditTool.java)）
 对比"leg1/leg2 都用旧库原值、都不做任何对调"这个假设，发现这样算出来的 **FROM/TO 文案方向**跟"leg1 改
 回旧值、leg2 保持对调"这套已验证的规则会给出不一样的文案结果，一度怀疑连已经修完的 154 组 leg2 那一半
 也可能是错的，需要用户帮忙核对。
@@ -1516,7 +1516,7 @@ XE→API-DS→KZ 这种三方场景），leg1 单独用旧库原始值 + 现有�
 之前的怀疑是虚惊一场。
 
 **结论**：剩余 28 组照搬同一套规则处理即可，不需要特殊对待。用
-[`RateLeg1DirectionRevertPhase3Tool.java`](RateLeg1DirectionRevertPhase3Tool.java) 把这 28 条 leg1 也改回
+[`RateLeg1DirectionRevertPhase3Tool.java`](../tools/RateLeg1DirectionRevertPhase3Tool.java) 把这 28 条 leg1 也改回
 旧库原始值，leg2 不动。执行结果：`in_scope_leg1_rows=28 (with_middleman=18) updated=28`。
 
 **中间人合并逻辑的顾虑已排除**：担心 leg1 改回去后会跟 leg2 共享同一个 `from_account_id`，可能让
@@ -1562,7 +1562,7 @@ null`），结果：走 Cr/Dr 列显示负数、ID Product 显示"Fee"、描述�
 用描述文字里 `from {币种} {金额}` 反查 `transactions_rate`（按 tenant + 币种 + `amount_from` + leg1 交易
 日期精确匹配）：全库 **47 条**"Rate charge"格式的孤儿记录，**47/47 精确匹配到唯一一个 RATE 分组**，零歧义
 零漏配（用
-[`RateChargeOrphanBackfillTool.java`](RateChargeOrphanBackfillTool.java) 回填 `rate_group_id`，
+[`RateChargeOrphanBackfillTool.java`](../tools/RateChargeOrphanBackfillTool.java) 回填 `rate_group_id`，
 `total=47 matched=47`）。
 
 回填后按 `rate_group_id` 分组核对这 47 条能不能两两配对成"中间人一条 + 对手方一条"：
@@ -1582,7 +1582,7 @@ null`），结果：走 Cr/Dr 列显示负数、ID Product 显示"Fee"、描述�
 
 ### 修复
 
-[`RateChargeOrphanReshapeTool.java`](RateChargeOrphanReshapeTool.java)：对这 22 组，把对手方那条记录的
+[`RateChargeOrphanReshapeTool.java`](../tools/RateChargeOrphanReshapeTool.java)：对这 22 组，把对手方那条记录的
 `from_account_id` 改成中间人账号 id（改造成跟新版提交数据完全一样的形状），然后**删除**中间人账号自己那条
 现在多余的重复记录（留着会导致中间人视角的金额翻倍）。全程不改任何 mapper/Java 代码——一旦记录形状跟新版
 一致，现有查询逻辑（`aggregateManualRateMiddlemanCrDr`/`aggregateManualRateMiddlemanWinLoss`/
@@ -1615,7 +1615,7 @@ null`），结果：走 Cr/Dr 列显示负数、ID Product 显示"Fee"、描述�
 §35 核对旧数据时确认了"中间人手续费的真实扣款对象是 leg2 的 To 账号"这条规律（三组样本精确核对，`UP028`/
 `CASH B`/`AG110` 分别都对上各自分组 leg2 的 `account_id`，跟 `from_account_id` 完全不沾边）。用户据此追问
 现在 Spring Boot 新版提交新的 RATE 交易时是不是也这样写——查证发现**不是**：
-[`TransactionSubmitServiceImpl.java`](../../java/com/eazycount/service/impl/TransactionSubmitServiceImpl.java)
+[`TransactionSubmitServiceImpl.java`](../../../java/com/eazycount/service/impl/TransactionSubmitServiceImpl.java)
 的 `submitRate()` 给 Rate-Mul/Service Fee/Platform Fee 这三笔中间人扣费记录写的 `account_id` 用的是
 `leg2.fromAccountId()`——用旧数据反过来验证的规律看，这个方向反了，应该是 `leg2.toAccountId()`。
 
@@ -1631,7 +1631,7 @@ Service Fee、Platform Fee）全部改成 `leg2.toAccountId()`；`leg2Txn` 本�
 
 ### 附带影响：`mergeRateMiddlemanDeductionsIntoMainLeg` 对新数据不再触发，但不算回归
 
-[`TransactionHistoryServiceImpl.java`](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)
+[`TransactionHistoryServiceImpl.java`](../../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)
 里 `mergeRateMiddlemanDeductionsIntoMainLeg()` 是在"付款方查看自己账本"时，把中间人手续费的影响**合并进
 leg2 主记录的 Cr/Dr**、不单独显示一行——这套合并逻辑是照着"手续费记在 leg2 From 账号"这个（现已确认是
 错的）假设写的：靠 `line.getFromAccountId() == 查看账号` 找主记录、`line.getToAccountId() == 查看账号`
@@ -1683,8 +1683,8 @@ AG110，经核对精确等于 leg2 的 **To** 账号），跟现在 `submitRate(
 - [`TransactionHistoryMapper.xml`](../../mybatis/TransactionHistoryMapper.xml) 的 `findDomainPaymentHistoryLines`
   新增 `LEFT JOIN transactions leg2_t / LEFT JOIN account leg2_to`，查出 leg2 自己的收款方账号，新增字段
   `rateLeg2ToAccountCode`
-- [`TransactionHistoryLineRow.java`](../../java/com/eazycount/dto/TransactionHistoryLineRow.java) 新增对应字段
-- [`TransactionHistoryServiceImpl.java`](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)
+- [`TransactionHistoryLineRow.java`](../../../java/com/eazycount/dto/TransactionHistoryLineRow.java) 新增对应字段
+- [`TransactionHistoryServiceImpl.java`](../../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)
   的 `formatRateMiddlemanMarkupDescription()` 取值来源从 `rateLeg1ToAccountCode` 换成 `rateLeg2ToAccountCode`
 
 **验证**：拿用户最新一次实测数据核对（txn 151377，A1/A2/BOSS 那组），`rateLeg1ToAccountCode=A1`、

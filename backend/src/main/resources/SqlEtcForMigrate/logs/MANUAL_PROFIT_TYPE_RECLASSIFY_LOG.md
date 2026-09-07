@@ -35,18 +35,18 @@
 
 - `transaction_type IN ('WIN','LOSE')` + `bank_process_posted_id IS NULL` → 当成 **Data Capture** 行，
   `LEFT JOIN data_capture_line` 取 `idProduct`；查不到时兜底显示 `"DATA CAPTURE"`
-  （[`TransactionHistoryServiceImpl.java:333`](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)）。
+  （[`TransactionHistoryServiceImpl.java:333`](../../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)）。
   **这是符合设计的**——"Data Capture Summary Submit"功能本身产出的 WIN/LOSE 行就应该显示 `DATA CAPTURE`
   （见 `docs/frontend-springboot-migration.md` 第 5515-5517 行），不是这次要修的问题。
 - `transaction_type = 'PROFIT'` → 当成**手动 Profit 转账**行，ID PRODUCT 固定显示 `PROFIT`
-  （[`TransactionHistoryServiceImpl.java:325-326`](../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)），
+  （[`TransactionHistoryServiceImpl.java:325-326`](../../../java/com/eazycount/service/impl/TransactionHistoryServiceImpl.java)），
   description 为空时按 `PROFIT FROM {收款方}` / `PROFIT TO {付款方}` 现算
   （`applyManualTransferHistoryPresentation`/`shouldRewriteManualTransferHistoryDescription`），
   Win/Loss 金额符号按"当前查看的账号是 `account_id` 还是 `from_account_id`"决定，
   跟 Data Capture 分支"WIN 恒正、LOSE 恒负"是两套完全不同的规则。
 
 `PROFIT` 是新系统专门为"手动 PROFIT Submit"功能新增的枚举值（`from_account_id` + `account_id`、单行、正数
-amount、`description` 现算，见 [`TransactionSubmitServiceImpl.submitProfit`](../../java/com/eazycount/service/impl/TransactionSubmitServiceImpl.java)），
+amount、`description` 现算，见 [`TransactionSubmitServiceImpl.submitProfit`](../../../java/com/eazycount/service/impl/TransactionSubmitServiceImpl.java)），
 `docs/frontend-springboot-migration.md` 第 1348 行记录了这次加枚举值的脚本
 （`migrate_transaction_type_add_profit.sql`），上线时间 2026-07-23。
 
@@ -57,7 +57,7 @@ attach 一句自由文本备注"这个功能，旧系统底层用的是 `transac
 靠 `from_account_id` 是否有值在渲染时跟"真正的 Data Capture Win/Loss"区分开，旧版前端把这类行统一显示成
 `ID PRODUCT = PROFIT`、`description = "PROFIT FROM {对手方}"`（不看 remark 内容）。
 
-[`migrate_data_transactions_from_legacy.sql`](migrate_data_transactions_from_legacy.sql) 对 `transaction_type`
+[`migrate_data_transactions_from_legacy.sql`](../legacy_full_migration/migrate_data_transactions_from_legacy.sql) 对 `transaction_type`
 是逐行原样搬（`t.transaction_type` verbatim，无 WHERE 按类型过滤，见该脚本第 78-107 行），没有对"WIN 类型但其实是
 手动 Profit 转账"这批记录做重新分类，于是它们在新库里还是 `WIN`，被新系统的路由规则误判成 Data Capture 行。
 
@@ -102,7 +102,7 @@ remark 内容决定标签，旧系统同理（旧版这个功能本身就是"通
 
 ## 4. 修复
 
-[`ManualProfitTypeReclassifyTool.java`](ManualProfitTypeReclassifyTool.java)：独立 JDBC 小工具（不依赖 Spring
+[`ManualProfitTypeReclassifyTool.java`](../tools/ManualProfitTypeReclassifyTool.java)：独立 JDBC 小工具（不依赖 Spring
 容器），按第 3 节的规则查出记录，把 `transaction_type` 改成 `PROFIT`。
 
 **只改了 `transaction_type` 一个字段，没有碰 `description`**——因为这批记录的 `description` 本来就是空的，

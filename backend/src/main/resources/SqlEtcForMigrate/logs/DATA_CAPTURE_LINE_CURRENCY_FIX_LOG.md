@@ -42,7 +42,7 @@ WHERE dcd.currency_id <> dc.currency_id;
 
 ### 2.2 迁移脚本取错了字段
 
-[`migrate_data_datacapture_from_legacy.sql`](migrate_data_datacapture_from_legacy.sql) 第 123 行，
+[`migrate_data_datacapture_from_legacy.sql`](../legacy_full_migration/migrate_data_datacapture_from_legacy.sql) 第 123 行，
 `data_capture_line.currency_id` 这一列取的是 `dc.currency_id`（已迁移的 `data_captures`**批次头**记录），
 而不是 `dcd.currency_id`（`data_capture_details`**明细行自己**的货币字段）：
 
@@ -109,9 +109,9 @@ WHERE dcd.currency_id <> dc.currency_id;
 
 ## 4. 修复
 
-[`DataCaptureLineCurrencyFixTool.java`](DataCaptureLineCurrencyFixTool.java)：独立 JDBC 小工具。
+[`DataCaptureLineCurrencyFixTool.java`](../tools/DataCaptureLineCurrencyFixTool.java)：独立 JDBC 小工具。
 
-1. 按 [`migrate_data_datacapture_from_legacy.sql`](migrate_data_datacapture_from_legacy.sql) 步骤 0 同一套
+1. 按 [`migrate_data_datacapture_from_legacy.sql`](../legacy_full_migration/migrate_data_datacapture_from_legacy.sql) 步骤 0 同一套
    去重规则（`manual` 优先于 `subsidiary`，同 company 内按 `id` 从小到大取存活行）重建 `_map_currency`；
 2. 用重建的映射，把 `dcd.currency_id <> dc.currency_id` 这 2946 条对应的 `count_real.data_capture_line.currency_id`
    改成明细行自己的正确货币（映射后的存活 id）；
