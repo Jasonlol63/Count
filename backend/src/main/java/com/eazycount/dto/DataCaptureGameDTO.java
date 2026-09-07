@@ -39,6 +39,8 @@ public class DataCaptureGameDTO {
 
     private String remark;
 
+    private Boolean enableSaveDraft;
+
     private String createdBy;
 
     private LocalDateTime createAt;

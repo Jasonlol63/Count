@@ -55,6 +55,7 @@
         <result property="replaceWordFrom" column="replaceWordFrom"/>
         <result property="replaceWordTo" column="replaceWordTo"/>
         <result property="remark" column="remark"/>
+        <result property="enableSaveDraft" column="enableSaveDraft"/>
         <collection property="descriptionNames"
                     column="id"
                     ofType="java.lang.String"
@@ -66,6 +67,7 @@
             p.id AS id,
             p.code AS processId,
             fd.descriptionName AS descriptionName,
+            p.enable_save_draft AS enableSaveDraft,
             CASE
                 WHEN fd.descriptionName IS NOT NULL AND fd.descriptionName &lt;&gt; ''
                     THEN CONCAT(p.code, ' (', fd.descriptionName, ')')
@@ -103,7 +105,8 @@
             p.remove_word       AS removeWord,
             p.replace_word_from AS replaceWordFrom,
             p.replace_word_to   AS replaceWordTo,
-            p.remark            AS remark
+            p.remark            AS remark,
+            p.enable_save_draft AS enableSaveDraft
         FROM process p
                  LEFT JOIN currency c ON c.id = p.currency_id AND c.tenant_id = p.tenant_id
         WHERE p.id = #{processId}

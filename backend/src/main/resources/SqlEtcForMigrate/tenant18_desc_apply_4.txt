@@ -1,0 +1,12 @@
+SKIP txn=151390 tenant=18 bankProcess=617 account=5710 reason=no_matching_leg_or_share old_description=[Process: Buy Price for KW PETS TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+SKIP txn=151498 tenant=18 bankProcess=665 leg=SUPPLIER reason=NullPointerException:Cannot invoke "java.time.temporal.Temporal.until(java.time.temporal.Temporal, java.time.temporal.TemporalUnit)" because "temporal1Inclusive" is null old_description=[Process: Buy Price for MMRM FISHING TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+SKIP txn=151499 tenant=18 bankProcess=665 leg=CUSTOMER reason=NullPointerException:Cannot invoke "java.time.temporal.Temporal.until(java.time.temporal.Temporal, java.time.temporal.TemporalUnit)" because "temporal1Inclusive" is null old_description=[Process: Sell Price for MMRM FISHING TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+SKIP txn=151500 tenant=18 bankProcess=665 leg=COMPANY reason=NullPointerException:Cannot invoke "java.time.temporal.Temporal.until(java.time.temporal.Temporal, java.time.temporal.TemporalUnit)" because "temporal1Inclusive" is null old_description=[Process: Profit for MMRM FISHING TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+SKIP txn=151501 tenant=18 bankProcess=665 leg=SHARE reason=NullPointerException:Cannot invoke "java.time.temporal.Temporal.until(java.time.temporal.Temporal, java.time.temporal.TemporalUnit)" because "temporal1Inclusive" is null old_description=[Process: Profit Sharing for MMRM FISHING TRADING (AG1 125.00) (resend consolidated) [RESEND_END=2026-09-30]]
+SKIP txn=151502 tenant=18 bankProcess=665 leg=SHARE reason=NullPointerException:Cannot invoke "java.time.temporal.Temporal.until(java.time.temporal.Temporal, java.time.temporal.TemporalUnit)" because "temporal1Inclusive" is null old_description=[Process: Profit Sharing for MMRM FISHING TRADING (AG5 137.50) (resend consolidated) [RESEND_END=2026-09-30]]
+CHANGE txn=151447 tenant=18 bankProcess=693 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for THE QIN RESTAURANT (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1800 | HLB]
+CHANGE txn=151448 tenant=18 bankProcess=693 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit for THE QIN RESTAURANT (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 200 | HLB]

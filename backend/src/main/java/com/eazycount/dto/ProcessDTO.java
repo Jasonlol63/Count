@@ -32,6 +32,7 @@ public class ProcessDTO {
     private String replaceWordFrom;
     private String replaceWordTo;
     private String remark;
+    private Boolean enableSaveDraft;
 
     /** Copy From: id of an existing process to deep-copy fields/descriptions/days/formulas from. Add-process only. */
     private Integer copyFromProcessId;

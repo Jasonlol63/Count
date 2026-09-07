@@ -580,6 +580,7 @@ CREATE TABLE `process` (
    `category`          ENUM('GAME', 'BANK') NOT NULL DEFAULT 'GAME' COMMENT 'GAME=动态 process+day+submitted 过滤；BANK=固定四码且 option 常显',
    `code`              VARCHAR(50) NOT NULL COMMENT '业务码；BANK 固定 PROFIT/SALARY/COMMISSION/BONUS',
    `copied_from_process_id` INT UNSIGNED DEFAULT NULL COMMENT '来源 process.id（Copy From 建立时记录，仅用于追溯/排查，不影响业务逻辑）',
+   `enable_save_draft` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'GAME 专用：是否启用 Save Draft，默认关闭；BANK 不使用此字段',
    `currency_id`       INT UNSIGNED NOT NULL COMMENT '默认币别 FK currency.id',
    `remove_word`       TEXT DEFAULT NULL COMMENT '要过滤的词，逗号分隔（GAME）',
    `replace_word_from` VARCHAR(255) DEFAULT NULL COMMENT 'GAME',

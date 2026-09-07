@@ -1,0 +1,217 @@
+CHANGE txn=151477 tenant=18 bankProcess=599 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for PAPPA 34 ENTERPRISE (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 375 | AMBANK]
+CHANGE txn=151478 tenant=18 bankProcess=599 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for PAPPA 34 ENTERPRISE (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 800 | AMBANK]
+CHANGE txn=151479 tenant=18 bankProcess=599 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit for PAPPA 34 ENTERPRISE (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 300 | AMBANK]
+CHANGE txn=151480 tenant=18 bankProcess=599 leg=SHARE periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for PAPPA 34 ENTERPRISE (AG1 125.00) (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 125 | AMBANK]
+CHANGE txn=151481 tenant=18 bankProcess=602 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for KEDAI PAKAIAN SUSIAMAK (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 375 | CIMB]
+CHANGE txn=151482 tenant=18 bankProcess=602 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for KEDAI PAKAIAN SUSIAMAK (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 750 | CIMB]
+CHANGE txn=151483 tenant=18 bankProcess=602 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit for KEDAI PAKAIAN SUSIAMAK (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 250 | CIMB]
+CHANGE txn=151484 tenant=18 bankProcess=602 leg=SHARE periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for KEDAI PAKAIAN SUSIAMAK (AG1 125.00) (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 125 | CIMB]
+CHANGE txn=151485 tenant=18 bankProcess=603 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for KEDAI PAKAIAN SUSIAMAK (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 375 | BI]
+CHANGE txn=151486 tenant=18 bankProcess=603 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for KEDAI PAKAIAN SUSIAMAK (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 750 | BI]
+CHANGE txn=151487 tenant=18 bankProcess=603 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit for KEDAI PAKAIAN SUSIAMAK (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 250 | BI]
+CHANGE txn=151488 tenant=18 bankProcess=603 leg=SHARE periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for KEDAI PAKAIAN SUSIAMAK (AG1 125.00) (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 125 | BI]
+CHANGE txn=151489 tenant=18 bankProcess=604 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for JACK COMPUTER TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 375 | MBB]
+CHANGE txn=151490 tenant=18 bankProcess=604 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for JACK COMPUTER TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1000 | MBB]
+CHANGE txn=151491 tenant=18 bankProcess=604 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit for JACK COMPUTER TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 300 | MBB]
+CHANGE txn=151492 tenant=18 bankProcess=604 leg=SHARE periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for JACK COMPUTER TRADING (AG3 125.00) (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 125 | MBB]
+CHANGE txn=151493 tenant=18 bankProcess=604 leg=SHARE periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for JACK COMPUTER TRADING (AG2 200.00) (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 200 | MBB]
+CHANGE txn=151494 tenant=18 bankProcess=605 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for JACK COMPUTER TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 375 | RHB]
+CHANGE txn=151495 tenant=18 bankProcess=605 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for JACK COMPUTER TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1000 | RHB]
+CHANGE txn=151496 tenant=18 bankProcess=605 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit for JACK COMPUTER TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 500 | RHB]
+CHANGE txn=151497 tenant=18 bankProcess=605 leg=SHARE periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for JACK COMPUTER TRADING (AG1 125.00) (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 125 | RHB]
+SKIP txn=151390 tenant=18 bankProcess=617 account=5710 reason=no_matching_leg_or_share old_description=[Process: Buy Price for KW PETS TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+CHANGE txn=151391 tenant=18 bankProcess=617 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for KW PETS TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1000 | AFFIN]
+CHANGE txn=151392 tenant=18 bankProcess=617 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit for KW PETS TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 425 | AFFIN]
+CHANGE txn=151393 tenant=18 bankProcess=617 leg=SHARE periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for KW PETS TRADING (AG2 200.00) (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 200 | AFFIN]
+CHANGE txn=151418 tenant=18 bankProcess=629 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for MODA HOUSE ENTERPRISE (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 500 | BI]
+CHANGE txn=151419 tenant=18 bankProcess=629 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for MODA HOUSE ENTERPRISE (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1433.33 | BI]
+CHANGE txn=151420 tenant=18 bankProcess=629 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[FULL MONTH (SEP 2026) @MONTHLY 250 | CIMB]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 833.33 | BI]
+CHANGE txn=151421 tenant=18 bankProcess=629 leg=SHARE periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for MODA HOUSE ENTERPRISE (AG4 100.00) (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 100 | BI]
+CHANGE txn=151465 tenant=18 bankProcess=646 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for YK LAI SOURCES (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1125 | AFFIN]
+CHANGE txn=151466 tenant=18 bankProcess=646 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for YK LAI SOURCES (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1400 | AFFIN]
+CHANGE txn=151467 tenant=18 bankProcess=646 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit for YK LAI SOURCES (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 275 | AFFIN]
+CHANGE txn=151468 tenant=18 bankProcess=647 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for YK LAI SOURCES (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1400 | MBB]
+CHANGE txn=151469 tenant=18 bankProcess=647 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for YK LAI SOURCES (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1125 | MBB]
+CHANGE txn=151470 tenant=18 bankProcess=647 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit for YK LAI SOURCES (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 275 | MBB]
+CHANGE txn=151471 tenant=18 bankProcess=648 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for YK LAI SOURCES (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1125 | RHB]
+CHANGE txn=151472 tenant=18 bankProcess=648 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for YK LAI SOURCES (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1400 | RHB]
+CHANGE txn=151473 tenant=18 bankProcess=648 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit for YK LAI SOURCES (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 275 | RHB]
+CHANGE txn=151405 tenant=18 bankProcess=660 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for ZC DREAM HOME FURNITURE (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1000 | MBB]
+CHANGE txn=151406 tenant=18 bankProcess=660 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for ZC DREAM HOME FURNITURE (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1125 | MBB]
+CHANGE txn=151407 tenant=18 bankProcess=660 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[FULL MONTH (SEP 2026) @MONTHLY 800 | CIMB]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 125 | MBB]
+CHANGE txn=151408 tenant=18 bankProcess=661 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for ZC DREAM HOME FURNITURE (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1000 | RHB]
+CHANGE txn=151409 tenant=18 bankProcess=661 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for ZC DREAM HOME FURNITURE (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1125 | RHB]
+CHANGE txn=151410 tenant=18 bankProcess=661 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[FULL MONTH (SEP 2026) @MONTHLY 800 | BI]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 125 | RHB]
+SKIP txn=151498 tenant=18 bankProcess=665 leg=SUPPLIER reason=NullPointerException:Cannot invoke "java.time.temporal.Temporal.until(java.time.temporal.Temporal, java.time.temporal.TemporalUnit)" because "temporal1Inclusive" is null old_description=[Process: Buy Price for MMRM FISHING TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+SKIP txn=151499 tenant=18 bankProcess=665 leg=CUSTOMER reason=NullPointerException:Cannot invoke "java.time.temporal.Temporal.until(java.time.temporal.Temporal, java.time.temporal.TemporalUnit)" because "temporal1Inclusive" is null old_description=[Process: Sell Price for MMRM FISHING TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+SKIP txn=151500 tenant=18 bankProcess=665 leg=COMPANY reason=NullPointerException:Cannot invoke "java.time.temporal.Temporal.until(java.time.temporal.Temporal, java.time.temporal.TemporalUnit)" because "temporal1Inclusive" is null old_description=[Process: Profit for MMRM FISHING TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+SKIP txn=151501 tenant=18 bankProcess=665 leg=SHARE reason=NullPointerException:Cannot invoke "java.time.temporal.Temporal.until(java.time.temporal.Temporal, java.time.temporal.TemporalUnit)" because "temporal1Inclusive" is null old_description=[Process: Profit Sharing for MMRM FISHING TRADING (AG1 125.00) (resend consolidated) [RESEND_END=2026-09-30]]
+SKIP txn=151502 tenant=18 bankProcess=665 leg=SHARE reason=NullPointerException:Cannot invoke "java.time.temporal.Temporal.until(java.time.temporal.Temporal, java.time.temporal.TemporalUnit)" because "temporal1Inclusive" is null old_description=[Process: Profit Sharing for MMRM FISHING TRADING (AG5 137.50) (resend consolidated) [RESEND_END=2026-09-30]]
+CHANGE txn=151503 tenant=18 bankProcess=669 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for VPA TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 375 | MBB]
+CHANGE txn=151504 tenant=18 bankProcess=669 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for VPA TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 875 | MBB]
+CHANGE txn=151505 tenant=18 bankProcess=669 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit for VPA TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 187.5 | MBB]
+CHANGE txn=151506 tenant=18 bankProcess=669 leg=SHARE periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for VPA TRADING (AG1 125.00) (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 125 | MBB]
+CHANGE txn=151507 tenant=18 bankProcess=669 leg=SHARE periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for VPA TRADING (AG5 187.50) (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 187.5 | MBB]
+CHANGE txn=151508 tenant=18 bankProcess=670 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for VPA TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 375 | AMBANK]
+CHANGE txn=151509 tenant=18 bankProcess=670 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for VPA TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 775 | AMBANK]
+CHANGE txn=151510 tenant=18 bankProcess=670 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit for VPA TRADING (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 137.5 | AMBANK]
+CHANGE txn=151511 tenant=18 bankProcess=670 leg=SHARE periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for VPA TRADING (AG1 125.00) (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 125 | AMBANK]
+CHANGE txn=151512 tenant=18 bankProcess=670 leg=SHARE periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for VPA TRADING (AG5 137.50) (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 137.5 | AMBANK]
+CHANGE txn=151451 tenant=18 bankProcess=691 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for THE QIN RESTAURANT (resend consolidated) [RESEND_END=2026-08-31]]
+  new=[PRORATED(28/8 - 31/8 | 4 DAYS)@MONTHLY 1400 | MBB]
+CHANGE txn=151452 tenant=18 bankProcess=691 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for THE QIN RESTAURANT (resend consolidated) [RESEND_END=2026-08-31]]
+  new=[PRORATED(28/8 - 31/8 | 4 DAYS)@MONTHLY 1800 | MBB]
+CHANGE txn=151453 tenant=18 bankProcess=691 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[FULL MONTH (SEP 2026) @MONTHLY 1025 | RHB]
+  new=[PRORATED(28/8 - 31/8 | 4 DAYS)@MONTHLY 200 | MBB]
+CHANGE txn=151454 tenant=18 bankProcess=691 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for THE QIN RESTAURANT (SU25 25.81) (resend consolidated) [RESEND_END=2026-08-31]]
+  new=[PRORATED(28/8 - 31/8 | 4 DAYS)@MONTHLY 1400 | MBB]
+SKIP txn=151437 tenant=18 bankProcess=691 leg=SUPPLIER reason=NullPointerException:Cannot invoke "java.time.temporal.Temporal.until(java.time.temporal.Temporal, java.time.temporal.TemporalUnit)" because "temporal1Inclusive" is null old_description=[Process: Buy Price for THE QIN RESTAURANT (resend consolidated) [RESEND_END=2026-09-30]]
+SKIP txn=151438 tenant=18 bankProcess=691 leg=CUSTOMER reason=NullPointerException:Cannot invoke "java.time.temporal.Temporal.until(java.time.temporal.Temporal, java.time.temporal.TemporalUnit)" because "temporal1Inclusive" is null old_description=[Process: Sell Price for THE QIN RESTAURANT (resend consolidated) [RESEND_END=2026-09-30]]
+SKIP txn=151439 tenant=18 bankProcess=691 leg=COMPANY reason=NullPointerException:Cannot invoke "java.time.temporal.Temporal.until(java.time.temporal.Temporal, java.time.temporal.TemporalUnit)" because "temporal1Inclusive" is null old_description=[Process: Profit for THE QIN RESTAURANT (resend consolidated) [RESEND_END=2026-09-30]]
+SKIP txn=151440 tenant=18 bankProcess=691 leg=SUPPLIER reason=NullPointerException:Cannot invoke "java.time.temporal.Temporal.until(java.time.temporal.Temporal, java.time.temporal.TemporalUnit)" because "temporal1Inclusive" is null old_description=[Process: Profit Sharing for THE QIN RESTAURANT (SU25 200.00) (resend consolidated) [RESEND_END=2026-09-30]]
+CHANGE txn=151455 tenant=18 bankProcess=692 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for THE QIN RESTAURANT (resend consolidated) [RESEND_END=2026-08-31]]
+  new=[PRORATED(28/8 - 31/8 | 4 DAYS)@MONTHLY 1400 | RHB]
+CHANGE txn=151456 tenant=18 bankProcess=692 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for THE QIN RESTAURANT (resend consolidated) [RESEND_END=2026-08-31]]
+  new=[PRORATED(28/8 - 31/8 | 4 DAYS)@MONTHLY 1800 | RHB]
+CHANGE txn=151457 tenant=18 bankProcess=692 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[FULL MONTH (SEP 2026) @MONTHLY 250 | MBB]
+  new=[PRORATED(28/8 - 31/8 | 4 DAYS)@MONTHLY 200 | RHB]
+CHANGE txn=151458 tenant=18 bankProcess=692 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for THE QIN RESTAURANT (SU25 25.81) (resend consolidated) [RESEND_END=2026-08-31]]
+  new=[PRORATED(28/8 - 31/8 | 4 DAYS)@MONTHLY 1400 | RHB]
+CHANGE txn=151441 tenant=18 bankProcess=692 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for THE QIN RESTAURANT (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1400 | RHB]
+CHANGE txn=151442 tenant=18 bankProcess=692 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for THE QIN RESTAURANT (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1800 | RHB]
+CHANGE txn=151443 tenant=18 bankProcess=692 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[FULL MONTH (SEP 2026) @MONTHLY 1100 | RHB]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 200 | RHB]
+CHANGE txn=151444 tenant=18 bankProcess=692 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for THE QIN RESTAURANT (SU25 200.00) (resend consolidated) [RESEND_END=2026-09-30]]
+  new=[PRORATED(1/9 - 30/9 | 30 DAYS)@MONTHLY 1400 | RHB]
+CHANGE txn=151459 tenant=18 bankProcess=693 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Buy Price for THE QIN RESTAURANT (resend consolidated) [RESEND_END=2026-08-31]]
+  new=[PRORATED(28/8 - 31/8 | 4 DAYS)@MONTHLY 1400 | HLB]
+CHANGE txn=151460 tenant=18 bankProcess=693 leg=CUSTOMER periodType=RESEND_CONSOLIDATED
+  old=[Process: Sell Price for THE QIN RESTAURANT (resend consolidated) [RESEND_END=2026-08-31]]
+  new=[PRORATED(28/8 - 31/8 | 4 DAYS)@MONTHLY 1800 | HLB]
+CHANGE txn=151461 tenant=18 bankProcess=693 leg=COMPANY periodType=RESEND_CONSOLIDATED
+  old=[FULL MONTH (SEP 2026) @MONTHLY 187.5 | MBB]
+  new=[PRORATED(28/8 - 31/8 | 4 DAYS)@MONTHLY 200 | HLB]
+CHANGE txn=151462 tenant=18 bankProcess=693 leg=SUPPLIER periodType=RESEND_CONSOLIDATED
+  old=[Process: Profit Sharing for THE QIN RESTAURANT (SU25 25.81) (resend consolidated) [RESEND_END=2026-08-31]]
+  new=[PRORATED(28/8 - 31/8 | 4 DAYS)@MONTHLY 1400 | HLB]

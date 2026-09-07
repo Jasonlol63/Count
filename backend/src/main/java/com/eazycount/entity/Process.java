@@ -29,6 +29,9 @@ public class Process {
 
     private Integer copiedFromProcessId;
 
+    /* GAME only: per-process opt-in for Save Draft. Ignored for BANK (fixed code whitelist instead). */
+    private Boolean enableSaveDraft;
+
     private Integer currencyId;
 
     private String removeWord;

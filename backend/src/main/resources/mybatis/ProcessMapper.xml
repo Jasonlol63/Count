@@ -12,6 +12,7 @@
             <result property="category" column="processCategory"/>
             <result property="code" column="processCode"/>
             <result property="copiedFromProcessId" column="processCopiedFromProcessId"/>
+            <result property="enableSaveDraft" column="processEnableSaveDraft"/>
             <result property="currencyId" column="processCurrencyId"/>
             <result property="removeWord" column="processRemoveWord"/>
             <result property="replaceWordFrom" column="processReplaceWordFrom"/>
@@ -41,6 +42,7 @@
         <result property="category" column="category"/>
         <result property="code" column="code"/>
         <result property="copiedFromProcessId" column="copied_from_process_id"/>
+        <result property="enableSaveDraft" column="enable_save_draft"/>
         <result property="currencyId" column="currency_id"/>
         <result property="removeWord" column="remove_word"/>
         <result property="replaceWordFrom" column="replace_word_from"/>
@@ -61,6 +63,7 @@
             p.category          AS processCategory,
             p.code              AS processCode,
             p.copied_from_process_id AS processCopiedFromProcessId,
+            p.enable_save_draft AS processEnableSaveDraft,
             p.currency_id       AS processCurrencyId,
             c.code              AS processCurrencyCode,
             p.remove_word       AS processRemoveWord,
@@ -107,6 +110,7 @@
             category,
             code,
             copied_from_process_id,
+            enable_save_draft,
             currency_id,
             remove_word,
             replace_word_from,
@@ -128,6 +132,7 @@
             category,
             code,
             copied_from_process_id,
+            enable_save_draft,
             currency_id,
             remove_word,
             replace_word_from,
@@ -152,6 +157,7 @@
             category,
             code,
             copied_from_process_id,
+            enable_save_draft,
             currency_id,
             remove_word,
             replace_word_from,
@@ -188,8 +194,8 @@
 
     <!-- Insert Process Use -->
     <insert id="insertNewProcess" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
-        INSERT INTO process (tenant_id, category, code, copied_from_process_id, currency_id, remove_word, replace_word_from, replace_word_to, remark, status, created_by, created_at)
-        VALUES (#{tenantId}, #{category}, #{code}, #{copiedFromProcessId}, #{currencyId}, #{removeWord}, #{replaceWordFrom}, #{replaceWordTo}, #{remark}, #{status}, #{createdBy}, NOW())
+        INSERT INTO process (tenant_id, category, code, copied_from_process_id, enable_save_draft, currency_id, remove_word, replace_word_from, replace_word_to, remark, status, created_by, created_at)
+        VALUES (#{tenantId}, #{category}, #{code}, #{copiedFromProcessId}, #{enableSaveDraft}, #{currencyId}, #{removeWord}, #{replaceWordFrom}, #{replaceWordTo}, #{remark}, #{status}, #{createdBy}, NOW())
     </insert>
 
     <insert id="insertProcessDescriptionLinkBatch">
@@ -227,6 +233,7 @@
     <update id="updateProcessDetails">
         UPDATE process
         SET currency_id = #{currencyId},
+            enable_save_draft = #{enableSaveDraft},
             remove_word = #{removeWord},
             replace_word_from = #{replaceWordFrom},
             replace_word_to = #{replaceWordTo},

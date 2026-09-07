@@ -2,6 +2,7 @@ package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.DataCaptureDao;
+import com.eazycount.dao.ProcessDao;
 import com.eazycount.dto.DataCaptureBankDTO;
 import com.eazycount.dto.DataCaptureGameDTO;
 import com.eazycount.entity.DataCaptureDraft;
@@ -32,6 +33,9 @@ public class DataCaptureServiceImpl implements DataCaptureService {
 
     @Autowired
     private DataCaptureDao dataCaptureDao;
+
+    @Autowired
+    private ProcessDao processDao;
 
     @Override
     public List<DataCaptureGameDTO> findAllProcessSubmittedByIdAndDate(DataCaptureGameDTO request) {
@@ -190,6 +194,144 @@ public class DataCaptureServiceImpl implements DataCaptureService {
         response.setCurrencyId(currencyId);
         response.setCells(cells);
         response.setTableData(cells.isEmpty() ? null : buildTableData(cells));
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public DataCaptureBankDTO saveGameDraft(DataCaptureBankDTO request) {
+        SessionUser session = requireLogin();
+        AccessControlUtils.requireWritable(session);
+        if (request == null) {
+            throw new BusinessException("Request body is required");
+        }
+
+        Integer tenantId = request.getTenantId();
+        Integer currencyId = request.getCurrencyId();
+        requireTenantId(tenantId);
+        requireCurrencyId(currencyId);
+
+        Process process = resolveDraftEligibleGameProcess(tenantId, request.getProcessId());
+        if (process == null) {
+            throw new BusinessException("Save Draft is not enabled for this process");
+        }
+
+        List<DataCaptureBankDTO.Cell> cells = normalizeCells(request);
+        if (cells.isEmpty()) {
+            throw new BusinessException("Draft cells are required");
+        }
+
+        DataCaptureDraft draft = dataCaptureDao.findDraftByTenantProcessCurrency(
+                tenantId, process.getId(), currencyId);
+        if (draft == null) {
+            draft = new DataCaptureDraft();
+            draft.setTenantId(tenantId);
+            draft.setProcessId(process.getId());
+            draft.setCurrencyId(currencyId);
+            dataCaptureDao.insertDraft(draft);
+        } else {
+            dataCaptureDao.touchDraftUpdatedAt(draft.getId());
+        }
+
+        dataCaptureDao.deleteDraftCellsByDraftId(draft.getId());
+        List<DataCaptureDraftCell> rows = new ArrayList<>(cells.size());
+        for (DataCaptureBankDTO.Cell cell : cells) {
+            DataCaptureDraftCell row = new DataCaptureDraftCell();
+            row.setDraftId(draft.getId());
+            row.setRowIndex(cell.getRowIndex());
+            row.setColIndex(cell.getColIndex());
+            row.setCellValue(cell.getCellValue());
+            rows.add(row);
+        }
+        dataCaptureDao.insertDraftCells(rows);
+
+        DataCaptureBankDTO response = new DataCaptureBankDTO();
+        response.setTenantId(tenantId);
+        response.setProcessId(process.getId());
+        response.setCurrencyId(currencyId);
+        response.setCells(cells);
+        response.setTableData(buildTableData(cells));
+        return response;
+    }
+
+    @Override
+    public DataCaptureBankDTO getGameDraft(DataCaptureBankDTO request) {
+        requireLogin();
+        if (request == null) {
+            throw new BusinessException("Request body is required");
+        }
+
+        Integer tenantId = request.getTenantId();
+        Integer currencyId = request.getCurrencyId();
+        Integer processId = request.getProcessId();
+        requireTenantId(tenantId);
+        requireCurrencyId(currencyId);
+        if (processId == null || processId <= 0) {
+            throw new BusinessException("processId is required");
+        }
+
+        Process process = processDao.findProcessByIdAndTenantId(processId, tenantId);
+        if (process == null || process.getCategory() != Process.Category.GAME) {
+            throw new BusinessException("Process not found");
+        }
+        if (!Boolean.TRUE.equals(process.getEnableSaveDraft())) {
+            return emptyGameDraftResponse(tenantId, processId, currencyId);
+        }
+
+        DataCaptureDraft draft = dataCaptureDao.findDraftByTenantProcessCurrency(
+                tenantId, process.getId(), currencyId);
+        if (draft == null) {
+            return emptyGameDraftResponse(tenantId, processId, currencyId);
+        }
+
+        List<DataCaptureDraftCell> stored = dataCaptureDao.findDraftCellsByDraftId(draft.getId());
+        List<DataCaptureBankDTO.Cell> cells = new ArrayList<>();
+        if (stored != null) {
+            for (DataCaptureDraftCell row : stored) {
+                DataCaptureBankDTO.Cell cell = new DataCaptureBankDTO.Cell();
+                cell.setRowIndex(row.getRowIndex());
+                cell.setColIndex(row.getColIndex());
+                cell.setCellValue(row.getCellValue());
+                cells.add(cell);
+            }
+        }
+
+        DataCaptureBankDTO response = new DataCaptureBankDTO();
+        response.setTenantId(tenantId);
+        response.setProcessId(processId);
+        response.setCurrencyId(currencyId);
+        response.setCells(cells);
+        response.setTableData(cells.isEmpty() ? null : buildTableData(cells));
+        return response;
+    }
+
+    // GAME draft eligibility: must belong to the tenant, be GAME category, and have the
+    // enable_save_draft switch on (Games processes are user-created free text, so unlike BANK
+    // there's no fixed code whitelist to check against). Returns null when any check fails.
+    private Process resolveDraftEligibleGameProcess(Integer tenantId, Integer processId) {
+        if (processId == null || processId <= 0) {
+            return null;
+        }
+        Process process = processDao.findProcessByIdAndTenantId(processId, tenantId);
+        if (process == null || process.getCategory() != Process.Category.GAME) {
+            return null;
+        }
+        if (!Boolean.TRUE.equals(process.getEnableSaveDraft())) {
+            return null;
+        }
+        return process;
+    }
+
+    private static DataCaptureBankDTO emptyGameDraftResponse(
+            Integer tenantId,
+            Integer processId,
+            Integer currencyId) {
+        DataCaptureBankDTO response = new DataCaptureBankDTO();
+        response.setTenantId(tenantId);
+        response.setProcessId(processId);
+        response.setCurrencyId(currencyId);
+        response.setCells(Collections.emptyList());
+        response.setTableData(null);
         return response;
     }
 

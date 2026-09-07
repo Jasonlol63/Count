@@ -8,7 +8,9 @@ import lombok.Setter;
 import java.util.List;
 import java.util.Map;
 
-/* BANK Data Capture draft — save/get by "tenantId + processCode + currencyId". Cells only (no remark). PROFIT is never persisted. */
+/* Data Capture draft — shared shape for BANK (save/get by "tenantId + processCode + currencyId",
+   PROFIT never persisted) and GAME (save/get by "tenantId + processId + currencyId", gated by
+   Process.enableSaveDraft instead of a code whitelist). Cells only (no remark). */
 @Getter
 @Setter
 @NoArgsConstructor

@@ -135,6 +135,7 @@ public class ProcessServiceImpl implements ProcessService {
         process.setReplaceWordFrom(copySource != null ? copySource.getReplaceWordFrom() : processDTO.getReplaceWordFrom());
         process.setReplaceWordTo(copySource != null ? copySource.getReplaceWordTo() : processDTO.getReplaceWordTo());
         process.setRemark(copySource != null ? copySource.getRemark() : processDTO.getRemark());
+        process.setEnableSaveDraft(resolveEnableSaveDraft(category, copySource, processDTO.getEnableSaveDraft()));
         process.setStatus(Process.Status.ACTIVE);
         process.setCreatedBy(sessionUser.login_id);
 
@@ -238,6 +239,7 @@ public class ProcessServiceImpl implements ProcessService {
         process.setReplaceWordFrom(processDTO.getReplaceWordFrom());
         process.setReplaceWordTo(processDTO.getReplaceWordTo());
         process.setRemark(processDTO.getRemark());
+        process.setEnableSaveDraft(resolveEnableSaveDraft(existed.getCategory(), null, processDTO.getEnableSaveDraft()));
         process.setUpdatedBy(sessionUser.login_id);
         processDao.updateProcessDetails(process);
 
@@ -359,6 +361,18 @@ public class ProcessServiceImpl implements ProcessService {
             throw new BusinessException("Process not found!");
         }
         return result;
+    }
+
+    // Save Draft is GAME-only (opt-in switch); BANK draft eligibility is decided by a fixed process-code
+    // whitelist elsewhere, so BANK rows always stay false regardless of what the request sends.
+    private Boolean resolveEnableSaveDraft(Process.Category category, Process copySource, Boolean requested) {
+        if (category != Process.Category.GAME) {
+            return Boolean.FALSE;
+        }
+        if (copySource != null) {
+            return Boolean.TRUE.equals(copySource.getEnableSaveDraft());
+        }
+        return Boolean.TRUE.equals(requested);
     }
 
     //Copy From: resolve and validate the source process to duplicate.Re-reads from the DB rather than trusting so the copy is race-safe.

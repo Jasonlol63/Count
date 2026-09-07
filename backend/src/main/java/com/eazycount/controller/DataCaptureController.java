@@ -74,6 +74,32 @@ public class DataCaptureController {
         }
     }
 
+    @PostMapping("/games/draft/save")
+    public ResponseEntity<Map<String, Object>> saveGameDraft(@RequestBody DataCaptureBankDTO request) {
+        try {
+            DataCaptureBankDTO data = dataCaptureService.saveGameDraft(request);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Draft saved",
+                    "data", data));
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
+    @PostMapping("/games/draft/get")
+    public ResponseEntity<Map<String, Object>> getGameDraft(@RequestBody DataCaptureBankDTO request) {
+        try {
+            DataCaptureBankDTO data = dataCaptureService.getGameDraft(request);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "success",
+                    "data", data));
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
     private static ResponseEntity<Map<String, Object>> error(BusinessException e) {
         final Map<String, Object> body = new LinkedHashMap<>();
         body.put("success", false);
