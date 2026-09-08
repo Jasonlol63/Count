@@ -21,31 +21,34 @@ public interface DashboardDao {
     // CLEAR is intentionally excluded — Dashboard KPI never counts CLEAR for PROFIT/EXPENSES.
     //----------------------------------------------------------------------------------------------------
     // currencyCode scopes to one currency — amounts in different currencies must never be summed together.
+    // tenantIds: one entry for a single-company KPI, several entries for the "Company: All" rollup —
+    // same SQL, tenant_id IN (...) instead of tenant_id = ?, summed straight in the DB either way.
     List<DashboardKpiDTO.RoleAmount> aggregateWinLossByRole(
-            @Param("tenantId") Integer tenantId,
+            @Param("tenantIds") List<Integer> tenantIds,
             @Param("dateFrom") LocalDate dateFrom,
             @Param("dateTo") LocalDate dateTo,
             @Param("roles") List<String> roles,
             @Param("currencyCode") String currencyCode);
 
     List<DashboardKpiDTO.RoleAmount> aggregateCrDrByRole(
-            @Param("tenantId") Integer tenantId,
+            @Param("tenantIds") List<Integer> tenantIds,
             @Param("dateFrom") LocalDate dateFrom,
             @Param("dateTo") LocalDate dateTo,
             @Param("roles") List<String> roles,
             @Param("currencyCode") String currencyCode);
 
-    // Same Win/Loss bucket as aggregateWinLossByRole and Cr/Dr bucket as aggregateCrDrByRole (CLEAR still excluded),
-    // grouped by transaction_date as well as role — feeds the Trend Chart.
+    // Trend Chart Use - Same Win/Loss bucket and Cr/Dr bucket above two service (CLEAR still excluded),
+    // grouped by transaction_date as well as role — feeds the Trend Chart. Same tenantIds
+    // generalization as aggregateWinLossByRole (single id or several for "Company: All").
     List<DashboardTrendPointDTO.RoleAmount> aggregateWinLossByRoleAndDate(
-            @Param("tenantId") Integer tenantId,
+            @Param("tenantIds") List<Integer> tenantIds,
             @Param("dateFrom") LocalDate dateFrom,
             @Param("dateTo") LocalDate dateTo,
             @Param("roles") List<String> roles,
             @Param("currencyCode") String currencyCode);
 
     List<DashboardTrendPointDTO.RoleAmount> aggregateCrDrByRoleAndDate(
-            @Param("tenantId") Integer tenantId,
+            @Param("tenantIds") List<Integer> tenantIds,
             @Param("dateFrom") LocalDate dateFrom,
             @Param("dateTo") LocalDate dateTo,
             @Param("roles") List<String> roles,

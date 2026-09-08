@@ -67,7 +67,8 @@ public class DashboardServiceImpl implements DashboardService {
             return dto;
         }
 
-        ProfitExpenses current = computeProfitExpenses(tenantId, dateFrom, dateTo, currency);
+        List<Integer> tenantIds = List.of(tenantId);
+        ProfitExpenses current = computeProfitExpenses(tenantIds, dateFrom, dateTo, currency);
         dto.setProfit(current.profit);
         dto.setExpenses(current.expenses);
         dto.setNetProfit(current.netProfit);
@@ -79,7 +80,7 @@ public class DashboardServiceImpl implements DashboardService {
         dto.setPreviousDateFrom(previousDateFrom);
         dto.setPreviousDateTo(previousDateTo);
 
-        ProfitExpenses previous = computeProfitExpenses(tenantId, previousDateFrom, previousDateTo, currency);
+        ProfitExpenses previous = computeProfitExpenses(tenantIds, previousDateFrom, previousDateTo, currency);
         dto.setPreviousProfit(previous.profit);
         dto.setPreviousExpenses(previous.expenses);
         dto.setPreviousNetProfit(previous.netProfit);
@@ -87,6 +88,35 @@ public class DashboardServiceImpl implements DashboardService {
             dto.setPreviousEarnings(resolveEarningsAmount(tenantId, previousDateTo, previous.netProfit));
         }
 
+        return dto;
+    }
+
+    @Override
+    public DashboardKpiDTO getKpiForCompanies(List<Integer> tenantIds, LocalDate dateFrom, LocalDate dateTo,
+                                               String currencyCode) {
+        if (tenantIds == null || tenantIds.isEmpty()) {
+            throw new BusinessException("tenant_ids is required");
+        }
+        if (dateFrom == null || dateTo == null) {
+            throw new BusinessException("date_from and date_to are required");
+        }
+        if (dateFrom.isAfter(dateTo)) {
+            throw new BusinessException("date_from must not be after date_to");
+        }
+        if (currencyCode == null || currencyCode.isBlank()) {
+            throw new BusinessException("currency is required");
+        }
+
+        // "Company: All" rollup — which tenant ids belong in scope (e.g. every company under the
+        // selected Group tab) is resolved by the caller, not here; see DashboardDao#aggregateWinLossByRole.
+        // No Earnings, no previous-period comparison for this view (not requested — those would each
+        // mean a second N-tenant query, and Earnings has no defined meaning for a multi-company sum).
+        ProfitExpenses totals = computeProfitExpenses(tenantIds, dateFrom, dateTo, currencyCode.trim());
+        DashboardKpiDTO dto = new DashboardKpiDTO();
+        dto.setProfit(totals.profit);
+        dto.setExpenses(totals.expenses);
+        dto.setNetProfit(totals.netProfit);
+        dto.setShowEarnings(false);
         return dto;
     }
 
@@ -118,11 +148,44 @@ public class DashboardServiceImpl implements DashboardService {
         }
 
         List<String> roles = List.of(ROLE_PROFIT, ROLE_EXPENSES);
+        List<Integer> tenantIds = List.of(tenantId);
         Map<LocalDate, Map<String, BigDecimal>> winLossByDateRole = toDateRoleMap(
-                dashboardDao.aggregateWinLossByRoleAndDate(tenantId, dateFrom, dateTo, roles, currency));
+                dashboardDao.aggregateWinLossByRoleAndDate(tenantIds, dateFrom, dateTo, roles, currency));
         Map<LocalDate, Map<String, BigDecimal>> crDrByDateRole = toDateRoleMap(
-                dashboardDao.aggregateCrDrByRoleAndDate(tenantId, dateFrom, dateTo, roles, currency));
+                dashboardDao.aggregateCrDrByRoleAndDate(tenantIds, dateFrom, dateTo, roles, currency));
 
+        return buildTrendPoints(dateFrom, dateTo, winLossByDateRole, crDrByDateRole);
+    }
+
+    @Override
+    public List<DashboardTrendPointDTO> getTrendForCompanies(List<Integer> tenantIds, LocalDate dateFrom,
+                                                               LocalDate dateTo, String currencyCode) {
+        if (tenantIds == null || tenantIds.isEmpty()) {
+            throw new BusinessException("tenant_ids is required");
+        }
+        if (dateFrom == null || dateTo == null) {
+            throw new BusinessException("date_from and date_to are required");
+        }
+        if (dateFrom.isAfter(dateTo)) {
+            throw new BusinessException("date_from must not be after date_to");
+        }
+        if (currencyCode == null || currencyCode.isBlank()) {
+            throw new BusinessException("currency is required");
+        }
+        String currency = currencyCode.trim();
+
+        List<String> roles = List.of(ROLE_PROFIT, ROLE_EXPENSES);
+        Map<LocalDate, Map<String, BigDecimal>> winLossByDateRole = toDateRoleMap(
+                dashboardDao.aggregateWinLossByRoleAndDate(tenantIds, dateFrom, dateTo, roles, currency));
+        Map<LocalDate, Map<String, BigDecimal>> crDrByDateRole = toDateRoleMap(
+                dashboardDao.aggregateCrDrByRoleAndDate(tenantIds, dateFrom, dateTo, roles, currency));
+
+        return buildTrendPoints(dateFrom, dateTo, winLossByDateRole, crDrByDateRole);
+    }
+
+    /** One point per day in [dateFrom, dateTo]; a day missing from both maps still comes back as zero. */
+    private static List<DashboardTrendPointDTO> buildTrendPoints(LocalDate dateFrom, LocalDate dateTo,
+            Map<LocalDate, Map<String, BigDecimal>> winLossByDateRole, Map<LocalDate, Map<String, BigDecimal>> crDrByDateRole) {
         List<DashboardTrendPointDTO> points = new ArrayList<>();
         for (LocalDate date = dateFrom; !date.isAfter(dateTo); date = date.plusDays(1)) {
             Map<String, BigDecimal> winLossByRole = winLossByDateRole.getOrDefault(date, Map.of());
@@ -168,12 +231,13 @@ public class DashboardServiceImpl implements DashboardService {
         return new LocalDate[]{previousDateFrom, previousDateTo};
     }
 
-    private ProfitExpenses computeProfitExpenses(Integer tenantId, LocalDate dateFrom, LocalDate dateTo, String currency) {
+    private ProfitExpenses computeProfitExpenses(List<Integer> tenantIds, LocalDate dateFrom, LocalDate dateTo,
+                                                  String currency) {
         List<String> roles = List.of(ROLE_PROFIT, ROLE_EXPENSES);
         Map<String, BigDecimal> winLossByRole = toRoleMap(
-                dashboardDao.aggregateWinLossByRole(tenantId, dateFrom, dateTo, roles, currency));
+                dashboardDao.aggregateWinLossByRole(tenantIds, dateFrom, dateTo, roles, currency));
         Map<String, BigDecimal> crDrByRole = toRoleMap(
-                dashboardDao.aggregateCrDrByRole(tenantId, dateFrom, dateTo, roles, currency));
+                dashboardDao.aggregateCrDrByRole(tenantIds, dateFrom, dateTo, roles, currency));
 
         BigDecimal profit = amountForRole(ROLE_PROFIT, winLossByRole, crDrByRole);
         BigDecimal expenses = amountForRole(ROLE_EXPENSES, winLossByRole, crDrByRole);

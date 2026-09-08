@@ -1,15 +1,15 @@
 # Dashboard KPI 卡片 — 接入 Spring Boot API
 
 > **范围**：Dashboard 页面 4 张 KPI 卡片（Profit / Expenses / Net Profit / Earnings）+ Trend Chart 走势图，
-> 单一 COMPANY 类型租户、单一货币这一种最简单场景。
+> 单一 COMPANY 类型租户 **以及** 同一 Group 标签下的 "Company: All" 多公司汇总，单一货币这一种最简单场景。
 > **新增后端**：`DashboardController` / `DashboardService(Impl)` / `DashboardDao` + `DashboardMapper.xml` +
-> `DashboardKpiDTO` / `DashboardKpiRoleAmount` / `DashboardTrendPointDTO` / `DashboardTrendRoleAmount`
+> `DashboardKpiDTO`（内嵌 `RoleAmount` 静态类）/ `DashboardTrendPointDTO`（内嵌 `RoleAmount` 静态类）
 > （新建文件，均在 `Count` 仓库）。
 > **前端改动**：`Count-frontend` 仓库的 `useDashboardPage.js` / `dashboardRoutePrefetch.js` /
-> `dashboardConstants.js` / `dashboardChart.jsx`——把 Dashboard 页面还在打的旧 PHP 接口换成 Spring，打不到
-> Spring 后端的功能（Group 汇总、Company All 合并、按币种拆分的 Earnings 面板、FX 换算）UI 组件保留挂载，
-> 但不再发请求，渲染成空/`-`。
-> **最后更新**：2026-09-09（新增第 8 节：Trend Chart 走势图）
+> `dashboardConstants.js` / `dashboardChart.jsx` / `loginScope.js`——把 Dashboard 页面还在打的旧 PHP 接口换成
+> Spring，打不到 Spring 后端的功能（Group 账本、Group-All、多公司 subset 合并、按币种拆分的 Earnings 面板、
+> FX 换算）UI 组件保留挂载，但不再发请求，渲染成空/`-`。
+> **最后更新**：2026-09-10（新增第 9 节：Company: All 多公司汇总；DTO 合并成 2 个文件，行映射类型改用内嵌静态类）
 
 ---
 
@@ -24,6 +24,7 @@
 6. [尚未覆盖的范围](#6-尚未覆盖的范围)
 7. [KPI 卡片"较上一期"百分比对比功能](#7-kpi-卡片较上一期百分比对比功能)
 8. [Trend Chart 走势图](#8-trend-chart-走势图)
+9. [Company: All 多公司汇总](#9-company-all-多公司汇总)
 
 ---
 
@@ -162,7 +163,7 @@ GET /api/dashboard/kpi?tenant_id=&date_from=&date_to=&currency=
 | Controller | `backend/src/main/java/com/eazycount/controller/DashboardController.java` | 接收 4 个参数；`tenant_id` 为 code 时复用 `TenantDao.findTenantByCode` 解析成 id（跟 `TenantOwnershipController` 同款写法） |
 | Service | `backend/src/main/java/com/eazycount/service/impl/DashboardServiceImpl.java` | 核心计算逻辑（见下） |
 | Dao / Mapper | `backend/src/main/java/com/eazycount/dao/DashboardDao.java` + `backend/src/main/resources/mybatis/DashboardMapper.xml` | 两条聚合 SQL（Win/Loss、Cr/Dr）+ 两条股权查询（当前 / 历史） |
-| DTO | `backend/src/main/java/com/eazycount/dto/DashboardKpiDTO.java`、`DashboardKpiRoleAmount.java` | 响应体 / SQL 行映射 |
+| DTO | `backend/src/main/java/com/eazycount/dto/DashboardKpiDTO.java`（含内嵌静态类 `DashboardKpiDTO.RoleAmount`） | 响应体 / SQL 行映射，原本 `DashboardKpiRoleAmount.java`/`DashboardTrendRoleAmount.java` 两个独立文件已合并成内嵌静态类，DTO 从 4 个文件减到 2 个 |
 
 ### 计算逻辑
 
@@ -201,7 +202,8 @@ GET /api/dashboard/kpi?tenant_id=&date_from=&date_to=&currency=
 - **Trend Chart 数字**：单独一个 `useEffect` 打 `GET api/dashboard/chart`，细节见第 8 节
 - **Currency 选择器**：`fetchCompanyAccountCurrencyCodes(companyId)`（`~L317`）改成调 `fetchCurrencyListByTenantId()`（Spring `POST /api/currency/list?tenant_id=`），过滤掉 `status=INACTIVE` 的币种。`loadCurrencies` 主函数里原本内联直接打 `get_scope_account_currencies_api.php` 那处（`~L3010` 附近），只要选中了具体一家公司（`singleCid` 非空且不是纯 Group 账本模式）就改走这个新函数。
 - **Company 切换**：`syncCompanySession()`（`~L2324`）改成调 `syncCompanySessionApi()`（`utils/company/companySessionSync.js`，本来就是项目里已经迁移好、其他页面在用的 Spring `POST /auth/switch-tenant`），不再手写一份打 PHP 的 fetch。
-- 其它场景（Group 账本、Company All、Group All、多公司合并）目前**没有 Spring 后端**：
+- **Company: All（同一 Group 下多公司汇总）** 已接上 Spring，细节见第 9 节，不再是"没有后端"的场景。
+- 其它场景（纯 Group 账本、Group-All、多公司 subset 合并）目前**仍然没有 Spring 后端**：
   - KPI 数字：`springKpiData` 直接清空，卡片显示为空 / `-`
   - Trend Chart：`springTrendData` 同样直接清空，`chartRows` 落到 `dashboardData`（本来就是 null）→ 空 → 零骨架兜底
   - Currency：`fetchCompanyCurrencySettingCodes()` 改成直接 `return []`，不再发请求；`loadCurrencies` 里 Company All 合并那个分支同样跳过请求，`codes` 留空
@@ -224,10 +226,13 @@ GET /api/dashboard/kpi?tenant_id=&date_from=&date_to=&currency=
 
 | Spring 接口 | 用途 |
 |---|---|
-| `GET /api/dashboard/kpi` | **本次新建**，4 张 KPI 卡片的核心数据源 |
+| `GET /api/dashboard/kpi` | 4 张 KPI 卡片的核心数据源（单一公司） |
+| `GET /api/dashboard/chart` | Trend Chart 走势图数据源（单一公司，按天），见第 8 节 |
+| `GET /api/dashboard/kpi-all` | Profit/Expenses/Net Profit 多公司汇总，见第 9 节 |
+| `GET /api/dashboard/chart-all` | Trend Chart 多公司汇总（按天），见第 9 节 |
 | `POST /api/currency/list?tenant_id=` | 已有接口，这次第一次接到 Dashboard 单公司货币选择器上 |
 | `POST /auth/switch-tenant` | 已有接口（其他页面已在用），这次接到 Dashboard 的公司切换上 |
-| `GET /auth/tenant-accessible` | 不受这次改动影响——Company 那一排 chip 列表本来就走这个接口（`fetchOwnerCompaniesAll`），跟 Dashboard KPI 迁移无关 |
+| `GET /auth/tenant-accessible` | 不受这次改动影响——Company 那一排 chip 列表本来就走这个接口（`fetchOwnerCompaniesAll`），跟 Dashboard KPI 迁移无关；但第 9 节 "Company: All" 复用的正是这个接口已经做对的权限过滤（见第 9.3 节） |
 
 **踩过的坑**：`POST /api/currency/available`（返回 `is_linked` 字段）**不能**用来做这个货币选择器——`is_linked` 只有传了具体 `account_id` 才有意义，不传的话后端永远返回 `false`，会导致货币列表整个消失（这次真的踩了一次，发现后改回 `/api/currency/list`）。
 
@@ -287,10 +292,12 @@ GET /api/dashboard/kpi?tenant_id=&date_from=&date_to=&currency=
 
 以下功能这次都**明确没做**，UI 组件保留挂载，但不会发请求、显示为空/`-`：
 
-- Group 账本（group ledger）、Company All / Group All 合并视图、多公司 subset 合并场景的 KPI 计算和 Trend Chart
+- 纯 Group 账本（group ledger，无 Group 内具体公司）、Group-All（跨多个 Group 标签合并）、多公司 subset 合并场景的 KPI 计算和 Trend Chart——只有"同一 Group 标签下 Company: All"这一种多公司场景做了（见第 9 节），这几种更复杂的合并场景还没做
+- "Company: All" 场景（第 9 节）下的 Currency 选择器——这次只做了 Profit/Expenses/Net Profit/Trend 的数字，货币选择器那边 `fetchCompanyCurrencySettingCodes()` 还是直接返回空数组，没有验证 Company:All 模式下切换货币会不会正常工作
 - Earnings 按币种拆分的圆环图 + Currency/Amount/Original Amount/Rate 明细列表
 - FX 汇率换算（`frankfurterRates.js`）
 - Group 级别的股权链路（`tenant_ownership.owner_type='group'`、多层集团路径连乘）——`DashboardServiceImpl` 目前只处理 `owner`/`user` 两种直接持股，`group` 那条链路完全没接
+- "Company: All" 场景下的 Earnings 卡片、"较上一期"对比——`getKpiForCompanies()`/`getTrendForCompanies()` 都没有算这两样（不是漏做，是这次明确商量好不做，见第 9.1 节）
 
 以下部分**代码已经写了，但这次没有拿真实数据交叉验证过**，如果之后发现数字不对可以从这里查起：
 
@@ -373,7 +380,7 @@ GET /api/dashboard/chart?tenant_id=&date_from=&date_to=&currency=
 | Controller | `DashboardController.java` `getTrend()` | 路径 `/api/dashboard/chart`，参数跟 `/kpi` 完全一样（`tenant_id`/`date_from`/`date_to`/`currency`） |
 | Service | `DashboardServiceImpl.java` `getTrend()` | 见下面的计算逻辑 |
 | Dao / Mapper | `DashboardDao.java` `aggregateWinLossByRoleAndDate`/`aggregateCrDrByRoleAndDate` + `DashboardMapper.xml` 对应 SQL | 跟 KPI 卡片用的 `aggregateWinLossByRole`/`aggregateCrDrByRole` **完全同一套业务规则**（WIN/LOSE/ADJUSTMENT、手动PROFIT转账、RATE中间人手续费两种格式、CLEAR排除、货币过滤），唯一区别是 SQL 的 `SELECT`/`GROUP BY` 多加了 `t.transaction_date`，按"日期+role"分组，不是只按 role 分组成一个总数 |
-| DTO | `DashboardTrendPointDTO`（响应用，`date`/`profit`/`expenses`/`netProfit`）、`DashboardTrendRoleAmount`（SQL 行映射用，多一个 `date` 字段） | |
+| DTO | `DashboardTrendPointDTO`（响应用，`date`/`profit`/`expenses`/`netProfit`）+ 内嵌静态类 `DashboardTrendPointDTO.RoleAmount`（SQL 行映射用，`date`+`role`+`amount`） | |
 
 **计算逻辑**：
 - `tenant_type != COMPANY` → 直接返回空数组 `[]`（不是像 KPI 那样返回"全 null 的一个对象"，因为这是个数组接口，空数组就是"没有数据"最自然的表达，前端会自己落到零骨架兜底）
@@ -398,3 +405,75 @@ GET /api/dashboard/chart?tenant_id=&date_from=&date_to=&currency=
 
 - Earnings 走势线的"全区间统一乘数"简化处理，没有拿"股权比例在区间中途变过"的真实场景测过
 - `springTrendData` 没有做旧版 `paintedSummaryRef`/`scopeDataPending` 那套"冻结上一次画面直到新数据到位"的机制——切换公司/日期的一瞬间可能有极短暂的"旧数据+新日期标签"不匹配，跟 `springKpiData` 当初的简化处理是同一个决定，不是这次新增的问题
+
+---
+
+## 9. Company: All 多公司汇总
+
+> 范围：**只支持"当前选中的 Group 标签下所有公司"这一种"All"**——比如 `Group ID: IG` + `Company: All`，
+> 汇总的是 IG 组下面的那几家公司（95/AG/CX/RS/VG），不属于 IG 的公司（AP 组的、或没分组的 C168）不算进去。
+> 不支持 Group-All（跨多个 Group 合并）、多公司 subset 合并、纯 Group 账本这几种更复杂的场景，见第 6 节。
+
+### 9.1 需求原话
+
+> "这个 All 的功能是将对应的 currency 数据 + 所有公司的 Profit, Expenses 进行汇总然后再相减就得到了 Net Profit。
+> 比如我选择的 Currency 为 MYR, 那么就只会拿所有公司的 MYR Profit 数据进行汇总以及 Expenses 金额数据，
+> 然后再用 Total Profit − Total Expenses = Total NetProfit"——只要在当前 Group 下所有 Company，不在当前
+> Group 的（比如 AP、C168）不进入 All 范围；Earnings 卡片先不管；Trend Chart 逻辑跟单公司一样，只是把
+> "一家公司每天的流水"换成"这个 Group 下所有公司每天流水的总和"。
+
+### 9.2 设计决策：为什么不在后端重新判断"哪些公司属于这个 Group"
+
+这次专门讨论过这一点：后端**不**自己去查 `tenant.parent_id` 之类的字段反推"IG 组下有哪些公司"，而是让前端把已经算好、并且**已经做了权限过滤**的公司 id 列表直接传过来（`GET .../kpi-all?tenant_ids=1,2,3&...`），后端只管照单加总。原因：
+
+1. **避免出现第二套"谁能看哪家公司"的判断逻辑**。前端 `resolveMergeCompanyList()` 内部本来就会跑 `filterCompaniesForDashboardApiAccess()`（就是不久前修过 JK 账号权限 bug 的那个函数），如果后端自己重新用 `tenant.parent_id` 查一遍"IG 组下所有公司"，两边的口径万一将来改岔了（比如某个 admin 的权限被收回、某公司被移出 Group），后端算出来的汇总数字就可能包含这个用户本不该看到的公司，属于数据泄漏风险。
+2. **旧系统卡顿的教训**：怀疑旧版是"每家公司、甚至每种货币各发一次请求"（比如 5 家公司 × 3 种货币 = 15 次请求），这次改成前端只发**一次**请求，后端用一条 SQL（`tenant_id IN (...)`）把所有公司的数字直接在数据库里加总，不在应用层循环、也不用多次网络往返。
+
+### 9.3 后端
+
+```
+GET /api/dashboard/kpi-all?tenant_ids=1,2,3&date_from=&date_to=&currency=
+GET /api/dashboard/chart-all?tenant_ids=1,2,3&date_from=&date_to=&currency=
+```
+
+`tenant_ids` 是逗号分隔的数字 tenant.id 列表，不支持公司 code（跟 `/kpi`/`/chart` 那两个单公司接口不一样，那两个还支持传 "C168" 这种 code 走 `resolveTenantId()` 解析——`kpi-all`/`chart-all` 直接要求数字 id，因为调用方（前端）本来就是从 `companies` 数组里拿现成的数字 `id`，不需要再走一次 code 查找）。
+
+**核心改动：`DashboardDao` 两组聚合方法的 `tenantId: Integer` 全部泛化成 `tenantIds: List<Integer>`**——单公司场景传 `List.of(tenantId)`（只有 1 个元素），"All"场景传一批。四个方法全部改了：
+
+| 方法 | 用途 | Mapper 里的改动 |
+|---|---|---|
+| `aggregateWinLossByRole` | KPI 卡片 Win/Loss 桶 | `WHERE t.tenant_id = #{tenantId}` → `WHERE t.tenant_id IN (...)` |
+| `aggregateCrDrByRole` | KPI 卡片 Cr/Dr 桶 | 同上 |
+| `aggregateWinLossByRoleAndDate` | Trend Chart Win/Loss 桶 | 同上，多按 `transaction_date` 分组 |
+| `aggregateCrDrByRoleAndDate` | Trend Chart Cr/Dr 桶 | 同上 |
+
+**CASE WHEN 判断逻辑、CLEAR 排除、RATE 中间人手续费、货币过滤这些规则一个字都没改**——只是把 `tenant_id = ?` 换成 `tenant_id IN (...)`，数据库自然会把多家公司的行放在一起求和，不需要额外的"按公司分组再在 Java 里加一遍"这一步。
+
+`DashboardServiceImpl` 新增：
+- `getKpiForCompanies(tenantIds, dateFrom, dateTo, currencyCode)`：复用 `computeProfitExpenses()`（跟 `getKpi()` 内部用的是同一个私有方法，只是这次传进去的是多元素列表），返回 `DashboardKpiDTO`，只填 `profit`/`expenses`/`netProfit`，`showEarnings` 固定 `false`，**不算"较上一期"对比**（这两样都不是这次要的，`previous*` 字段全部留空）
+- `getTrendForCompanies(tenantIds, dateFrom, dateTo, currencyCode)`：跟 `getTrend()` 复用同一个新抽出来的私有方法 `buildTrendPoints()`（原本 `getTrend()` 里"按天补 0"那段循环直接抽出来共用，不用两份一样的代码）
+
+`Net Profit = profit.add(expenses)`（不是减法）——跟单公司那套的约定完全一致，`expenses` 汇总完还是负数，加法即可，不需要另外判断"多公司汇总时符号会不会不一样"（不会，每家公司自己的 `expenses` 已经是负的，负数加负数还是负数）。
+
+### 9.4 验证过的例子
+
+拿 Company 95（tenant_id=2，已验证 Profit=71,253.36）+ Company AG（tenant_id=5，已验证 Profit=279,873.94，含 RATE 中间人手续费 28,295）一起传 `tenant_ids=2,5`，MYR，2026-08：
+
+- **KPI 汇总**：Profit = 351,127.30（= 71,253.36 + 279,873.94，分毫不差），Expenses = −132,533.00（= −45,033.00 + −87,500.00）
+- **按天汇总**（Trend）：同样的 `tenant_id IN (2,5)` 条件按 `transaction_date` 分组后再加总，Profit 总和还是 351,127.30，Expenses 总和还是 −132,533.00——**说明按公司合并、按日期拆分这两个维度互不干扰，怎么切都是同一个总数**。
+
+### 9.5 前端
+
+`Count-frontend/src/pages/dashboard/hooks/useDashboardPage.js`：
+
+- **范围判断**：`groupAllMode`（项目里现成的 state，语义就是"Company: All 且已经选中了某个 Group 标签"）
+- **公司 id 列表**：新增 `groupAllTenantIds`（`useMemo`），直接复用现成的 `resolveMergeCompanyList()` 拿到当前 Group 下、当前登录身份有权限看的公司行，再取 `.id`。这个函数内部已经在跑 `filterCompaniesForDashboardApiAccess()`，所以取出来的列表本身就是权限过滤过的（呼应 9.2 的设计决策）
+- **KPI**：新增 `springKpiAllData`/`springKpiAllLoading` state + `useEffect`，`groupAllMode` 为真时打 `GET api/dashboard/kpi-all`；`kpi` useMemo 加了 `groupAllMode` 分支，直接读 `springKpiAllData.profit/expenses/netProfit`，`showEarnings=false`，`comparisons={}`（这个视图没有"较上一期"对比，卡片自然不会显示涨跌箭头）
+- **Trend**：新增 `springTrendAllData`/`springTrendAllLoading` state + `useEffect`，打 `GET api/dashboard/chart-all`；`chartRows` useMemo 加了 `groupAllMode` 分支，**复用跟单公司完全同一个** `buildSpringTrendChartRows()` 构建函数（Earnings 乘数固定传 `0`，因为这个场景没有 Earnings）——这个函数本来就不关心数字是一家公司算出来的还是好几家公司加总算出来的，不需要为"All"另外写一份
+- `kpiLoading` 加上了 `groupAllMode && springKpiAllLoading` 的判断，卡片 loading 状态跟 KPI-all 请求对上
+
+### 9.6 尚未覆盖 / 未验证
+
+- **Currency 选择器**：这次只做了金额数字，`fetchCompanyCurrencySettingCodes()`（groupAllMode 下货币列表的来源之一）之前已经被短路成直接返回空数组，这次没有去验证 Company:All 模式下切换货币这个交互本身还能不能正常工作——如果测出来货币选不了或选了没反应，从这里查起
+- **Earnings 卡片**、**"较上一期"对比**：`getKpiForCompanies()`/`getTrendForCompanies()` 都没有算，是这次明确商量好先不做的，不是漏了
+- 只验证过 2 家公司加总（95+AG）的场景，没有测过 5 家公司同时加总，理论上 SQL `IN (...)` 加再多个 id 都是同一个查询模式，但没有拿真实的 5 家公司数据跑过一遍对总数

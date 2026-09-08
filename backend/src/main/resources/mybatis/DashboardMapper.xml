@@ -57,7 +57,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
               AND t.transaction_date &lt;= #{dateTo}
@@ -74,7 +77,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
               AND t.transaction_date &lt;= #{dateTo}
@@ -91,7 +97,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.from_account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.from_account_id IS NOT NULL
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
@@ -110,7 +119,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
               AND t.transaction_date &lt;= #{dateTo}
@@ -133,7 +145,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.from_account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.from_account_id IS NOT NULL
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
@@ -160,7 +175,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
               AND t.transaction_date &lt;= #{dateTo}
@@ -178,7 +196,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.from_account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.from_account_id IS NOT NULL
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
@@ -198,7 +219,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.from_account_id IS NOT NULL
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
@@ -231,7 +255,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
               AND t.transaction_date &lt;= #{dateTo}
@@ -248,7 +275,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
               AND t.transaction_date &lt;= #{dateTo}
@@ -265,7 +295,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.from_account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.from_account_id IS NOT NULL
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
@@ -284,7 +317,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
               AND t.transaction_date &lt;= #{dateTo}
@@ -305,7 +341,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.from_account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.from_account_id IS NOT NULL
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
@@ -330,7 +369,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
               AND t.transaction_date &lt;= #{dateTo}
@@ -348,7 +390,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.from_account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.from_account_id IS NOT NULL
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
@@ -368,7 +413,10 @@
             FROM transactions t
             INNER JOIN account a ON a.id = t.account_id
             INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id = #{tenantId}
+            WHERE t.tenant_id IN
+            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+                #{tid}
+            </foreach>
               AND t.from_account_id IS NOT NULL
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
