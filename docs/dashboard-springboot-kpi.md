@@ -1,14 +1,15 @@
 # Dashboard KPI 卡片 — 接入 Spring Boot API
 
-> **范围**：Dashboard 页面 4 张 KPI 卡片（Profit / Expenses / Net Profit / Earnings），单一 COMPANY 类型租户、
-> 单一货币这一种最简单场景。
+> **范围**：Dashboard 页面 4 张 KPI 卡片（Profit / Expenses / Net Profit / Earnings）+ Trend Chart 走势图，
+> 单一 COMPANY 类型租户、单一货币这一种最简单场景。
 > **新增后端**：`DashboardController` / `DashboardService(Impl)` / `DashboardDao` + `DashboardMapper.xml` +
-> `DashboardKpiDTO` / `DashboardKpiRoleAmount`（新建文件，均在 `Count` 仓库）。
+> `DashboardKpiDTO` / `DashboardKpiRoleAmount` / `DashboardTrendPointDTO` / `DashboardTrendRoleAmount`
+> （新建文件，均在 `Count` 仓库）。
 > **前端改动**：`Count-frontend` 仓库的 `useDashboardPage.js` / `dashboardRoutePrefetch.js` /
-> `dashboardConstants.js`——把 Dashboard 页面还在打的旧 PHP 接口换成 Spring，打不到 Spring 后端的功能
-> （Group 汇总、Company All 合并、Trend Chart、按币种拆分的 Earnings 面板、FX 换算）UI 组件保留挂载，
+> `dashboardConstants.js` / `dashboardChart.jsx`——把 Dashboard 页面还在打的旧 PHP 接口换成 Spring，打不到
+> Spring 后端的功能（Group 汇总、Company All 合并、按币种拆分的 Earnings 面板、FX 换算）UI 组件保留挂载，
 > 但不再发请求，渲染成空/`-`。
-> **最后更新**：2026-09-09（新增第 7 节：KPI 卡片"较上一期"百分比对比功能）
+> **最后更新**：2026-09-09（新增第 8 节：Trend Chart 走势图）
 
 ---
 
@@ -22,6 +23,7 @@
 5. [Bug 修复记录（按时间顺序）](#5-bug-修复记录按时间顺序)
 6. [尚未覆盖的范围](#6-尚未覆盖的范围)
 7. [KPI 卡片"较上一期"百分比对比功能](#7-kpi-卡片较上一期百分比对比功能)
+8. [Trend Chart 走势图](#8-trend-chart-走势图)
 
 ---
 
@@ -196,12 +198,14 @@ GET /api/dashboard/kpi?tenant_id=&date_from=&date_to=&currency=
   - 请求：`GET api/dashboard/kpi?tenant_id=&date_from=&date_to=&currency=`（`currency` 用的是页面已有的"当前选中币种" state `currencyCode`）
   - 没有走 `dashboard_bootstrap_api` 那套 cache / dedup / prefetch 机制，故意做得很简单（`dashboardRoutePrefetch.js` 里对应的预热函数 `warmDashboardRouteCache` 已改成显式 no-op）
   - 消费端（`~L8734`）：`springKpiData.profit/expenses/netProfit/showEarnings/earnings` 原样透传给 KPI 卡片，前端不做二次计算（旧版 `computeKpiMetrics()`/股权乘数换算那套客户端逻辑，这条路径完全不再走）；`previous*` 字段用来建 `comparisons`（百分比对比），细节见第 7 节
+- **Trend Chart 数字**：单独一个 `useEffect` 打 `GET api/dashboard/chart`，细节见第 8 节
 - **Currency 选择器**：`fetchCompanyAccountCurrencyCodes(companyId)`（`~L317`）改成调 `fetchCurrencyListByTenantId()`（Spring `POST /api/currency/list?tenant_id=`），过滤掉 `status=INACTIVE` 的币种。`loadCurrencies` 主函数里原本内联直接打 `get_scope_account_currencies_api.php` 那处（`~L3010` 附近），只要选中了具体一家公司（`singleCid` 非空且不是纯 Group 账本模式）就改走这个新函数。
 - **Company 切换**：`syncCompanySession()`（`~L2324`）改成调 `syncCompanySessionApi()`（`utils/company/companySessionSync.js`，本来就是项目里已经迁移好、其他页面在用的 Spring `POST /auth/switch-tenant`），不再手写一份打 PHP 的 fetch。
 - 其它场景（Group 账本、Company All、Group All、多公司合并）目前**没有 Spring 后端**：
   - KPI 数字：`springKpiData` 直接清空，卡片显示为空 / `-`
+  - Trend Chart：`springTrendData` 同样直接清空，`chartRows` 落到 `dashboardData`（本来就是 null）→ 空 → 零骨架兜底
   - Currency：`fetchCompanyCurrencySettingCodes()` 改成直接 `return []`，不再发请求；`loadCurrencies` 里 Company All 合并那个分支同样跳过请求，`codes` 留空
-  - Trend Chart、Earnings 按币种拆分的圆环图 + 列表、FX 汇率换算（`frankfurterRates.js`）：组件保留挂载，只是没有数据源，渲染空/零状态
+  - Earnings 按币种拆分的圆环图 + 列表、FX 汇率换算（`frankfurterRates.js`）：组件保留挂载，只是没有数据源，渲染空/零状态
 
 ---
 
@@ -283,8 +287,7 @@ GET /api/dashboard/kpi?tenant_id=&date_from=&date_to=&currency=
 
 以下功能这次都**明确没做**，UI 组件保留挂载，但不会发请求、显示为空/`-`：
 
-- Group 账本（group ledger）、Company All / Group All 合并视图、多公司 subset 合并场景的 KPI 计算
-- Trend Chart（走势图）
+- Group 账本（group ledger）、Company All / Group All 合并视图、多公司 subset 合并场景的 KPI 计算和 Trend Chart
 - Earnings 按币种拆分的圆环图 + Currency/Amount/Original Amount/Rate 明细列表
 - FX 汇率换算（`frankfurterRates.js`）
 - Group 级别的股权链路（`tenant_ownership.owner_type='group'`、多层集团路径连乘）——`DashboardServiceImpl` 目前只处理 `owner`/`user` 两种直接持股，`group` 那条链路完全没接
@@ -336,3 +339,62 @@ GET /api/dashboard/kpi?tenant_id=&date_from=&date_to=&currency=
 | 正常百分比变化 | `↑12.3%` / `↓8.5%` |
 | 上一期基准值很小、真实百分比被砍到 ±999.9 上限 | `↓999.9+%`（`+` 表示"封顶值，不是精确数字"） |
 | 上一期是 0，当期非 0（没有基准可比） | 目前沿用旧逻辑显示 `↑100%`/`↓100%`（**这个不算精确，只是"从无到有"的占位显示**，跟"封顶"是两回事，讨论时明确说过这个不用加 `+`；如果以后想改成"N/A"/"新增"这种更诚实的显示，需要另外改 `kpi` useMemo 让 `comparisons` 对应字段整个不生成，而不是改 `kpiPercentChange` 本身） |
+
+---
+
+## 8. Trend Chart 走势图
+
+> 范围跟 KPI 卡片一样：只支持单一 COMPANY 租户、单一货币。没有 Earnings 之外的按币种拆分、没有 FX 换算。
+
+### 8.1 后端
+
+```
+GET /api/dashboard/chart?tenant_id=&date_from=&date_to=&currency=
+```
+
+响应：
+```json
+{
+  "status": "success",
+  "success": true,
+  "message": "",
+  "data": [
+    { "date": "2026-08-01", "profit": 1762.85, "expenses": 0, "netProfit": 1762.85 },
+    { "date": "2026-08-02", "profit": 40022.37, "expenses": 0, "netProfit": 40022.37 },
+    { "date": "2026-08-03", "profit": 0, "expenses": 0, "netProfit": 0 }
+  ]
+}
+```
+
+**接口命名**：最初讨论时说的是 `dashboard/trend`，实际写代码时落地成了 `/api/dashboard/chart`（`DashboardController#getTrend` 方法名还叫 `getTrend`，只是 `@GetMapping` 路径是 `/chart`），这里以磁盘上实际生效的路径为准。
+
+| 层 | 文件 | 作用 |
+|----|------|------|
+| Controller | `DashboardController.java` `getTrend()` | 路径 `/api/dashboard/chart`，参数跟 `/kpi` 完全一样（`tenant_id`/`date_from`/`date_to`/`currency`） |
+| Service | `DashboardServiceImpl.java` `getTrend()` | 见下面的计算逻辑 |
+| Dao / Mapper | `DashboardDao.java` `aggregateWinLossByRoleAndDate`/`aggregateCrDrByRoleAndDate` + `DashboardMapper.xml` 对应 SQL | 跟 KPI 卡片用的 `aggregateWinLossByRole`/`aggregateCrDrByRole` **完全同一套业务规则**（WIN/LOSE/ADJUSTMENT、手动PROFIT转账、RATE中间人手续费两种格式、CLEAR排除、货币过滤），唯一区别是 SQL 的 `SELECT`/`GROUP BY` 多加了 `t.transaction_date`，按"日期+role"分组，不是只按 role 分组成一个总数 |
+| DTO | `DashboardTrendPointDTO`（响应用，`date`/`profit`/`expenses`/`netProfit`）、`DashboardTrendRoleAmount`（SQL 行映射用，多一个 `date` 字段） | |
+
+**计算逻辑**：
+- `tenant_type != COMPANY` → 直接返回空数组 `[]`（不是像 KPI 那样返回"全 null 的一个对象"，因为这是个数组接口，空数组就是"没有数据"最自然的表达，前端会自己落到零骨架兜底）
+- 把 `aggregateWinLossByRoleAndDate`/`aggregateCrDrByRoleAndDate` 的结果 nest 成 `Map<LocalDate, Map<role, amount>>`，然后**从 `dateFrom` 循环到 `dateTo`（含首尾）**，每一天都算一次 `profit = winLoss(day,PROFIT)+crDr(day,PROFIT)`、`expenses` 同理、`netProfit = profit.add(expenses)`——**区间内哪怕某天完全没交易也会补一个全 0 的点**，不会让前端拿到的数组有洞
+- 不算 Earnings（这条线是前端自己拿 KPI 卡片的 `earningsPercentage` 乘出来的，见 8.2）
+- 不算"较上一期"对比（那是 KPI 卡片专属概念，走势图不需要）
+
+**验证过的例子**：Company AG（tenant_id=5），MYR，2026-08，按日期把所有 PROFIT 金额加起来 = 279,873.94——跟 KPI 卡片验证过的总数（含 RATE 中间人手续费那 28,295，分布在 3 个不同日期）完全一致，说明按日期拆分没有破坏原来验证过的求和结果。
+
+### 8.2 前端
+
+`Count-frontend/src/pages/dashboard/hooks/useDashboardPage.js`：
+- 新增 `springTrendData`/`springTrendLoading` state + 独立的 `useEffect`，触发条件跟 KPI fetch 一样（`isSingleCompanyKpiScope`），打 `GET api/dashboard/chart`
+- `chartRows` useMemo 分支：`isSingleCompanyKpiScope` 时用新的 `buildSpringTrendChartRows()`；其它场景继续走旧的 `buildChartRows(dashboardData, ...)`（`dashboardData` 本来就是 null，落到零骨架兜底，行为没变）
+
+`Count-frontend/src/pages/dashboard/lib/dashboardChart.jsx` 新增 `buildSpringTrendChartRows(trendPoints, startYmd, endYmd, locale, earningsMultiplier)`：
+- **没有复用**旧的 `buildChartMetricRow()`——那个函数是按旧 PHP `daily_data` 的约定写的，会把 `expenses` 当成"原始正数，前端自己转负号"（`expensesDelta > 0 ? -expensesDelta : expensesDelta`），但新接口的 `expenses` 已经是最终带符号的数字了，直接套旧函数会把符号转错一次（这次全程贯彻的"新接口出来的数字不做二次符号转换"原则，KPI 卡片那次也是同样处理）
+- 按天/按月的判断和聚合逻辑复用了现成的 `shouldAggregateChartByMonth`/`eachMonthInRange`/`eachDateInRange`/`formatChartMonthLabel`（纯日期工具，不含符号假设，可以放心复用）——区间长就按月把每天的数字加总，短就直接按天显示，这个"按天转按月"的颗粒度判断规则完全没变，只是喂给它的数据源换了
+- **Earnings 那条线**：走势图本身没有单独接口给这条线，是拿 `kpi.showEarnings` + `springKpiData.earningsPercentage` 算一个乘数，乘到每天的 `netProfit` 上（`earnings = netProfit × earningsMultiplier`）——**全区间用同一个百分比**，不会按每天实际的股权配置去查（如果股权在区间中途变过，这条线会不准，但这是旧版 PHP 时代就有的简化处理，不是这次新引入的偷懒，见旧版 `buildChartMetricRow` 同款逻辑）
+
+### 8.3 尚未验证 / 已知简化
+
+- Earnings 走势线的"全区间统一乘数"简化处理，没有拿"股权比例在区间中途变过"的真实场景测过
+- `springTrendData` 没有做旧版 `paintedSummaryRef`/`scopeDataPending` 那套"冻结上一次画面直到新数据到位"的机制——切换公司/日期的一瞬间可能有极短暂的"旧数据+新日期标签"不匹配，跟 `springKpiData` 当初的简化处理是同一个决定，不是这次新增的问题

@@ -3,6 +3,7 @@ package com.eazycount.controller;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.TenantDao;
 import com.eazycount.dto.DashboardKpiDTO;
+import com.eazycount.dto.DashboardTrendPointDTO;
 import com.eazycount.entity.Tenant;
 import com.eazycount.service.DashboardService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -61,6 +63,30 @@ public class DashboardController {
             body.put("success", true);
             body.put("message", "");
             body.put("data", kpi);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
+    @GetMapping("/chart")
+    public ResponseEntity<Map<String, Object>> getTrend(
+            @RequestParam(value = "tenant_id", required = true) String tenantIdStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "currency", required = true) String currency) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        try {
+            Integer tenantId = resolveTenantId(tenantIdStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+
+            List<DashboardTrendPointDTO> trend = dashboardService.getTrend(tenantId, dateFrom, dateTo, currency);
+
+            body.put("status", "success");
+            body.put("success", true);
+            body.put("message", "");
+            body.put("data", trend);
             return ResponseEntity.ok(body);
         } catch (BusinessException e) {
             return error(e.getMessage());

@@ -1,6 +1,7 @@
 package com.eazycount.dao;
 
-import com.eazycount.dto.DashboardKpiRoleAmount;
+import com.eazycount.dto.DashboardKpiDTO;
+import com.eazycount.dto.DashboardTrendPointDTO;
 import com.eazycount.entity.TenantOwnership;
 import com.eazycount.entity.TenantOwnershipHistory;
 import org.apache.ibatis.annotations.Mapper;
@@ -14,19 +15,36 @@ import java.util.List;
 public interface DashboardDao {
 
     // Win/Loss bucket per account.role: WIN(+)/LOSE(-)/ADJUSTMENT(as stored) on account_id,
-    // plus manual PROFIT-type transfers (To -, From +) — same bucketing as TransactionSearchMapper.
+    // plus manual PROFIT-type transfers (To -, From +).
+    //----------------------------------------------------------------------------------------------------
+    // Cr/Dr bucket per account.role: PAYMENT/CLAIM/CONTRA/RATE(main leg only), To(-)/From(+).
+    // CLEAR is intentionally excluded — Dashboard KPI never counts CLEAR for PROFIT/EXPENSES.
+    //----------------------------------------------------------------------------------------------------
     // currencyCode scopes to one currency — amounts in different currencies must never be summed together.
-    List<DashboardKpiRoleAmount> aggregateWinLossByRole(
+    List<DashboardKpiDTO.RoleAmount> aggregateWinLossByRole(
             @Param("tenantId") Integer tenantId,
             @Param("dateFrom") LocalDate dateFrom,
             @Param("dateTo") LocalDate dateTo,
             @Param("roles") List<String> roles,
             @Param("currencyCode") String currencyCode);
 
-    // Cr/Dr bucket per account.role: PAYMENT/CLAIM/CONTRA/RATE(main leg only), To(-)/From(+).
-    // CLEAR is intentionally excluded — Dashboard KPI never counts CLEAR for PROFIT/EXPENSES.
-    // currencyCode scopes to one currency — amounts in different currencies must never be summed together.
-    List<DashboardKpiRoleAmount> aggregateCrDrByRole(
+    List<DashboardKpiDTO.RoleAmount> aggregateCrDrByRole(
+            @Param("tenantId") Integer tenantId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("roles") List<String> roles,
+            @Param("currencyCode") String currencyCode);
+
+    // Same Win/Loss bucket as aggregateWinLossByRole and Cr/Dr bucket as aggregateCrDrByRole (CLEAR still excluded),
+    // grouped by transaction_date as well as role — feeds the Trend Chart.
+    List<DashboardTrendPointDTO.RoleAmount> aggregateWinLossByRoleAndDate(
+            @Param("tenantId") Integer tenantId,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("roles") List<String> roles,
+            @Param("currencyCode") String currencyCode);
+
+    List<DashboardTrendPointDTO.RoleAmount> aggregateCrDrByRoleAndDate(
             @Param("tenantId") Integer tenantId,
             @Param("dateFrom") LocalDate dateFrom,
             @Param("dateTo") LocalDate dateTo,

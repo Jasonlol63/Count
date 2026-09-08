@@ -8,53 +8,35 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
-/**
- * Dashboard KPI cards for one company (tenant_type=COMPANY) over a date range, plus the same
- * numbers for the aligned "previous period" (see {@link com.eazycount.service.impl.DashboardServiceImpl}
- * for how the previous range is picked). Percentage-change / delta formatting is a frontend
- * concern — this DTO only ever hands back raw amounts for both periods.
- * Group-level rollup and per-currency breakdown are not implemented yet — for a
- * GROUP tenant every amount field comes back null ("-" on the frontend).
- */
+/** Dashboard KPI cards for one company, current + auto-aligned previous period. */
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 public class DashboardKpiDTO {
 
-    /** Sum of Win/Loss + Cr/Dr (CLEAR excluded) for account.role='PROFIT'. Null = unsupported (GROUP tenant). */
+    // Win/Loss + Cr/Dr for role='PROFIT', role='EXPENSES'. Null for GROUP tenants.
     private BigDecimal profit;
-
-    /** Sum of Win/Loss + Cr/Dr (CLEAR excluded) for account.role='EXPENSES'. Null = unsupported (GROUP tenant). */
     private BigDecimal expenses;
+    private BigDecimal netProfit;      // profit + expenses = net profit
 
-    /** profit - expenses (missing side treated as 0). Null = unsupported (GROUP tenant). */
-    private BigDecimal netProfit;
+    private boolean showEarnings;            // Whether the Earnings card should render for the current identity.
+    private BigDecimal earningsPercentage;   // Ownership % Earnings was multiplied by; null if showEarnings is false.
+    private BigDecimal earnings;             // netProfit * earningsPercentage/100 = earning
 
-    /** Whether the 4th KPI card (Earnings) should render for the current logged-in identity. */
-    private boolean showEarnings;
-
-    /** The ownership percentage the Earnings figure was multiplied by; null when showEarnings is false. */
-    private BigDecimal earningsPercentage;
-
-    /** netProfit * earningsPercentage/100; null when showEarnings is false. */
-    private BigDecimal earnings;
-
-    /** Start of the auto-aligned previous period used for the comparison figures below. */
     private LocalDate previousDateFrom;
-
-    /** End of the auto-aligned previous period used for the comparison figures below. */
     private LocalDate previousDateTo;
-
-    /** Same as {@link #profit} but for the previous period. */
     private BigDecimal previousProfit;
-
-    /** Same as {@link #expenses} but for the previous period. */
     private BigDecimal previousExpenses;
-
-    /** Same as {@link #netProfit} but for the previous period. */
     private BigDecimal previousNetProfit;
-
-    /** Same as {@link #earnings} but for the previous period; null whenever {@link #showEarnings} is false. */
     private BigDecimal previousEarnings;
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RoleAmount {
+        private String role;
+        private BigDecimal amount;
+    }
 }
