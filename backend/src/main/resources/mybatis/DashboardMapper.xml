@@ -17,8 +17,32 @@
         )
     </sql>
 
+    <!-- RATE 中间人手续费行（旧版 RATE_MIDDLEMAN_FEE 或 MARKUP X … 文本）——
+         与 TransactionSearchMapper 的 rateMiddlemanFeeDescription 同一份逻辑 -->
+    <sql id="dashboardRateMiddlemanFeeDescription">
+        (
+            t.description = 'RATE_MIDDLEMAN_FEE'
+            OR t.description LIKE 'MARKUP X %'
+        )
+    </sql>
+
+    <!-- RATE 中间人手续费行：同 rate_group 但非 leg1/leg2 —— 与 TransactionSearchMapper 的
+         rateMiddlemanFeeLeg 同一份逻辑 -->
+    <sql id="dashboardRateMiddlemanFeeLeg">
+        EXISTS (
+            SELECT 1
+            FROM transactions_rate tr
+            WHERE tr.tenant_id = t.tenant_id
+              AND tr.rate_group_id = t.rate_group_id
+              AND tr.middleman_account_id IS NOT NULL
+              AND t.id &lt;&gt; tr.leg1_transaction_id
+              AND t.id &lt;&gt; tr.leg2_transaction_id
+        )
+    </sql>
+
     <!-- Win/Loss 桶：WIN(+)/LOSE(-)/ADJUSTMENT(原样) 记在 account_id 一侧；
-         手动 PROFIT 类型转账 To(-)/From(+)，按 role 汇总 -->
+         手动 PROFIT 类型转账 To(-)/From(+)；RATE 中间人手续费 +amount（自己的收入，非 Cr/Dr）；
+         按 role 汇总；按币种过滤 —— 不同货币的 amount 不能直接相加，只统计 currencyCode 这一种货币 -->
     <select id="aggregateWinLossByRole" resultType="com.eazycount.dto.DashboardKpiRoleAmount">
         SELECT x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
         FROM (
@@ -32,11 +56,13 @@
                 END AS amt
             FROM transactions t
             INNER JOIN account a ON a.id = t.account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
             WHERE t.tenant_id = #{tenantId}
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
               AND t.transaction_date &lt;= #{dateTo}
               AND t.transaction_type IN ('WIN', 'LOSE', 'ADJUSTMENT')
+              AND UPPER(c.code) = UPPER(#{currencyCode})
               AND UPPER(a.role) IN
               <foreach collection="roles" item="r" open="(" separator="," close=")">
                   UPPER(#{r})
@@ -47,11 +73,13 @@
             SELECT a.role AS role, -t.amount AS amt
             FROM transactions t
             INNER JOIN account a ON a.id = t.account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
             WHERE t.tenant_id = #{tenantId}
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
               AND t.transaction_date &lt;= #{dateTo}
               AND t.transaction_type = 'PROFIT'
+              AND UPPER(c.code) = UPPER(#{currencyCode})
               AND UPPER(a.role) IN
               <foreach collection="roles" item="r" open="(" separator="," close=")">
                   UPPER(#{r})
@@ -62,12 +90,57 @@
             SELECT a.role AS role, t.amount AS amt
             FROM transactions t
             INNER JOIN account a ON a.id = t.from_account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
             WHERE t.tenant_id = #{tenantId}
               AND t.from_account_id IS NOT NULL
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
               AND t.transaction_date &lt;= #{dateTo}
               AND t.transaction_type = 'PROFIT'
+              AND UPPER(c.code) = UPPER(#{currencyCode})
+              AND UPPER(a.role) IN
+              <foreach collection="roles" item="r" open="(" separator="," close=")">
+                  UPPER(#{r})
+              </foreach>
+
+            UNION ALL
+
+            <!-- RATE 中间人手续费单边行：account_id=middleman, from_account_id 为空 → +amount -->
+            SELECT a.role AS role, t.amount AS amt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_date &gt;= #{dateFrom}
+              AND t.transaction_date &lt;= #{dateTo}
+              AND t.transaction_type = 'RATE'
+              AND t.from_account_id IS NULL
+              AND <include refid="dashboardRateMiddlemanFeeDescription"/>
+              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
+              AND UPPER(c.code) = UPPER(#{currencyCode})
+              AND UPPER(a.role) IN
+              <foreach collection="roles" item="r" open="(" separator="," close=")">
+                  UPPER(#{r})
+              </foreach>
+
+            UNION ALL
+
+            <!-- RATE 中间人手续费旧版两边行：from_account_id=middleman → +amount
+                 （例如 "Rate charge (x2.93) from SGD 49000.00" 这种旧文案，没有 rate_group 主腿标记，
+                 只能靠 transactions_rate.middleman_account_id 反查） -->
+            SELECT a.role AS role, t.amount AS amt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.from_account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.from_account_id IS NOT NULL
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_date &gt;= #{dateFrom}
+              AND t.transaction_date &lt;= #{dateTo}
+              AND t.transaction_type = 'RATE'
+              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
+              AND UPPER(c.code) = UPPER(#{currencyCode})
               AND UPPER(a.role) IN
               <foreach collection="roles" item="r" open="(" separator="," close=")">
                   UPPER(#{r})
@@ -76,20 +149,24 @@
         GROUP BY x.role
     </select>
 
-    <!-- Cr/Dr 桶：PAYMENT/CLAIM/CONTRA/RATE(仅主腿) To(-)/From(+)，按 role 汇总；
-         CLEAR 不在类型列表里 —— Dashboard KPI 对 PROFIT/EXPENSES 永远排除 CLEAR -->
+    <!-- Cr/Dr 桶：PAYMENT/CLAIM/CONTRA/RATE(仅主腿) To(-)/From(+)；RATE 中间人手续费的付款方那一侧
+         -amount（与上面 Win/Loss 桶的中间人 +amount 是同一笔手续费的两个视角，不重复也不遗漏）；
+         按 role 汇总；CLEAR 故意不在类型列表里 —— Transaction List 页正常显示/结清 CLEAR，
+         但 Dashboard 的 PROFIT/EXPENSES KPI 永远排除 CLEAR（业务规则，见分析记录）；按币种过滤，理由同上 -->
     <select id="aggregateCrDrByRole" resultType="com.eazycount.dto.DashboardKpiRoleAmount">
         SELECT x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
         FROM (
             SELECT a.role AS role, -t.amount AS amt
             FROM transactions t
             INNER JOIN account a ON a.id = t.account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
             WHERE t.tenant_id = #{tenantId}
               AND t.approval_status = 'APPROVED'
               AND t.transaction_date &gt;= #{dateFrom}
               AND t.transaction_date &lt;= #{dateTo}
               AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
               AND <include refid="dashboardRateTransferLegOnly"/>
+              AND UPPER(c.code) = UPPER(#{currencyCode})
               AND UPPER(a.role) IN
               <foreach collection="roles" item="r" open="(" separator="," close=")">
                   UPPER(#{r})
@@ -100,6 +177,7 @@
             SELECT a.role AS role, t.amount AS amt
             FROM transactions t
             INNER JOIN account a ON a.id = t.from_account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
             WHERE t.tenant_id = #{tenantId}
               AND t.from_account_id IS NOT NULL
               AND t.approval_status = 'APPROVED'
@@ -107,6 +185,27 @@
               AND t.transaction_date &lt;= #{dateTo}
               AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
               AND <include refid="dashboardRateTransferLegOnly"/>
+              AND UPPER(c.code) = UPPER(#{currencyCode})
+              AND UPPER(a.role) IN
+              <foreach collection="roles" item="r" open="(" separator="," close=")">
+                  UPPER(#{r})
+              </foreach>
+
+            UNION ALL
+
+            <!-- RATE 中间人手续费付款方视角：account_id=付款方、from_account_id 非空 → -amount -->
+            SELECT a.role AS role, -t.amount AS amt
+            FROM transactions t
+            INNER JOIN account a ON a.id = t.account_id
+            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.from_account_id IS NOT NULL
+              AND t.approval_status = 'APPROVED'
+              AND t.transaction_date &gt;= #{dateFrom}
+              AND t.transaction_date &lt;= #{dateTo}
+              AND t.transaction_type = 'RATE'
+              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
+              AND UPPER(c.code) = UPPER(#{currencyCode})
               AND UPPER(a.role) IN
               <foreach collection="roles" item="r" open="(" separator="," close=")">
                   UPPER(#{r})

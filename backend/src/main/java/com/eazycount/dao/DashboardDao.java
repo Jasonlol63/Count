@@ -15,19 +15,23 @@ public interface DashboardDao {
 
     // Win/Loss bucket per account.role: WIN(+)/LOSE(-)/ADJUSTMENT(as stored) on account_id,
     // plus manual PROFIT-type transfers (To -, From +) — same bucketing as TransactionSearchMapper.
+    // currencyCode scopes to one currency — amounts in different currencies must never be summed together.
     List<DashboardKpiRoleAmount> aggregateWinLossByRole(
             @Param("tenantId") Integer tenantId,
             @Param("dateFrom") LocalDate dateFrom,
             @Param("dateTo") LocalDate dateTo,
-            @Param("roles") List<String> roles);
+            @Param("roles") List<String> roles,
+            @Param("currencyCode") String currencyCode);
 
     // Cr/Dr bucket per account.role: PAYMENT/CLAIM/CONTRA/RATE(main leg only), To(-)/From(+).
     // CLEAR is intentionally excluded — Dashboard KPI never counts CLEAR for PROFIT/EXPENSES.
+    // currencyCode scopes to one currency — amounts in different currencies must never be summed together.
     List<DashboardKpiRoleAmount> aggregateCrDrByRole(
             @Param("tenantId") Integer tenantId,
             @Param("dateFrom") LocalDate dateFrom,
             @Param("dateTo") LocalDate dateTo,
-            @Param("roles") List<String> roles);
+            @Param("roles") List<String> roles,
+            @Param("currencyCode") String currencyCode);
 
     // Current (live) ownership row for one shareholder identity on a tenant — Earnings multiplier source.
     TenantOwnership findLiveOwnership(

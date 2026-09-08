@@ -47,14 +47,15 @@ public class DashboardController {
     public ResponseEntity<Map<String, Object>> getKpi(
             @RequestParam(value = "tenant_id", required = true) String tenantIdStr,
             @RequestParam(value = "date_from", required = true) String dateFromStr,
-            @RequestParam(value = "date_to", required = true) String dateToStr) {
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "currency", required = true) String currency) {
         Map<String, Object> body = new LinkedHashMap<>();
         try {
             Integer tenantId = resolveTenantId(tenantIdStr);
             LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
             LocalDate dateTo = LocalDate.parse(dateToStr.trim());
 
-            DashboardKpiDTO kpi = dashboardService.getKpi(tenantId, dateFrom, dateTo);
+            DashboardKpiDTO kpi = dashboardService.getKpi(tenantId, dateFrom, dateTo, currency);
 
             body.put("status", "success");
             body.put("success", true);
