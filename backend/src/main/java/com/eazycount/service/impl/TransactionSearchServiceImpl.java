@@ -3,9 +3,11 @@ package com.eazycount.service.impl;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.TransactionSearchDao;
+import com.eazycount.dao.UserDao;
 import com.eazycount.dto.TransactionSearchAggregateRow;
 import com.eazycount.dto.TransactionSearchRequest;
 import com.eazycount.dto.TransactionSearchResult;
+import com.eazycount.dto.UserListDTO;
 import com.eazycount.entity.Currency;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
@@ -16,15 +18,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /* Win/Loss 和 Cr/Dr 分开算，最后在searchList合并，避免两边逻辑互相污染。*/
@@ -36,6 +34,9 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
 
     @Autowired
     private CurrencyDao currencyDao;
+
+    @Autowired
+    private UserDao userDao;
 
     @Override
     public TransactionSearchResult searchList(TransactionSearchRequest request) {
@@ -61,7 +62,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         SearchSlice domain = buildDomainPaymentSearchSlice(tenantId, dateFrom, dateTo, currencyCodes, categories);
 
         boolean showAllZeroBalance = Boolean.TRUE.equals(request.getShowAllZeroBalance());
-        return mergeSearchSlices(tenantId, winLoss, domain, currencyCodes, categories, showAllZeroBalance);
+        return mergeSearchSlices(tenantId, winLoss, domain, currencyCodes, categories, showAllZeroBalance, dateTo);
     }
 
     // ── Win/Loss: Bank Process + Data Capture + manual Adjustment/Profit/Rate-middleman ─────────
@@ -170,12 +171,8 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
 
     // ── Merge / present ───────────────────────────────────────────────────────
     private TransactionSearchResult mergeSearchSlices(
-            Integer tenantId,
-            SearchSlice winLoss,
-            SearchSlice domain,
-            List<String> currencyCodes,
-            List<String> categories,
-            boolean showAllZeroBalance) {
+            Integer tenantId, SearchSlice winLoss, SearchSlice domain, List<String> currencyCodes,
+            List<String> categories, boolean showAllZeroBalance, LocalDate dateTo) {
         Map<String, MergedAccount> merged = new HashMap<>();
         applyWinLossAggregates(merged, winLoss.aggregates());
         applyDomainAggregates(merged, domain.aggregates());
@@ -184,6 +181,16 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
             List<TransactionSearchAggregateRow> shells = transactionSearchDao.findAccountCurrencyShells(
                     tenantId, currencyCodes, categories);
             applyNeverTransactedShells(merged, shells);
+        }
+
+        Map<Integer, UserListDTO> accountsById = new HashMap<>();
+        List<UserListDTO> tenantAccounts = userDao.findUserByTenantId(tenantId);
+        if (tenantAccounts != null) {
+            for (UserListDTO account : tenantAccounts) {
+                if (account != null && account.getId() != null) {
+                    accountsById.put(account.getId(), account);
+                }
+            }
         }
 
         List<TransactionSearchResult.Row> rows = new ArrayList<>();
@@ -218,6 +225,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
             // Includes NET PROFIT self-leg (period count > 0 even when Cr/Dr nets to 0.00)
             row.setHasCrDrInPeriod(agg.periodCrDrCount > 0);
             row.setNeverTransacted(agg.neverTransacted);
+            row.setAlertActive(computeIsAlert(balance, accountsById.get(agg.accountDbId), dateTo));
             rows.add(row);
 
             totalBf = totalBf.add(agg.bf);
@@ -241,6 +249,62 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         result.setTotals(totals);
         result.setActiveCurrencyCodes(resolveActiveCurrencyCodes(tenantId, rows));
         return result;
+    }
+
+    /* Payment Alert：与旧版 search_api.php 的 is_alert 判定逻辑一致（金额阈值 + 频率）。 */
+    private static boolean computeIsAlert(BigDecimal balance, UserListDTO account, LocalDate dateTo) {
+        // 左边列表（balance >= 0）完全不变色
+        if (balance.compareTo(BigDecimal.ZERO) >= 0) {
+            return false;
+        }
+        if (account == null || account.getPaymentAlert() == null || account.getPaymentAlert() != 1) {
+            return false;
+        }
+
+        // 条件1：balance <= alert_amount（alert_amount 必须是负数阈值）
+        BigDecimal alertAmount = account.getAlertAmount();
+        boolean alertAmountMet = alertAmount != null
+                && alertAmount.compareTo(BigDecimal.ZERO) < 0
+                && balance.compareTo(alertAmount) <= 0;
+
+        // 条件2：alert_type（weekly/monthly/1-31）+ alert_start_date 的变色频率
+        String alertType = account.getAlertDay();
+        Date alertStartDateRaw = account.getAlertSpecificDate();
+        if (!alertAmountMet || alertType == null || alertType.isBlank() || alertStartDateRaw == null) {
+            return false;
+        }
+
+        LocalDate startDate = Instant.ofEpochMilli(alertStartDateRaw.getTime())
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate();
+
+        // 开始日期在未来（相对于查询的结束日期），不满足时间条件
+        if (startDate.isAfter(dateTo)) {
+            return false;
+        }
+
+        // 使用搜索日期范围的结束日期（dateTo）判断 alert，而不是当前现实时间，
+        // 这样查看历史数据时可以正确显示当时的 alert 状态。
+        long daysDiff = ChronoUnit.DAYS.between(startDate, dateTo);
+        String alertTypeLower = alertType.trim().toLowerCase(Locale.ROOT);
+
+        if ("weekly".equals(alertTypeLower)) {
+            // 从开始日期算起每 7 天再次变色（开始日当天 daysDiff = 0 也会触发）
+            return daysDiff % 7 == 0;
+        }
+        if ("monthly".equals(alertTypeLower)) {
+            // 与开始日期是同一天（月份可以不同），不处理大小月边界（与旧版一致）
+            return startDate.getDayOfMonth() == dateTo.getDayOfMonth();
+        }
+        try {
+            int daysInterval = Integer.parseInt(alertTypeLower);
+            if (daysInterval >= 1 && daysInterval <= 31) {
+                return daysDiff % daysInterval == 0;
+            }
+        } catch (NumberFormatException e) {
+            return false;
+        }
+        return false;
     }
 
     private static void applyNeverTransactedShells(

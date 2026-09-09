@@ -31,6 +31,7 @@ public class TransactionSearchResult {
         private boolean hasWinLossInPeriod;
         private boolean hasCrDrInPeriod;
         private boolean neverTransacted;
+        private boolean alertActive;
     }
 
     @Getter
