@@ -25,6 +25,9 @@ public final class AccessControlUtils {
     private static final Set<String> ADMIN_PAGE_MANAGER_ROLES =
             Set.of("PARTNERSHIP", "ADMIN", "MANAGER", "SUPERVISOR", "AUDIT", "ACCOUNTANT", "CUSTOMER_SERVICE");
 
+    /* Domain page "No Expiry Date" (Tenant.PERMANENT_EXPIRATION_DATE) — only Admin and above may set it. */
+    private static final Set<String> PERMANENT_EXPIRATION_ROLES = Set.of("OWNER", "PARTNERSHIP", "ADMIN");
+
     private AccessControlUtils() {
     }
 
@@ -82,6 +85,16 @@ public final class AccessControlUtils {
 
         if (actorHierarchyLevel >= targetHierarchyLevel) {
             throw new BusinessException("No permission to manage this role");
+        }
+    }
+
+    /* Rejects a Domain page save that sets/keeps Tenant.PERMANENT_EXPIRATION_DATE unless the actor is Admin+. */
+    public static void assertCanSetPermanentExpiration(SessionUser session) {
+        if (session == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (!PERMANENT_EXPIRATION_ROLES.contains(normalizeRole(session.role))) {
+            throw new BusinessException("No permission to set No Expiry Date");
         }
     }
 }

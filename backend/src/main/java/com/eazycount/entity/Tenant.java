@@ -24,6 +24,13 @@ import lombok.ToString;
 @AllArgsConstructor
 public class Tenant {
 
+    /**
+     * Sentinel {@link #expirationDate} meaning "never expires" — deliberately chosen by staff via the
+     * Group/Company Settings "No Expiry Date" period, as opposed to {@code null} which means "not yet
+     * configured" and still blocks the Domain page Confirm button on the frontend.
+     */
+    public static final LocalDate PERMANENT_EXPIRATION_DATE = LocalDate.of(9999, 12, 31);
+
     private Integer id;
 
     private TenantType tenantType;

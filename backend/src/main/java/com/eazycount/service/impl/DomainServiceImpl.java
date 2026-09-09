@@ -447,6 +447,10 @@ public class DomainServiceImpl implements DomainService {
                 throw new BusinessException("Invalid Tenant ID or Owner ID!");
             }
 
+            if (Tenant.PERMANENT_EXPIRATION_DATE.equals(tenant.getExpirationDate())) {
+                AccessControlUtils.assertCanSetPermanentExpiration(session);
+            }
+
             findTenantOwner.setCode(tenant.getCode());
             findTenantOwner.setName(tenant.getCode());
             findTenantOwner.setExpirationDate(tenant.getExpirationDate());
