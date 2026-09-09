@@ -121,21 +121,17 @@ public interface DashboardDao {
             @Param("ownerType") String ownerType,
             @Param("effectiveMonth") LocalDate effectiveMonth);
 
-    // 【Trend Chart 的 Earnings 走势线用，Company/Group 通用】一次性批量查"当前登录身份在
-    // 这一个 tenant 上"一批历史月份各自的股权%——不是按月份一条一条查，而是一条
-    // effective_month IN (...) 查完这批月份。tenantId 可以是公司自己的 id，也可以是 Group
-    // 自己的 id（Group Earnings 走势线复用同一个方法，因为 tenant_ownership_history 这张表
-    // 本来就不区分 tenant_id 指向的是公司还是 Group）。当月（live）不在这条查询范围内，
-    // 还是用现成的 findLiveOwnership 单独查。
+    // Trend Chart Earnings line (Company and Group both use this) — batch fetch one identity's
+    // ownership % across a batch of past months in one query, not one query per month.
+    // tenantId can be a company's id or a Group's id — same table either way.
     List<TenantOwnershipHistory> findOwnershipPercentagesByMonths(
             @Param("tenantId") Integer tenantId,
             @Param("accountId") Integer accountId,
             @Param("ownerType") String ownerType,
             @Param("effectiveMonths") List<LocalDate> effectiveMonths);
 
-    // 【Group Profit 走势线用】findGroupEquityPercentages 的"按月批量"版本——一批子公司、
-    // 一批历史月份，一条 effective_month IN (...) 查完，不按月份循环查询。当月（live）
-    // 不在这条查询范围内，还是用现成的 findGroupEquityPercentages 单独查。
+    // Group Profit Trend Chart — the "batch by month" version of findGroupEquityPercentages:
+    // a batch of companies × a batch of past months, in one query.
     List<TenantOwnershipHistory> findGroupEquityPercentagesByMonths(
             @Param("companyTenantIds") List<Integer> companyTenantIds,
             @Param("groupTenantId") Integer groupTenantId,
