@@ -20,25 +20,17 @@ public interface DashboardService {
     //"Company: All" trend Chart use - Profit/Expenses/NetProfit summed across every given tenant, one currency.
     List<DashboardTrendPointDTO> getTrendForCompanies(List<Integer> tenantIds, LocalDate dateFrom, LocalDate dateTo, String currencyCode);
 
-    // Group 模式的 KPI 卡片，算法跟 Company 模式完全不一样：
-    // - Group Profit = 把这个 Group 名下每家子公司「自己的 Net Profit」乘以「该公司分配给这个
-    //   Group 的股权百分比」，再全部加起来（在 Ownership 页面 "Account Ownership" 标签页设置）。
-    //   哪家公司分配了 0%，就贡献 0，不算进去。
-    // - Group Expenses = 直接从 Group 自己的流水（Group 这个 tenant 自己名下的 transactions）
-    //   里取，跟 Company 模式算 Expenses 的规则完全一样，只是查的 tenant_id 换成 Group 自己的 id。
-    // - Group Net Profit = Group Profit + Group Expenses（Expenses 本身是负数，所以是加）。
-    // - Group Earnings = Group Net Profit 乘以当前登录身份在这个 Group 里的持股百分比
-    //   （在 Ownership 页面 "Group Earnings" 标签页设置，对应 tenant_ownership 表里
-    //   tenant_id = 这个 Group 自己的 id 的那一行）。
-    // companyTenantIds：这个 Group 当前分组下有哪些子公司，由前端算好后传进来（跟 getKpiForCompanies
-    // 一样，后端不自己去重新判断哪些公司属于这个 Group，避免逻辑跟前端权限过滤对不上）。
+    // Group KPI cards — Group Profit = each member company's Net Profit × its equity % in
+    // this Group (0% contributes 0). Group Expenses = the Group's own ledger. Net Profit =
+    // Profit + Expenses. Earnings = Net Profit × the current login's own share in the Group.
+    // companyTenantIds: member companies, resolved by the caller (frontend), same as getKpiForCompanies.
     DashboardKpiDTO getKpiForGroup(Integer groupTenantId, List<Integer> companyTenantIds,
                                     LocalDate dateFrom, LocalDate dateTo, String currencyCode);
 
-    // Group 模式的 Trend Chart：跟 getKpiForGroup 同一套 Group Profit/Expenses/NetProfit 算法，
-    // 只是从"整个区间一个总数"变成"每一天一个数"。Earnings 这条线（Company 模式的 getTrend 也一样）
-    // 这次改成按"每一天所在的月份"分别查股权%，不是整个区间用查询末尾那一天的一个百分比顶到底——
-    // 哪个月没配置过股权，那个月就当 0% 处理。
+    // Group Trend Chart — same Group Profit/Expenses/NetProfit algorithm as getKpiForGroup,
+    // just one point per day instead of one total for the whole range. The Earnings line
+    // (same for Company mode's getTrend) looks up each day's own month's ownership % instead
+    // of one flat percentage for the whole range; a month with no config counts as 0%.
     List<DashboardTrendPointDTO> getTrendForGroup(Integer groupTenantId, List<Integer> companyTenantIds,
                                                    LocalDate dateFrom, LocalDate dateTo, String currencyCode);
 }

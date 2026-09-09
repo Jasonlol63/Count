@@ -136,7 +136,7 @@ public class DashboardServiceImpl implements DashboardService {
             throw new BusinessException("currency is required");
         }
         String currency = currencyCode.trim();
-        // 前端没传公司列表就当这个 Group 底下没有子公司，Group Profit 直接是 0（不报错）。
+        // No company list from the frontend → treat as "no member companies", Group Profit is 0 (not an error).
         List<Integer> companies = companyTenantIds == null ? List.of() : companyTenantIds;
 
         Tenant tenant = tenantDao.findTenantById(groupTenantId);
@@ -153,8 +153,8 @@ public class DashboardServiceImpl implements DashboardService {
         dto.setProfit(current.profit);
         dto.setExpenses(current.expenses);
         dto.setNetProfit(current.netProfit);
-        // Group Earnings 跟 Company 模式的 applyEarnings 是同一套逻辑：查 tenant_ownership 表里
-        // tenant_id = groupTenantId 的那一行，乘以 Group Net Profit——直接复用，不用重写。
+        // Group Earnings reuses applyEarnings as-is: it just looks up the tenant_ownership row
+        // for tenant_id = groupTenantId and multiplies by Group Net Profit — no new code needed.
         applyEarnings(dto, groupTenantId, dateTo, current.netProfit);
 
         LocalDate[] previousRange = resolvePreviousRange(dateFrom, dateTo);
@@ -174,22 +174,22 @@ public class DashboardServiceImpl implements DashboardService {
         return dto;
     }
 
-    /* Group Profit（子公司加权汇总）+ Group Expenses（Group 自己流水）拼成一组 Group KPI 数字。 */
+    /* Group Profit (weighted rollup of member companies) + Group Expenses (Group's own ledger). */
     private ProfitExpenses computeGroupKpi(Integer groupTenantId, List<Integer> companyTenantIds,
                                             LocalDate dateFrom, LocalDate dateTo, String currency) {
         BigDecimal groupProfit = computeGroupProfit(companyTenantIds, groupTenantId, dateFrom, dateTo, currency);
-        // Group 自己的流水只取 Expenses——Group 自己的"Profit"（如果流水里真有 PROFIT 角色的记录）
-        // 不算数，Group Profit 只能来自子公司加权汇总，这是业务规则，不是漏写。
+        // Only take Expenses from the Group's own ledger — even if it happens to have PROFIT-role
+        // rows too, those don't count; Group Profit can only come from the member-company rollup.
+        // This is a business rule, not an oversight.
         BigDecimal groupExpenses = computeProfitExpenses(List.of(groupTenantId), dateFrom, dateTo, currency).expenses;
         BigDecimal groupNetProfit = groupProfit.add(groupExpenses);
         return new ProfitExpenses(groupProfit, groupExpenses, groupNetProfit);
     }
 
     /*
-     * Group Profit = Σ(每家子公司自己的 Net Profit × 该公司分配给这个 Group 的股权百分比)。
-     * 子公司自己的 Net Profit 用 aggregateWinLossByRoleAndTenant / aggregateCrDrByRoleAndTenant
-     * 一次性查出来（不用一家一家循环查询），股权百分比也用 findGroupEquityPercentages 一次性批量查出来，
-     * 最后在 Java 里把两组数字按 tenant_id 对上、加权求和——不是第三条 SQL，避免多一次 JOIN 反而更清楚。
+     * Group Profit = sum over every member company of (its own Net Profit × its equity % in
+     * this Group). Net Profits and equity % are each fetched in one batch query, then joined
+     * and weighted in plain Java — not a third SQL query.
      */
     private BigDecimal computeGroupProfit(List<Integer> companyTenantIds, Integer groupTenantId,
                                            LocalDate dateFrom, LocalDate dateTo, String currency) {
@@ -208,7 +208,7 @@ public class DashboardServiceImpl implements DashboardService {
         for (Integer tenantId : companyTenantIds) {
             BigDecimal percentage = equityPercentageByTenant.get(tenantId);
             if (percentage == null || percentage.compareTo(BigDecimal.ZERO) == 0) {
-                continue; // 这家公司没给这个 Group 分配股权，贡献 0，跳过不用算。
+                continue; // This company didn't allocate any equity to the Group — contributes 0, skip.
             }
             Map<String, BigDecimal> winLossByRole = winLossByTenantRole.getOrDefault(tenantId, Map.of());
             Map<String, BigDecimal> crDrByRole = crDrByTenantRole.getOrDefault(tenantId, Map.of());
@@ -223,7 +223,7 @@ public class DashboardServiceImpl implements DashboardService {
         return groupProfit;
     }
 
-    /* 当月用 live 表，之前月份用历史快照表——跟 findOwnershipPercentage 的当前值/历史值判断逻辑一致。 */
+    /* Live table for the current month, snapshot history table otherwise — same rule as findOwnershipPercentage. */
     private Map<Integer, BigDecimal> findGroupEquityPercentages(List<Integer> companyTenantIds,
                                                                   Integer groupTenantId, LocalDate dateTo) {
         Map<Integer, BigDecimal> percentageByTenant = new HashMap<>();
@@ -277,7 +277,8 @@ public class DashboardServiceImpl implements DashboardService {
 
         List<DashboardTrendPointDTO> points = buildTrendPoints(dateFrom, dateTo, winLossByDateRole, crDrByDateRole);
 
-        // Earnings 这条线：身份不具备股权资格（member/账本科目登录）就整条线留 null，不发这条查询。
+        // Earnings line: if the identity has no ownership standing at all (member/ledger login),
+        // leave the whole line null and skip this query.
         String ownerType = resolveOwnerType();
         if (ownerType != null) {
             Integer accountId = SecurityUtils.currentUser().user_id;
@@ -355,12 +356,11 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     /*
-     * Group Trend Chart：Group Profit（子公司加权汇总）+ Group Expenses（Group 自己流水）逐天算，
-     * 算法跟 computeGroupKpi()/computeGroupProfit() 完全一样，只是从"整个区间一个总数"变成
-     * "每一天一个数"。子公司自己每天的 Win/Loss+Cr/Dr 用新查询 aggregateWinLossByRoleAndTenantAndDate/
-     * aggregateCrDrByRoleAndTenantAndDate 一次性查出来；股权百分比按月批量查（resolveGroupEquityPercentagesByMonth），
-     * 不是整个区间一个百分比顶到底；Group 自己账本每天的 Expenses 复用现成的 aggregateWinLossByRoleAndDate/
-     * aggregateCrDrByRoleAndDate（tenant_id 传 Group 自己的 id）。
+     * Group Trend Chart: same algorithm as computeGroupKpi(), just one point per day instead
+     * of one total. Member companies' daily Win/Loss+Cr/Dr come from the new *AndTenantAndDate
+     * queries; equity % is batched per month (resolveGroupEquityPercentagesByMonth), not one
+     * flat percentage for the whole range; the Group's own daily Expenses reuse the existing
+     * single-tenant day queries.
      */
     private List<DashboardTrendPointDTO> buildGroupTrendPoints(Integer groupTenantId, List<Integer> companyTenantIds,
                                                                 LocalDate dateFrom, LocalDate dateTo, String currency) {
@@ -392,7 +392,7 @@ public class DashboardServiceImpl implements DashboardService {
             for (Integer tenantId : companyTenantIds) {
                 BigDecimal percentage = percentageByTenant.get(tenantId);
                 if (percentage == null || percentage.compareTo(BigDecimal.ZERO) == 0) {
-                    continue; // 这家公司这个月没给这个 Group 分配股权（或没配置过），贡献 0。
+                    continue; // No equity allocated to the Group this month (or never configured) — contributes 0.
                 }
                 Map<String, BigDecimal> winLossByRole = companyWinLossByTenantDateRole
                         .getOrDefault(tenantId, Map.of()).getOrDefault(date, Map.of());
@@ -430,9 +430,11 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     /*
-     * Trend Chart 的 Earnings 走势线用：一个身份、一个 tenant（公司或 Group 都行），批量查区间内
-     * 每个月各自的股权%——不是整个区间一个百分比顶到底。当前月走 findLiveOwnership（live 表），
-     * 其余月份一条 effective_month IN (...) 查完（findOwnershipPercentagesByMonths），不按月循环发 SQL。
+     * For the Trend Chart's Earnings line: one identity, one tenant (company or Group), batch
+     * fetch each month's own ownership % across the range — not one flat percentage for the
+     * whole range. Current month goes through findLiveOwnership (live table); every other
+     * month is fetched in one findOwnershipPercentagesByMonths call (effective_month IN (...)),
+     * not one query per month.
      */
     private Map<YearMonth, BigDecimal> resolveOwnershipPercentagesByMonth(Integer tenantId, Integer accountId,
                                                                            String ownerType, LocalDate dateFrom, LocalDate dateTo) {
@@ -459,7 +461,7 @@ public class DashboardServiceImpl implements DashboardService {
         return percentageByMonth;
     }
 
-    //Group Profit Trend Chart: Use the same pattern as above, except replace “a single entity” with “a group of subsidiaries.” */
+    /* Group Profit Trend Chart: same pattern as above, "one identity" swapped for "a batch of member companies". */
     private Map<YearMonth, Map<Integer, BigDecimal>> resolveGroupEquityPercentagesByMonth(
             List<Integer> companyTenantIds, Integer groupTenantId, LocalDate dateFrom, LocalDate dateTo) {
         Map<YearMonth, Map<Integer, BigDecimal>> percentageByMonth = new HashMap<>();
@@ -487,7 +489,7 @@ public class DashboardServiceImpl implements DashboardService {
         return percentageByMonth;
     }
 
-    // If equity has not been configured for a given month, it will not appear in `percentageByMonth` → Treat it as 0% (earnings=0, not null).
+    // A month missing from `percentageByMonth` (never configured) counts as 0% (earnings=0, not null).
     private static void applyTrendEarnings(List<DashboardTrendPointDTO> points, Map<YearMonth, BigDecimal> percentageByMonth) {
         for (DashboardTrendPointDTO point : points) {
             BigDecimal percentage = percentageByMonth.getOrDefault(YearMonth.from(point.getDate()), BigDecimal.ZERO);
