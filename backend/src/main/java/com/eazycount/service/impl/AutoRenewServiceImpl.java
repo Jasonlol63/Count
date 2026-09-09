@@ -33,6 +33,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Set;
 
 @Service
@@ -226,7 +227,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
 
     @Override
     @Transactional
-    public AutoRenewDTO approveRequest(Integer requestId, String periodRaw) {
+    public AutoRenewDTO approveRequest(Integer requestId, String periodRaw, boolean chargeOnApprove) {
         SessionUser session = requireSession();
         AccessControlUtils.requireWritable(session);
         requireValidRequestId(requestId);
@@ -265,8 +266,11 @@ public class AutoRenewServiceImpl implements AutoRenewService {
                 : LocalDate.now();
         LocalDate newExpiration = addPeriod(baseExpiration, period);
 
-        // Same Domain Fee + Commission ledger postings as Domain Confirm Charge on Save
-        List<Transaction> transactions = domainFeeChargeService.chargeDomainFee(tenant, period);
+        // Same Domain Fee + Commission ledger postings as Domain Confirm Charge on Save.
+        // When chargeOnApprove is off, skip posting so the renewal is extended without creating a payment.
+        List<Transaction> transactions = chargeOnApprove
+                ? domainFeeChargeService.chargeDomainFee(tenant, period)
+                : Collections.emptyList();
         for (Transaction txn : transactions) {
             autoRenewDao.insertRequestTransactionLink(requestId, txn.getId());
         }

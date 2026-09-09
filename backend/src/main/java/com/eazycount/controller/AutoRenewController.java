@@ -84,8 +84,9 @@ public class AutoRenewController {
             if (period.isEmpty()) {
                 throw new BusinessException("period is required");
             }
+            boolean chargeOnApprove = request.getChargeOnApprove() == null || request.getChargeOnApprove();
 
-            AutoRenewDTO data = autoRenewService.approveRequest(request.getRequestId(), period);
+            AutoRenewDTO data = autoRenewService.approveRequest(request.getRequestId(), period, chargeOnApprove);
             body.put("success", true);
             body.put("message", "Auto renew request approved successfully");
             body.put("data", data);

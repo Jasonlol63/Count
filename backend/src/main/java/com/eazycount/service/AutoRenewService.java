@@ -13,7 +13,7 @@ public interface AutoRenewService {
 
     void rejectRequest(Integer requestId);
 
-    AutoRenewDTO approveRequest(Integer requestId, String period);
+    AutoRenewDTO approveRequest(Integer requestId, String period, boolean chargeOnApprove);
 
     void deleteRequest(Integer requestId);
 }
