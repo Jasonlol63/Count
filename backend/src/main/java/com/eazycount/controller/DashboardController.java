@@ -54,6 +54,36 @@ public class DashboardController {
         }
     }
 
+    // Group 模式 KPI 卡片：group_tenant_id 是 Group 自己的 tenant id，company_tenant_ids 是这个
+    // Group 下面有权限查看的子公司 id 列表（不传或传空字符串就当作没有子公司，Group Profit 为 0）——
+    // 跟 /kpi-all 一样，公司列表由前端算好传进来，后端不重新判断哪些公司属于这个 Group。
+    @GetMapping("/group-kpi")
+    public ResponseEntity<Map<String, Object>> getKpiForGroup(
+            @RequestParam(value = "group_tenant_id", required = true) String groupTenantIdStr,
+            @RequestParam(value = "company_tenant_ids", required = false) String companyTenantIdsStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "currency", required = true) String currency) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        try {
+            Integer groupTenantId = resolveTenantId(groupTenantIdStr);
+            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+
+            DashboardKpiDTO kpi = dashboardService.getKpiForGroup(
+                    groupTenantId, companyTenantIds, dateFrom, dateTo, currency);
+
+            body.put("status", "success");
+            body.put("success", true);
+            body.put("message", "");
+            body.put("data", kpi);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
     @GetMapping("/kpi-all")
     public ResponseEntity<Map<String, Object>> getKpiForCompanies(
             @RequestParam(value = "tenant_ids", required = true) String tenantIdsStr,
@@ -126,6 +156,33 @@ public class DashboardController {
         }
     }
 
+    @GetMapping("/chart-group")
+    public ResponseEntity<Map<String, Object>> getTrendForGroup(
+            @RequestParam(value = "group_tenant_id", required = true) String groupTenantIdStr,
+            @RequestParam(value = "company_tenant_ids", required = false) String companyTenantIdsStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "currency", required = true) String currency) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        try {
+            Integer groupTenantId = resolveTenantId(groupTenantIdStr);
+            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+
+            List<DashboardTrendPointDTO> trend = dashboardService.getTrendForGroup(
+                    groupTenantId, companyTenantIds, dateFrom, dateTo, currency);
+
+            body.put("status", "success");
+            body.put("success", true);
+            body.put("message", "");
+            body.put("data", trend);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
 
 
     private Integer resolveTenantId(String tenantIdStr) {
@@ -162,6 +219,26 @@ public class DashboardController {
         }
         if (ids.isEmpty()) {
             throw new BusinessException("tenant_ids is required");
+        }
+        return ids;
+    }
+
+    // 跟 parseTenantIds 一样，但空字符串/不传都合法（当作没有子公司），不当错误抛出。
+    private static List<Integer> parseTenantIdsAllowEmpty(String tenantIdsStr) {
+        if (tenantIdsStr == null || tenantIdsStr.isBlank()) {
+            return List.of();
+        }
+        List<Integer> ids = new ArrayList<>();
+        for (String part : tenantIdsStr.split(",")) {
+            String trimmed = part.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            try {
+                ids.add(Integer.valueOf(trimmed));
+            } catch (NumberFormatException e) {
+                throw new BusinessException("Invalid tenant id in company_tenant_ids: '" + trimmed + "'");
+            }
         }
         return ids;
     }

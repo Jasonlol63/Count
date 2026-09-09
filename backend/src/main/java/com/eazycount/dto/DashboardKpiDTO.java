@@ -38,5 +38,6 @@ public class DashboardKpiDTO {
     public static class RoleAmount {
         private String role;
         private BigDecimal amount;
+        private Integer tenantId;  //Group Profit rollup use.
     }
 }

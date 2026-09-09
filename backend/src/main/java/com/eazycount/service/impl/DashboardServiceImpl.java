@@ -121,6 +121,127 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     @Override
+    public DashboardKpiDTO getKpiForGroup(Integer groupTenantId, List<Integer> companyTenantIds,
+                                           LocalDate dateFrom, LocalDate dateTo, String currencyCode) {
+        if (groupTenantId == null) {
+            throw new BusinessException("group_tenant_id is required");
+        }
+        if (dateFrom == null || dateTo == null) {
+            throw new BusinessException("date_from and date_to are required");
+        }
+        if (dateFrom.isAfter(dateTo)) {
+            throw new BusinessException("date_from must not be after date_to");
+        }
+        if (currencyCode == null || currencyCode.isBlank()) {
+            throw new BusinessException("currency is required");
+        }
+        String currency = currencyCode.trim();
+        // 前端没传公司列表就当这个 Group 底下没有子公司，Group Profit 直接是 0（不报错）。
+        List<Integer> companies = companyTenantIds == null ? List.of() : companyTenantIds;
+
+        Tenant tenant = tenantDao.findTenantById(groupTenantId);
+        if (tenant == null) {
+            throw new BusinessException("Tenant not found");
+        }
+        if (tenant.getTenantType() != Tenant.TenantType.GROUP) {
+            throw new BusinessException("Tenant is not a Group");
+        }
+
+        DashboardKpiDTO dto = new DashboardKpiDTO();
+
+        ProfitExpenses current = computeGroupKpi(groupTenantId, companies, dateFrom, dateTo, currency);
+        dto.setProfit(current.profit);
+        dto.setExpenses(current.expenses);
+        dto.setNetProfit(current.netProfit);
+        // Group Earnings 跟 Company 模式的 applyEarnings 是同一套逻辑：查 tenant_ownership 表里
+        // tenant_id = groupTenantId 的那一行，乘以 Group Net Profit——直接复用，不用重写。
+        applyEarnings(dto, groupTenantId, dateTo, current.netProfit);
+
+        LocalDate[] previousRange = resolvePreviousRange(dateFrom, dateTo);
+        LocalDate previousDateFrom = previousRange[0];
+        LocalDate previousDateTo = previousRange[1];
+        dto.setPreviousDateFrom(previousDateFrom);
+        dto.setPreviousDateTo(previousDateTo);
+
+        ProfitExpenses previous = computeGroupKpi(groupTenantId, companies, previousDateFrom, previousDateTo, currency);
+        dto.setPreviousProfit(previous.profit);
+        dto.setPreviousExpenses(previous.expenses);
+        dto.setPreviousNetProfit(previous.netProfit);
+        if (dto.isShowEarnings()) {
+            dto.setPreviousEarnings(resolveEarningsAmount(groupTenantId, previousDateTo, previous.netProfit));
+        }
+
+        return dto;
+    }
+
+    /* Group Profit（子公司加权汇总）+ Group Expenses（Group 自己流水）拼成一组 Group KPI 数字。 */
+    private ProfitExpenses computeGroupKpi(Integer groupTenantId, List<Integer> companyTenantIds,
+                                            LocalDate dateFrom, LocalDate dateTo, String currency) {
+        BigDecimal groupProfit = computeGroupProfit(companyTenantIds, groupTenantId, dateFrom, dateTo, currency);
+        // Group 自己的流水只取 Expenses——Group 自己的"Profit"（如果流水里真有 PROFIT 角色的记录）
+        // 不算数，Group Profit 只能来自子公司加权汇总，这是业务规则，不是漏写。
+        BigDecimal groupExpenses = computeProfitExpenses(List.of(groupTenantId), dateFrom, dateTo, currency).expenses;
+        BigDecimal groupNetProfit = groupProfit.add(groupExpenses);
+        return new ProfitExpenses(groupProfit, groupExpenses, groupNetProfit);
+    }
+
+    /*
+     * Group Profit = Σ(每家子公司自己的 Net Profit × 该公司分配给这个 Group 的股权百分比)。
+     * 子公司自己的 Net Profit 用 aggregateWinLossByRoleAndTenant / aggregateCrDrByRoleAndTenant
+     * 一次性查出来（不用一家一家循环查询），股权百分比也用 findGroupEquityPercentages 一次性批量查出来，
+     * 最后在 Java 里把两组数字按 tenant_id 对上、加权求和——不是第三条 SQL，避免多一次 JOIN 反而更清楚。
+     */
+    private BigDecimal computeGroupProfit(List<Integer> companyTenantIds, Integer groupTenantId,
+                                           LocalDate dateFrom, LocalDate dateTo, String currency) {
+        if (companyTenantIds.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        List<String> roles = List.of(ROLE_PROFIT, ROLE_EXPENSES);
+        Map<Integer, Map<String, BigDecimal>> winLossByTenantRole = toTenantRoleMap(
+                dashboardDao.aggregateWinLossByRoleAndTenant(companyTenantIds, dateFrom, dateTo, roles, currency));
+        Map<Integer, Map<String, BigDecimal>> crDrByTenantRole = toTenantRoleMap(
+                dashboardDao.aggregateCrDrByRoleAndTenant(companyTenantIds, dateFrom, dateTo, roles, currency));
+        Map<Integer, BigDecimal> equityPercentageByTenant =
+                findGroupEquityPercentages(companyTenantIds, groupTenantId, dateTo);
+
+        BigDecimal groupProfit = BigDecimal.ZERO;
+        for (Integer tenantId : companyTenantIds) {
+            BigDecimal percentage = equityPercentageByTenant.get(tenantId);
+            if (percentage == null || percentage.compareTo(BigDecimal.ZERO) == 0) {
+                continue; // 这家公司没给这个 Group 分配股权，贡献 0，跳过不用算。
+            }
+            Map<String, BigDecimal> winLossByRole = winLossByTenantRole.getOrDefault(tenantId, Map.of());
+            Map<String, BigDecimal> crDrByRole = crDrByTenantRole.getOrDefault(tenantId, Map.of());
+            BigDecimal companyProfit = amountForRole(ROLE_PROFIT, winLossByRole, crDrByRole);
+            BigDecimal companyExpenses = amountForRole(ROLE_EXPENSES, winLossByRole, crDrByRole);
+            BigDecimal companyNetProfit = companyProfit.add(companyExpenses);
+
+            groupProfit = groupProfit.add(companyNetProfit
+                    .multiply(percentage)
+                    .divide(BigDecimal.valueOf(100), EARNINGS_SCALE, RoundingMode.HALF_UP));
+        }
+        return groupProfit;
+    }
+
+    /* 当月用 live 表，之前月份用历史快照表——跟 findOwnershipPercentage 的当前值/历史值判断逻辑一致。 */
+    private Map<Integer, BigDecimal> findGroupEquityPercentages(List<Integer> companyTenantIds,
+                                                                  Integer groupTenantId, LocalDate dateTo) {
+        Map<Integer, BigDecimal> percentageByTenant = new HashMap<>();
+        YearMonth ownershipMonth = YearMonth.from(dateTo);
+        if (ownershipMonth.equals(YearMonth.now())) {
+            for (TenantOwnership row : dashboardDao.findGroupEquityPercentages(companyTenantIds, groupTenantId)) {
+                percentageByTenant.put(row.getTenantId(), row.getPercentage());
+            }
+        } else {
+            for (TenantOwnershipHistory row : dashboardDao.findHistoricalGroupEquityPercentages(
+                    companyTenantIds, groupTenantId, ownershipMonth.atDay(1))) {
+                percentageByTenant.put(row.getTenantId(), row.getPercentage());
+            }
+        }
+        return percentageByTenant;
+    }
+
+    @Override
     public List<DashboardTrendPointDTO> getTrend(Integer tenantId, LocalDate dateFrom, LocalDate dateTo,
                                                   String currencyCode) {
         if (tenantId == null) {
@@ -154,7 +275,18 @@ public class DashboardServiceImpl implements DashboardService {
         Map<LocalDate, Map<String, BigDecimal>> crDrByDateRole = toDateRoleMap(
                 dashboardDao.aggregateCrDrByRoleAndDate(tenantIds, dateFrom, dateTo, roles, currency));
 
-        return buildTrendPoints(dateFrom, dateTo, winLossByDateRole, crDrByDateRole);
+        List<DashboardTrendPointDTO> points = buildTrendPoints(dateFrom, dateTo, winLossByDateRole, crDrByDateRole);
+
+        // Earnings 这条线：身份不具备股权资格（member/账本科目登录）就整条线留 null，不发这条查询。
+        String ownerType = resolveOwnerType();
+        if (ownerType != null) {
+            Integer accountId = SecurityUtils.currentUser().user_id;
+            Map<YearMonth, BigDecimal> percentageByMonth =
+                    resolveOwnershipPercentagesByMonth(tenantId, accountId, ownerType, dateFrom, dateTo);
+            applyTrendEarnings(points, percentageByMonth);
+        }
+
+        return points;
     }
 
     @Override
@@ -183,6 +315,186 @@ public class DashboardServiceImpl implements DashboardService {
         return buildTrendPoints(dateFrom, dateTo, winLossByDateRole, crDrByDateRole);
     }
 
+    @Override
+    public List<DashboardTrendPointDTO> getTrendForGroup(Integer groupTenantId, List<Integer> companyTenantIds,
+                                                           LocalDate dateFrom, LocalDate dateTo, String currencyCode) {
+        if (groupTenantId == null) {
+            throw new BusinessException("group_tenant_id is required");
+        }
+        if (dateFrom == null || dateTo == null) {
+            throw new BusinessException("date_from and date_to are required");
+        }
+        if (dateFrom.isAfter(dateTo)) {
+            throw new BusinessException("date_from must not be after date_to");
+        }
+        if (currencyCode == null || currencyCode.isBlank()) {
+            throw new BusinessException("currency is required");
+        }
+        String currency = currencyCode.trim();
+        List<Integer> companies = companyTenantIds == null ? List.of() : companyTenantIds;
+
+        Tenant tenant = tenantDao.findTenantById(groupTenantId);
+        if (tenant == null) {
+            throw new BusinessException("Tenant not found");
+        }
+        if (tenant.getTenantType() != Tenant.TenantType.GROUP) {
+            throw new BusinessException("Tenant is not a Group");
+        }
+
+        List<DashboardTrendPointDTO> points = buildGroupTrendPoints(groupTenantId, companies, dateFrom, dateTo, currency);
+
+        String ownerType = resolveOwnerType();
+        if (ownerType != null) {
+            Integer accountId = SecurityUtils.currentUser().user_id;
+            Map<YearMonth, BigDecimal> percentageByMonth =
+                    resolveOwnershipPercentagesByMonth(groupTenantId, accountId, ownerType, dateFrom, dateTo);
+            applyTrendEarnings(points, percentageByMonth);
+        }
+
+        return points;
+    }
+
+    /*
+     * Group Trend Chart：Group Profit（子公司加权汇总）+ Group Expenses（Group 自己流水）逐天算，
+     * 算法跟 computeGroupKpi()/computeGroupProfit() 完全一样，只是从"整个区间一个总数"变成
+     * "每一天一个数"。子公司自己每天的 Win/Loss+Cr/Dr 用新查询 aggregateWinLossByRoleAndTenantAndDate/
+     * aggregateCrDrByRoleAndTenantAndDate 一次性查出来；股权百分比按月批量查（resolveGroupEquityPercentagesByMonth），
+     * 不是整个区间一个百分比顶到底；Group 自己账本每天的 Expenses 复用现成的 aggregateWinLossByRoleAndDate/
+     * aggregateCrDrByRoleAndDate（tenant_id 传 Group 自己的 id）。
+     */
+    private List<DashboardTrendPointDTO> buildGroupTrendPoints(Integer groupTenantId, List<Integer> companyTenantIds,
+                                                                LocalDate dateFrom, LocalDate dateTo, String currency) {
+        List<String> roles = List.of(ROLE_PROFIT, ROLE_EXPENSES);
+
+        List<Integer> groupTenantIds = List.of(groupTenantId);
+        Map<LocalDate, Map<String, BigDecimal>> groupWinLossByDateRole = toDateRoleMap(
+                dashboardDao.aggregateWinLossByRoleAndDate(groupTenantIds, dateFrom, dateTo, roles, currency));
+        Map<LocalDate, Map<String, BigDecimal>> groupCrDrByDateRole = toDateRoleMap(
+                dashboardDao.aggregateCrDrByRoleAndDate(groupTenantIds, dateFrom, dateTo, roles, currency));
+
+        Map<Integer, Map<LocalDate, Map<String, BigDecimal>>> companyWinLossByTenantDateRole = Map.of();
+        Map<Integer, Map<LocalDate, Map<String, BigDecimal>>> companyCrDrByTenantDateRole = Map.of();
+        Map<YearMonth, Map<Integer, BigDecimal>> equityPercentageByMonth = Map.of();
+        if (!companyTenantIds.isEmpty()) {
+            companyWinLossByTenantDateRole = toTenantDateRoleMap(
+                    dashboardDao.aggregateWinLossByRoleAndTenantAndDate(companyTenantIds, dateFrom, dateTo, roles, currency));
+            companyCrDrByTenantDateRole = toTenantDateRoleMap(
+                    dashboardDao.aggregateCrDrByRoleAndTenantAndDate(companyTenantIds, dateFrom, dateTo, roles, currency));
+            equityPercentageByMonth = resolveGroupEquityPercentagesByMonth(companyTenantIds, groupTenantId, dateFrom, dateTo);
+        }
+
+        List<DashboardTrendPointDTO> points = new ArrayList<>();
+        for (LocalDate date = dateFrom; !date.isAfter(dateTo); date = date.plusDays(1)) {
+            Map<Integer, BigDecimal> percentageByTenant =
+                    equityPercentageByMonth.getOrDefault(YearMonth.from(date), Map.of());
+
+            BigDecimal groupProfit = BigDecimal.ZERO;
+            for (Integer tenantId : companyTenantIds) {
+                BigDecimal percentage = percentageByTenant.get(tenantId);
+                if (percentage == null || percentage.compareTo(BigDecimal.ZERO) == 0) {
+                    continue; // 这家公司这个月没给这个 Group 分配股权（或没配置过），贡献 0。
+                }
+                Map<String, BigDecimal> winLossByRole = companyWinLossByTenantDateRole
+                        .getOrDefault(tenantId, Map.of()).getOrDefault(date, Map.of());
+                Map<String, BigDecimal> crDrByRole = companyCrDrByTenantDateRole
+                        .getOrDefault(tenantId, Map.of()).getOrDefault(date, Map.of());
+                BigDecimal companyProfit = amountForRole(ROLE_PROFIT, winLossByRole, crDrByRole);
+                BigDecimal companyExpenses = amountForRole(ROLE_EXPENSES, winLossByRole, crDrByRole);
+                BigDecimal companyNetProfit = companyProfit.add(companyExpenses);
+
+                groupProfit = groupProfit.add(companyNetProfit
+                        .multiply(percentage)
+                        .divide(BigDecimal.valueOf(100), EARNINGS_SCALE, RoundingMode.HALF_UP));
+            }
+
+            Map<String, BigDecimal> groupWinLossByRole = groupWinLossByDateRole.getOrDefault(date, Map.of());
+            Map<String, BigDecimal> groupCrDrByRole = groupCrDrByDateRole.getOrDefault(date, Map.of());
+            BigDecimal groupExpenses = amountForRole(ROLE_EXPENSES, groupWinLossByRole, groupCrDrByRole);
+            BigDecimal groupNetProfit = groupProfit.add(groupExpenses);
+
+            points.add(new DashboardTrendPointDTO(date, groupProfit, groupExpenses, groupNetProfit, null));
+        }
+        return points;
+    }
+
+    private static Map<Integer, Map<LocalDate, Map<String, BigDecimal>>> toTenantDateRoleMap(
+            List<DashboardTrendPointDTO.RoleAmount> rows) {
+        Map<Integer, Map<LocalDate, Map<String, BigDecimal>>> byTenant = new HashMap<>();
+        for (DashboardTrendPointDTO.RoleAmount row : rows) {
+            String role = row.getRole() == null ? "" : row.getRole().trim().toUpperCase();
+            byTenant.computeIfAbsent(row.getTenantId(), t -> new HashMap<>())
+                    .computeIfAbsent(row.getDate(), d -> new HashMap<>())
+                    .merge(role, row.getAmount(), BigDecimal::add);
+        }
+        return byTenant;
+    }
+
+    /*
+     * Trend Chart 的 Earnings 走势线用：一个身份、一个 tenant（公司或 Group 都行），批量查区间内
+     * 每个月各自的股权%——不是整个区间一个百分比顶到底。当前月走 findLiveOwnership（live 表），
+     * 其余月份一条 effective_month IN (...) 查完（findOwnershipPercentagesByMonths），不按月循环发 SQL。
+     */
+    private Map<YearMonth, BigDecimal> resolveOwnershipPercentagesByMonth(Integer tenantId, Integer accountId,
+                                                                           String ownerType, LocalDate dateFrom, LocalDate dateTo) {
+        Map<YearMonth, BigDecimal> percentageByMonth = new HashMap<>();
+        YearMonth currentMonth = YearMonth.now();
+        List<LocalDate> historyMonths = new ArrayList<>();
+        for (YearMonth month = YearMonth.from(dateFrom); !month.isAfter(YearMonth.from(dateTo)); month = month.plusMonths(1)) {
+            if (!month.equals(currentMonth)) {
+                historyMonths.add(month.atDay(1));
+            }
+        }
+        if (!historyMonths.isEmpty()) {
+            for (TenantOwnershipHistory row : dashboardDao.findOwnershipPercentagesByMonths(
+                    tenantId, accountId, ownerType, historyMonths)) {
+                percentageByMonth.put(YearMonth.from(row.getEffectiveMonth()), row.getPercentage());
+            }
+        }
+        if (!YearMonth.from(dateFrom).isAfter(currentMonth) && !currentMonth.isAfter(YearMonth.from(dateTo))) {
+            TenantOwnership live = dashboardDao.findLiveOwnership(tenantId, accountId, ownerType);
+            if (live != null) {
+                percentageByMonth.put(currentMonth, live.getPercentage());
+            }
+        }
+        return percentageByMonth;
+    }
+
+    //Group Profit Trend Chart: Use the same pattern as above, except replace “a single entity” with “a group of subsidiaries.” */
+    private Map<YearMonth, Map<Integer, BigDecimal>> resolveGroupEquityPercentagesByMonth(
+            List<Integer> companyTenantIds, Integer groupTenantId, LocalDate dateFrom, LocalDate dateTo) {
+        Map<YearMonth, Map<Integer, BigDecimal>> percentageByMonth = new HashMap<>();
+        YearMonth currentMonth = YearMonth.now();
+        List<LocalDate> historyMonths = new ArrayList<>();
+        for (YearMonth month = YearMonth.from(dateFrom); !month.isAfter(YearMonth.from(dateTo)); month = month.plusMonths(1)) {
+            if (!month.equals(currentMonth)) {
+                historyMonths.add(month.atDay(1));
+            }
+        }
+        if (!historyMonths.isEmpty()) {
+            for (TenantOwnershipHistory row : dashboardDao.findGroupEquityPercentagesByMonths(
+                    companyTenantIds, groupTenantId, historyMonths)) {
+                percentageByMonth.computeIfAbsent(YearMonth.from(row.getEffectiveMonth()), m -> new HashMap<>())
+                        .put(row.getTenantId(), row.getPercentage());
+            }
+        }
+        if (!YearMonth.from(dateFrom).isAfter(currentMonth) && !currentMonth.isAfter(YearMonth.from(dateTo))) {
+            Map<Integer, BigDecimal> liveByTenant = new HashMap<>();
+            for (TenantOwnership row : dashboardDao.findGroupEquityPercentages(companyTenantIds, groupTenantId)) {
+                liveByTenant.put(row.getTenantId(), row.getPercentage());
+            }
+            percentageByMonth.put(currentMonth, liveByTenant);
+        }
+        return percentageByMonth;
+    }
+
+    // If equity has not been configured for a given month, it will not appear in `percentageByMonth` → Treat it as 0% (earnings=0, not null).
+    private static void applyTrendEarnings(List<DashboardTrendPointDTO> points, Map<YearMonth, BigDecimal> percentageByMonth) {
+        for (DashboardTrendPointDTO point : points) {
+            BigDecimal percentage = percentageByMonth.getOrDefault(YearMonth.from(point.getDate()), BigDecimal.ZERO);
+            point.setEarnings(earningsFrom(point.getNetProfit(), percentage));
+        }
+    }
+
     /** One point per day in [dateFrom, dateTo]; a day missing from both maps still comes back as zero. */
     private static List<DashboardTrendPointDTO> buildTrendPoints(LocalDate dateFrom, LocalDate dateTo,
             Map<LocalDate, Map<String, BigDecimal>> winLossByDateRole, Map<LocalDate, Map<String, BigDecimal>> crDrByDateRole) {
@@ -195,7 +507,7 @@ public class DashboardServiceImpl implements DashboardService {
             BigDecimal expenses = amountForRole(ROLE_EXPENSES, winLossByRole, crDrByRole);
             BigDecimal netProfit = profit.add(expenses);
 
-            points.add(new DashboardTrendPointDTO(date, profit, expenses, netProfit));
+            points.add(new DashboardTrendPointDTO(date, profit, expenses, netProfit, null));
         }
         return points;
     }
@@ -208,6 +520,16 @@ public class DashboardServiceImpl implements DashboardService {
                     .merge(role, row.getAmount(), BigDecimal::add);
         }
         return byDate;
+    }
+
+    private static Map<Integer, Map<String, BigDecimal>> toTenantRoleMap(List<DashboardKpiDTO.RoleAmount> rows) {
+        Map<Integer, Map<String, BigDecimal>> byTenant = new HashMap<>();
+        for (DashboardKpiDTO.RoleAmount row : rows) {
+            String role = row.getRole() == null ? "" : row.getRole().trim().toUpperCase();
+            byTenant.computeIfAbsent(row.getTenantId(), t -> new HashMap<>())
+                    .merge(role, row.getAmount(), BigDecimal::add);
+        }
+        return byTenant;
     }
 
     /*
