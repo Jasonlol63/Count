@@ -9,10 +9,13 @@
 > `dashboardConstants.js` / `dashboardChart.jsx` / `loginScope.js`——把 Dashboard 页面还在打的旧 PHP 接口换成
 > Spring，打不到 Spring 后端的功能（Group-All 跨组合并、多公司 subset 合并、按币种拆分的 Earnings 面板、
 > FX 换算）UI 组件保留挂载，但不再发请求，渲染成空/`-`。
-> **最后更新**：2026-09-10（新增第 11 节：Company Earnings 卡片 + Trend Chart 走势线的"直接持股 or
-> 借道 Group"降级链路——公司自己没有直接持股配置时，改成查它分给了哪个 Group、再查登录身份在那个
-> Group 里的持股%，两个百分比相乘得出有效持股率；KPI 卡片部分已真机验证数字对了，Trend Chart 部分
-> 还没有真机验证）
+> **最后更新**：2026-09-10（新增第 12～18 节：汇率同步定时任务 + 换算引擎、单公司 Currency/Earning
+> Tab 按币种拆分、Group Net Profit Tab（按公司拆分）、Group Currency Tab（按币种拆分，Group 加权版）、
+> Company: All Currency Tab（按币种拆分，纯求和版）、Company: All Earnings KPI 卡片 + Trend Chart
+> Earnings 线（批量降级链路，公司数量/月份跨度都不会增加查询次数）。第 11 节的降级链路记录：Company
+> Earnings 卡片 + Trend Chart 走势线的"直接持股 or 借道 Group"降级链路——公司自己没有直接持股配置时，
+> 改成查它分给了哪个 Group、再查登录身份在那个 Group 里的持股%，两个百分比相乘得出有效持股率；KPI
+> 卡片部分已真机验证数字对了，Trend Chart 部分还没有真机验证）
 
 ---
 
@@ -30,6 +33,13 @@
 9. [Company: All 多公司汇总](#9-company-all-多公司汇总)
 10. [Group KPI：Group 自己视角的 KPI 卡片](#10-group-kpigroup-自己视角的-kpi-卡片)
 11. [Company Earnings 降级链路：直接持股 or 借道 Group](#11-company-earnings-降级链路直接持股-or-借道-group)
+12. [Exchange Rate 汇率系统：定时任务 + 换算引擎](#12-exchange-rate-汇率系统定时任务--换算引擎)
+13. [单公司 Currency / Earning Tab 按币种拆分](#13-单公司-currency--earning-tab-按币种拆分)
+14. [Group Net Profit Tab：按旗下公司拆分](#14-group-net-profit-tab按旗下公司拆分)
+15. [Group Currency Tab：按币种拆分（Group 加权版）](#15-group-currency-tab按币种拆分group-加权版)
+16. [Company: All Currency Tab：按币种拆分（纯求和版）](#16-company-all-currency-tab按币种拆分纯求和版)
+17. [Company: All Earnings：批量降级链路](#17-company-all-earnings批量降级链路)
+18. [Company: All Trend Chart Earnings 线：公司 × 月份双批量](#18-company-all-trend-chart-earnings-线公司--月份双批量)
 
 ---
 
@@ -336,15 +346,16 @@ GET /api/dashboard/kpi?tenant_id=&date_from=&date_to=&currency=
 
 - **Group-All**（同时合并 AP+IG 两个 Group 一起看，也就是"Group ID: All"）、多公司 subset 合并场景的 KPI 计算和 Trend Chart——这两种没有单一的 Group tenant_id 可用，第 10 节的 Group KPI/Trend Chart 接口暂时管不到；"同一 Group 标签下 Company: All"（见第 9 节）、"单个 Group 自己的 KPI + Trend Chart"（见第 10 节，含 10.8）这两种已经做了
 - "Company: All" 场景（第 9 节）下的 Currency 选择器——这次只做了 Profit/Expenses/Net Profit/Trend 的数字，货币选择器那边 `fetchCompanyCurrencySettingCodes()` 还是直接返回空数组，没有验证 Company:All 模式下切换货币会不会正常工作
-- Earnings 按币种拆分的圆环图 + Currency/Amount/Original Amount/Rate 明细列表
-- FX 汇率换算（`frankfurterRates.js`）
+- ~~Earnings 按币种拆分的圆环图 + Currency/Amount/Original Amount/Rate 明细列表~~——**已做**：单公司 Currency/Earning Tab 见第 13 节，Group Currency Tab 见第 15 节
+- ~~FX 汇率换算（`frankfurterRates.js`）~~——**已做**：后端 `exchange_rate` 表 + `ExchangeRateService`，见第 12 节；前端仍保留 `frankfurterRates.js` 作为 Rate 列的兜底（后端没有该币种汇率时才用），见 13.4
+- "Company: All" 场景（第 9 节）下的 Currency/Earning Tab 按币种拆分——只做了单公司（第 13 节）和 Group（第 15 节）两种 scope，`getKpiForCompanies()` 场景的按币种拆分没有做
 - Group 级别的股权链路（`tenant_ownership.owner_type='group'`、多层集团路径连乘）——`DashboardServiceImpl` 目前只处理 `owner`/`user` 两种直接持股，`group` 那条链路完全没接
 - "Company: All" 场景下的 Earnings 卡片、"较上一期"对比——`getKpiForCompanies()`/`getTrendForCompanies()` 都没有算这两样（不是漏做，是这次明确商量好不做，见第 9.1 节）
 
 以下部分**代码已经写了，但这次没有拿真实数据交叉验证过**，如果之后发现数字不对可以从这里查起：
 
 - 历史月份股权快照（`tenant_ownership_history`）的读取路径——`applyEarnings()`/`resolveEarningsAmount()` 里 `YearMonth.now()` 判断分支，这次验证的都是当月数据
-- Earnings 卡片本身的乘数计算（`percentage`、`showEarnings` 判断）——这次验证重点在 Profit/Expenses/Net Profit，没有拿一个真实配了股权比例的账号登录测过 Earnings 卡片
+- ~~Earnings 卡片本身的乘数计算（`percentage`、`showEarnings` 判断）——这次验证重点在 Profit/Expenses/Net Profit，没有拿一个真实配了股权比例的账号登录测过 Earnings 卡片~~——**已确认算法正确**（用户验证，见第 11/17/18 节后续多轮真机 + 真实数据交叉验证）
 - 第 7 节"较上一期"对比功能里，Earnings 那一栏的 `previousEarnings`（同样依赖没验证过的股权乘数计算）——Profit/Expenses/Net Profit 三个对比过（用第 5 节 Bug 2/3 里已经验证过的公司 95 数据核对了 7 月/8 月的 Win/Loss+Cr/Dr 桶能正常查出数），Earnings 的对比没测
 - 第 10 节 **Group KPI 全部逻辑**（Group Profit 加权汇总、Group Expenses、Group Earnings）——只做了后端编译通过 + 前端 `vite build` 编译通过，没有拿真实配置过"公司分配股权给 Group"的数据登录跑一遍数字核对，也没有实机打开浏览器验证 Group 页面渲染正常（见第 10.7 节）
 - Bug 5 里 Group 账本 Currency 选择器的修复——只是代码逻辑上"应该对了"，没有真机登录 AP/IG 账号肉眼确认 chip 真的显示出来
@@ -539,7 +550,7 @@ GET /api/dashboard/chart-all?tenant_ids=1,2,3&date_from=&date_to=&currency=
 ### 9.6 尚未覆盖 / 未验证
 
 - **Currency 选择器**：这次只做了金额数字，`fetchCompanyCurrencySettingCodes()`（groupAllMode 下货币列表的来源之一）之前已经被短路成直接返回空数组，这次没有去验证 Company:All 模式下切换货币这个交互本身还能不能正常工作——如果测出来货币选不了或选了没反应，从这里查起
-- **Earnings 卡片**、**"较上一期"对比**：`getKpiForCompanies()`/`getTrendForCompanies()` 都没有算，是这次明确商量好先不做的，不是漏了
+- ~~**Earnings 卡片**、**"较上一期"对比**：`getKpiForCompanies()`/`getTrendForCompanies()` 都没有算，是这次明确商量好先不做的，不是漏了~~——**已改主意，Earnings 卡片补上了**，见第 17 节；"较上一期"对比、Trend Chart 的 Earnings 线、Currency Tab 的 Earning 列这三样还没做（Currency Tab 的 Currency 列本身已经在第 16 节做了）
 - 只验证过 2 家公司加总（95+AG）的场景，没有测过 5 家公司同时加总，理论上 SQL `IN (...)` 加再多个 id 都是同一个查询模式，但没有拿真实的 5 家公司数据跑过一遍对总数
 
 ---
@@ -787,7 +798,507 @@ resolveEffectiveEarningsPercentagesByMonth(tenantId, accountId, ownerType, dateF
 
 ### 11.5 尚未覆盖 / 未验证
 
-- **Trend Chart 这部分只做到后端编译通过，没有真机打开走势线肉眼确认 Earnings 那条线在"直接持股查不到、走 Group 降级"的月份数字是否正确**——KPI 卡片那部分已经验证过（见 11.3），Trend Chart 这次没有单独测
+- ~~Trend Chart 这部分只做到后端编译通过，没有真机打开走势线肉眼确认 Earnings 那条线在"直接持股查不到、走 Group 降级"的月份数字是否正确~~——**已真机验证，数字对了**（用户确认，具体是哪个 Group/月份没有单独记录细节）
 - ~~`getKpiCurrencyBreakdown()`（按币种拆分的 Earnings 面板）没有接上这套降级逻辑~~——**已补上**：改成调 `resolveEffectiveEarningsPercentage(tenantId, dateTo, ownerType, true)`，跟 `getKpi()` 同一个方法、同一个 `allowGroupCascade=true`，只查一次（不是每个币种查一次），套到每个币种的净利润上。只影响 Earning Tab 的 `earnings`/`earningsConverted` 两个字段，Currency Tab 的 `netProfit`/`amount`/`rate` 不受影响。这次只做到后端编译通过，没有真机验证过借道 Group 场景下这个面板的数字。
 - 一家公司同时分股权给两个不同 Group 这种情况没有处理（用户已确认这不会发生，`findCompanyGroupAllocation`/`findCompanyGroupAllocationsByMonths` 都是 `LIMIT 1`/取查到的第一批，如果数据库里意外出现多行，行为是"随便挑一行"而不是报错或加权平均）
 - `groupsAllGroupLevel`（`Group ID: All`）的 Trend Chart 跟 KPI 卡片一样，这次没有覆盖到，继续显示为空
+
+---
+
+## 12. Exchange Rate 汇率系统：定时任务 + 换算引擎
+
+> 背景：旧版汇率功能全部靠前端直连 Frankfurter（`frankfurterRates.js`），有两个问题——一是稳定币
+> （USDT/USDC）Frankfurter 根本没有报价，永远查不到；二是切换 base currency 要么现查、要么维护一份
+> NxN 汇率矩阵。这次的做法是**后端每天批量拉一次、存本地表、锚定单一币种（USD）反推任意两币种汇率**，
+> dashboard 请求时只读本地表，不再有外部网络调用。
+
+### 12.1 `exchange_rate` 表
+
+```sql
+CREATE TABLE exchange_rate (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    currency_code VARCHAR(10) NOT NULL,   -- 如 MYR、USD、USDT
+    rate_to_usd DECIMAL(18,8) NOT NULL,   -- 1 单位该币种 = ? USD；USD 自己 = 1
+    rate_date DATE NOT NULL,              -- 这条快照对应哪一天
+    source VARCHAR(20) NOT NULL DEFAULT 'frankfurter',  -- frankfurter | stablecoin | manual
+    created_at TIMESTAMP, updated_at TIMESTAMP,
+    UNIQUE KEY uq_exchange_rate_code_date (currency_code, rate_date)
+);
+```
+
+迁移脚本：`backend/src/main/resources/sql/migrate_add_exchange_rate_table.sql`（`CREATE TABLE IF NOT EXISTS`，可重复执行）。全局表，不分 tenant——汇率不是租户级数据。
+
+**为什么锚定单一币种**：只存"每个币种对 USD"这一份，不用维护 NxN 矩阵；任意两币种 A→B 的汇率现算 `rate(A→USD) / rate(B→USD)`，纯算术，不用额外查询。
+
+### 12.2 `ExchangeRateSyncJob`：每天一次的定时任务
+
+`backend/src/main/java/com/eazycount/cron/ExchangeRateSyncJob.java`，`@Scheduled(cron = "${app.exchange-rate.cron}")`，默认 `0 5 0 * * *`（每天 00:05）——汇率数据源本身一天只更新一次，没必要按小时轮询。
+
+流程：
+1. 查 `currency` 表所有 tenant 用到的 ACTIVE 币种（`ExchangeRateDao#findDistinctActiveCurrencyCodes`），不写死清单。
+2. 拆成两类：稳定币（`USDT`、`USDC`，写死在 `STABLECOINS` 常量里）直接写 `rate_to_usd=1.0`，不发请求；其余法币一次性批量调 Frankfurter。
+3. 批量请求返回的响应里缺失的币种（Frankfurter 不认识的代码）**只记日志、跳过，不逐个重试**——这正是旧系统"per-currency查询变慢"的问题在这里被规避的地方。
+4. `INSERT ... ON DUPLICATE KEY UPDATE`（利用 `(currency_code, rate_date)` 唯一索引），当天重复跑不会出错。
+
+**踩过的坑：Frankfurter API 版本**——最初配的是 `https://api.frankfurter.dev/v2/latest?base=USD&symbols=...`，实测**整个请求直接 404**（v2 的 endpoint 其实改成了 `/v2/rates` + `quotes` 参数，不是 `/latest` + `symbols`）。改用 `v1`（官方标注 "frozen" 即长期稳定，不是要废弃）：`https://api.frankfurter.dev/v1/latest?base=USD&symbols=...`，参数形状跟原本写的代码完全匹配。已在 `application.yml` 的 `app.exchange-rate.frankfurter-url` 里改正。
+
+**真实验证**：`count_real` 库里的 `currency` 表混了几个非标准代码（`RM`、`THE`、`NPR`、`PGK`），v1 批量请求遇到不认识的代码会**自动从返回结果里剔除，不会让整个请求 404**——手动跑过一次任务，`exchange_rate` 表正确写入了 `AUD/CAD/CNY/EUR/HKD/IDR/MYR/SGD/THB/USD/USDT`（`USDT` 是 `source='stablecoin'`），`RM/THE/NPR/PGK` 被跳过、日志里能看到警告，任务本身没有报错、没有卡住。
+
+### 12.3 `ExchangeRateService`：换算引擎
+
+`backend/src/main/java/com/eazycount/service/ExchangeRateService.java` / `impl/ExchangeRateServiceImpl.java`：
+
+```java
+Map<String, BigDecimal> loadRatesToUsd();  // 一次 DB 读取，返回 code -> rate_to_usd
+BigDecimal convert(BigDecimal amount, String fromCode, String toCode, Map<String, BigDecimal> ratesToUsd);
+```
+
+`convert()` 是纯算术：`amount × rate(from→USD) ÷ rate(to→USD)`，任一币种没有汇率就返回 `null`（调用方渲染成 "—"）。调用方（`DashboardServiceImpl`）在一次请求里只调 `loadRatesToUsd()` 一次，之后在内存里循环调用 `convert()`，不会有 per-row 的额外查询。
+
+`ExchangeRateDao#findLatestRates()`（`backend/src/main/resources/mybatis/ExchangeRateMapper.xml`）取的是**每个币种各自最近一次成功的快照**（`rate_date <= CURDATE()` 里的 `MAX`，按 `currency_code` 分别取），不是"全局最新的那一天"——如果某天同步任务只有部分币种失败，那些币种会自动落到上一次成功的日期，不会因为"今天没抓到"就整体查不到。
+
+### 12.4 尚未覆盖 / 未验证
+
+- 没有做"手动触发一次同步"的管理端入口，目前只能等每天 00:05 的定时任务，或者临时写一个 test 手动调 `ExchangeRateSyncJob#syncDailyRates()`（这次验证就是这么做的，验证完把 test 文件删了）
+- 没有对 Frankfurter 请求失败做告警/通知，失败了只是记一条 `WARN` 日志
+
+---
+
+## 13. 单公司 Currency / Earning Tab 按币种拆分
+
+> 范围：Dashboard 页面右侧那张"Currency 分布"卡片（截图里 donut chart + Currency/Amount/Original
+> Amount/Rate 表格），单一 COMPANY 类型租户。对应截图里 `Currency` 和 `Earning` 两个 tab。
+
+### 13.1 后端：`getKpiCurrencyBreakdown()`
+
+```
+GET /api/dashboard/kpi/currency-breakdown?tenant_id=&date_from=&date_to=&base_currency=
+```
+
+新增 `DashboardCurrencyAmountDTO`：
+
+```java
+class DashboardCurrencyAmountDTO {
+    String code;                    // 币种代码
+    BigDecimal originalAmount;      // Currency tab: 该币种自己的 Net Profit（未换算）
+    BigDecimal amount;              // originalAmount 换算成 base_currency 后的金额
+    BigDecimal rate;                // 单位汇率：1 该币种 = ? base_currency
+    BigDecimal earnings;            // Earning tab: 该币种 NetProfit × 当前登录身份的有效持股% (0，不是 null)
+    BigDecimal earningsConverted;   // earnings 换算成 base_currency 后的金额
+}
+```
+
+**新增 DAO 查询**（`DashboardDao#aggregateWinLossByRoleAndCurrency` / `aggregateCrDrByRoleAndCurrency`）：跟第 0 节的 `aggregateWinLossByRole`/`aggregateCrDrByRole` 业务规则完全一样，只是去掉 `currencyCode` 过滤、改成按 `currency` 分组返回——**一条 SQL 拿到该 tenant 名下每个币种各自的数字**，不用为每个币种单独查一次（这正是旧系统"按币种循环查询"变慢的原因）。
+
+**计算逻辑**：
+1. 币种清单 = 该 tenant 在 Currency Setting 里配置的**全部** ACTIVE 币种 ∪ 有交易活动的币种 ∪ 当前请求的 `base_currency`——不是只列有数据的币种，没有活动的币种也要出现在表格里显示 "—"。
+2. 对每个币种：`hasActivity`（该币种在这个日期区间有任何 Win/Loss 或 Cr/Dr 记录）或者本身就是 `base_currency` → 算出真实的 `netProfit`（可能是 0）；否则 `netProfit = null`（渲染成 "—"，不是 0）。
+3. `amount`/`rate` 用 `ExchangeRateService` 换算，一次请求只 `loadRatesToUsd()` 一次。
+4. **Earning tab 的 `earnings`**：`resolveEffectiveEarningsPercentage(tenantId, dateTo, ownerType, allowGroupCascade=true)`——跟 KPI 卡片 Earnings 数字**同一个方法**（第 11 节的降级链路：公司自己没有直接持股，就借道它分给的 Group 再乘一次持股%），**只查一次**（不是每个币种查一次），套到每个币种上：`earnings = (netProfit ?? 0) × percentage / 100`，没有活动或没有持股一律是 `0`（不是 `null`）——这是 Earning tab 跟 Currency tab 唯一的显示差异（"—" vs "0"）。
+
+### 13.2 前端接入
+
+`Count-frontend/src/pages/dashboard/hooks/useDashboardPage.js`：
+
+- `springCurrencyBreakdownData`（新 state）：单一、简单的 `useEffect`（照抄 `springKpiData` 的写法，没有缓存/去重/预取机制），只在 `isSingleCompanyKpiScope && currencies.length > 1` 时才发请求。
+- `earningsCurrencyRows`：单公司 scope 下直接读这份数据（`originalAmount`→`netProfit`、`amount`→`netProfitConverted`、`rate`、`earnings`/`earningsConverted`），**替换掉原本已经被禁用的 `dashboard_api.php` 链路**（`fetchDashboardApiHttpDeduped()` 之前一直是短路返回空数据的 no-op stub）。
+- `useConvertedEarnings`/`allCurrencyEarningsReady`：单公司 scope 下的判断标准改成"批量响应是否已经落地"，不是"每一行是否都非 null"——因为没有活动的币种本来就该是合法的 `null`，不代表数据没查完。
+
+### 13.3 过程中发现/修的 2 个 bug
+
+**Bug A：Original Amount 列显示成了跟 Amount 一样的数字**——`dashboardEarnings.js` 的 `resolveEarningsRowDisplayAmounts()` 读的是 `row.earnings`（这个字段在 `mapPanelCurrencyRows()` 处理完之后，其实已经被覆盖成"展示用的金额"——可能是原生值也可能是换算值，取决于 `useConverted`），而不是专门保存原生值的 `row.originalEarnings`。这是前端已经存在的 bug（这部分功能之前一直是空数据，没暴露出来），改成读 `row.originalEarnings ?? row.earnings`。
+
+**Bug B：稳定币（USDT）的 Rate 列永远显示 "—"**——Rate 列当时读的是前端自己直连 Frankfurter 拿到的 `exchangeRates.rates`，跟后端 `exchange_rate` 表是两条独立数据源；Frankfurter 不支持加密货币报价，USDT 永远查不到。新增 `resolveUnitRateLabel(row, code, baseCode, rates)`：**优先用这一行自己的 `row.rate`（后端算好的）**，只有没有才退回客户端 Frankfurter 汇率。
+
+### 13.4 真实验证
+
+用 tenant_id=2（公司 95）2026-09-07 的真实数据验证过：`MYR` 净利润 1,975.03、`CNY` 净利润 3.28（换算成 MYR 是 1.99）——跟截图里的数字完全对上，且 Original Amount 列显示的是 `3.28`（原生值），不是 `1.99`（换算值）。
+
+### 13.5 尚未覆盖 / 未验证
+
+- ~~"Company: All" 场景（第 9 节）没有做按币种拆分~~——**已做**，见第 16 节
+- Rate 列目前是"双数据源"：单公司/Group scope 优先用后端 `exchange_rate` 表算出来的汇率，其它 scope（Company: All 等）还是走前端 Frankfurter——两边数值应该接近但不保证完全一致（拉取时间点不同），架构上还没完全统一
+- **【待排查】NPR/PGK 的 Rate 列偶尔会显示一个具体数字，而不是预期的 "—"**——Frankfurter 官方支持的货币只有 30 种（`AUD BRL CAD CHF CNY CZK DKK EUR GBP HKD HUF IDR ILS INR ISK JPY KRW MXN MYR NOK NZD PHP PLN RON SEK SGD THB TRY USD ZAR`，用 `GET https://api.frankfurter.dev/v1/currencies` 查过），NPR/PGK 都不在里面，`exchange_rate` 表里也确认没有这两个币种的行——理论上不管后端还是前端直连 Frankfurter 都不可能查到真实汇率。用户反馈在 Company 模式下看到 NPR=0.026722、PGK=0.909008 这种具体数字（PGK 这个值在不同时间点的两张截图里完全相同，NPR 有细微差异），怀疑是 `resolveUnitRateLabel()`（`DashboardEarningsSummary.jsx`）在后端 `row.rate` 为 `null` 时退回的前端 `formatFrankfurterUnitRate()` 读到了浏览器 `sessionStorage`（`frankfurterRates.js` 的 `frankfurter_rates_v1:` 缓存前缀）里的旧脏数据，而不是真的查到了汇率——还没验证这个假设（没有清一下 sessionStorage 复现确认）。根治方案初步想法：单公司/Group 这两个 scope 既然后端已经是权威数据源，`row.rate` 为 `null` 就应该直接显示 "—"，不该再退回前端 Frankfurter——这次先记录，没有动代码。
+
+---
+
+## 14. Group Net Profit Tab：按旗下公司拆分
+
+> 范围：Group-only 场景（单独看某个 Group、没选具体公司）下 Currency 卡片新增的第三个 tab——不是按
+> 币种拆分，是按**这个 Group 旗下每家子公司自己的 Net Profit**拆分（截图里 AG/95/RS/VG/CX 那张表）。
+
+### 14.1 后端：`getGroupCompanyNetProfitBreakdown()`
+
+```
+GET /api/dashboard/group-kpi/net-profit?group_tenant_id=&company_tenant_ids=&date_from=&date_to=&currency=
+```
+
+新增 `DashboardGroupCompanyNetProfitDTO { String code; BigDecimal netProfit; String group; }`。
+
+**不新增业务逻辑 SQL**——`aggregateWinLossByRoleAndTenant`/`aggregateCrDrByRoleAndTenant` 这两条查询 `computeGroupProfit()`（Group Profit 加权汇总）本来就在跑，只是算完加权就把"每家公司自己的原始 Net Profit"这个中间结果丢掉了。这次把这个中间结果单独暴露成一个数组，**没有写新 SQL**。
+
+单一货币、跟 `getKpiForGroup()` 的 `currency` 参数一样直接过滤，**不做 FX 换算**——跟 Group KPI 卡片本身用的是同一种"单币种直接过滤"的规则，比按币种拆分的第 15 节简单。
+
+**新增**：`TenantDao#findTenantsByIds(List<Integer> tenantIds)`——批量查一批公司各自的 `code`，不是每家公司单独 `findTenantById` 一次（否则又是一次 N+1）。
+
+### 14.2 前端接入 + Tab 出现条件
+
+`springGroupCompanyBreakdownData`（新 state），只在 `groupOnlyDashboard`（单独看某个 Group、没选具体公司）**且**这个 Group 至少有一家子公司时才发请求。
+
+`panelCurrencyRows` 的 `netProfitFor` 分支从原本读死掉的 `dashboardData?.subsidiary_earnings_by_company`（旧 PHP 时代字段，Spring 迁移后一直是空的）改成读这份新数据。`showNetProfitForTab` 这个 tab 显示开关本来就是 `groupOnlyDashboard && 有数据`——这次只是把数据源换掉，判断条件没有改。
+
+### 14.3 真实验证
+
+IG 这个 Group（tenant_id=33），2026 年 8 月，子公司 95/AG/RS/CX（tenant_id 2/5/3/6）：
+
+| 公司 | Net Profit |
+|---|---|
+| AG | 183,029.94 |
+| 95 | 26,220.36 |
+| RS | 16,349.02 |
+| CX | −5,400.00 |
+
+跟截图里的数字完全对上。
+
+### 14.4 尚未覆盖 / 未验证
+
+- 没有做"较上一期"对比（这张表本身也没有这个概念，跟 Net Profit Tab 的定位一致——纯粹是当期各公司拆分）
+- `VG` 这家公司在截图里显示 0.00，但它没有在 `tenant_ownership` 的 group 分配行里出现——`company_tenant_ids` 这个参数由前端算好传进来（`groupKpiCompanyTenantIds`），只要前端把它包含进列表，后端会正常查出它当期的 Net Profit（没有交易就是 0），不依赖它有没有配置股权分配
+
+---
+
+## 15. Group Currency Tab：按币种拆分（Group 加权版）
+
+> 范围：Group-only（以及纯 Group 账本）场景下 Currency 卡片的 "Currency" tab——逻辑上跟第 13 节的
+> 单公司版完全一样（Currency/Amount/Original Amount/Rate 四列），唯一区别是 Original Amount 的来源
+> 不是某一家公司的 Net Profit，而是**这个 Group 自己算出来的 Net Profit**（`getKpiForGroup()` 那套
+> "各子公司 Net Profit × 股权% 加权汇总"的结果）按币种拆开、每个币种各自的贡献。
+
+### 15.1 核心难点：需要"tenant + currency"双维度分组的新查询
+
+单公司版的 `aggregateWinLossByRoleAndCurrency`（按币种分组）和 Group Net Profit Tab 的 `aggregateWinLossByRoleAndTenant`（按公司分组）都不够用——这次需要的是"每家子公司在每个币种各自的 Win/Loss/Cr/Dr"，两个维度同时要。
+
+**新增 DAO 查询**：`aggregateWinLossByRoleAndTenantAndCurrency` / `aggregateCrDrByRoleAndTenantAndCurrency`——业务规则（WIN/LOSE/ADJUSTMENT、手动 PROFIT 转账、RATE 中间人手续费两种历史格式、CLEAR 排除）跟现有的 `aggregateWinLossByRoleAndTenant`/`aggregateCrDrByRoleAndTenant` 完全一样，只是：去掉 `currencyCode` 过滤，`SELECT` 里加 `c.code AS currencyCode`，`GROUP BY x.tenantId, x.role` 变成 `GROUP BY x.tenantId, x.currencyCode, x.role`——一条 SQL 拿到 Group 下每家公司在每个币种各自的数字，不是循环查询。
+
+### 15.2 计算公式
+
+```
+Group Net Profit(某币种) = Σ 每家子公司在该币种的 NetProfit × 该公司股权%
+                          + Group 自己账本在该币种的 Expenses
+```
+
+跟 `computeGroupProfit()`（Group KPI 卡片单币种版）同一套权重规则，只是评估维度从"一个总数"变成"每个币种各自评估一次"；"Group 自己账本只算 Expenses"这条业务规则（第 10 节 `computeGroupKpi()` 已确认）在这里原样沿用，Group 自己账本的 Expenses 复用第 13 节已经写好的 `aggregateWinLossByRoleAndCurrency`/`aggregateCrDrByRoleAndCurrency`（`tenantIds` 传 Group 自己的 id）。
+
+### 15.3 后端：`getGroupKpiCurrencyBreakdown()`
+
+```
+GET /api/dashboard/group-kpi/currency-breakdown?group_tenant_id=&company_tenant_ids=&date_from=&date_to=&base_currency=
+```
+
+**复用第 13 节的 `DashboardCurrencyAmountDTO`**（`code`/`originalAmount`/`amount`/`rate`/`earnings`/`earningsConverted`），不新建 DTO；换算引擎也复用同一个 `ExchangeRateService`。币种清单规则跟单公司版一致：Group 自己配置的币种 ∪ 有活动的币种（子公司或 Group 自己账本任一方有数据）∪ 当前 `base_currency`。`earnings`/`earningsConverted` 这两个字段的计算见 15.6。
+
+### 15.4 前端接入
+
+`springGroupCurrencyBreakdownData`（新 state），用的是 `groupKpiScope`（跟 Group KPI 卡片本身同一个 scope，比第 14 节 Net Profit Tab 的 `groupOnlyDashboard` **宽**——纯 Group 账本场景也适用，因为哪怕没有子公司，Group 自己账本的 Expenses 部分依然有意义）。`earningsCurrencyRows` 新增 Group 分支读这份数据；`useConvertedEarnings`/`allCurrencyEarningsReady` 同样加了 `groupKpiScope` 分支，判断标准是"响应是否落地"，跟单公司版原则一致。
+
+### 15.5 真实验证 + 尚未覆盖
+
+**已验证**：IG 这个 Group（tenant_id=33），2026 年 8 月，`base_currency=MYR` 时 `MYR` 行算出 **190,400.76**——跟本文档最开始讨论这个功能时给出的 Group 模式截图（"NET PROFIT · MYR 190,400.76"）完全一致。`AUD`/`CNY`/`EUR`/`SGD`/`USD` 都有对应的原生 + 换算金额；`NPR` 有原生金额但换算不了（Frankfurter 不支持，显示 "—"），跟单公司版行为一致。
+
+**尚未覆盖**：
+- 只做到后端真实数据验证 + 前端 `vite build` 编译通过，没有实机登录浏览器肉眼确认 Group Currency Tab 的表格渲染正常
+
+### 15.6 Group Earning Tab：按币种拆分
+
+`earnings`/`earningsConverted` 这两个字段接上了：跟 `getKpiForGroup()` 的 Earnings 卡片**同一个方法**
+`resolveEffectiveEarningsPercentage(groupTenantId, dateTo, ownerType, allowGroupCascade=false)`——注意这里
+`allowGroupCascade` 传的是 `false`，跟第 13 节 Company 版（传 `true`）唯一的区别：**Group 不会再往上借道
+另一个 Group**（Group 本身已经是降级链路的终点）。只查一次（不是每个币种查一次），套用公式跟 Company
+版一样：`earnings = (netProfit ?? 0) × percentage / 100`。
+
+**"Group 自己没有直接持股，Earning Tab 应该整个不显示"这条规则不需要新代码**——`showEarningPanelTab`
+前端本来就读 `kpi.showEarnings`，而 `kpi`（Group scope 下）就是 `/group-kpi` 返回的 `springKpiGroupData`，
+这个 `showEarnings` 早就是用同一个 `allowGroupCascade=false` 算出来的（第 11.3 节）。也就是说"整个 Tab
+显示与否"这件事在 KPI 卡片那条链路上已经解决了，这次只是把"每个币种具体多少钱"这个数字补上。
+
+**已真机验证**：IG 这个 Group（tenant_id=33），`owner_type='owner', account_id=3, percentage=70%`，
+用这个账号登录后 MYR 行显示 `133,280.53`（`190,400.76 × 70%`），用户实测确认数字对上——这是本文档
+第 12～15 节里唯一一处走完"后端验证 + 前端 vite build + 真机登录肉眼确认"全流程的功能点。
+
+---
+
+## 16. Company: All Currency Tab：按币种拆分（纯求和版）
+
+> 范围：同一 Group 标签下选 "Company: All"（截图里 `Group ID: IG` + `Company: All`）时 Currency 卡片的
+> "Currency" tab——展示结构跟单公司版（第 13 节）一模一样，**Original Amount 的来源是"当前 Group 标签下
+> 所有子公司在这个币种上的净利润直接相加"**，不像 Group Currency Tab（第 15 节）那样按股权% 加权。
+> 跟现有 `getKpiForCompanies()`（Company: All 的 KPI 卡片）用的是同一条"纯求和"规则，没有 Earnings（同
+> 第 9.1 节确认过的业务规则：多公司加总没有明确的持股归属意义）。
+
+### 16.1 核心：不用写新 SQL
+
+第 13 节已经写好的 `aggregateWinLossByRoleAndCurrency`/`aggregateCrDrByRoleAndCurrency` 这两条查询，
+`tenantIds` 参数本来就是 `List<Integer>`——单公司版只是"传了一个元素的列表"。Company: All 场景直接把
+这个 Group 标签下所有子公司的 id 传进去，SQL 里的 `COALESCE(SUM(...))` 自动把这些公司同一个币种的数字
+加总，**不需要新写查询**——这点跟 Group Currency Tab（第 15 节需要新写"tenant+currency 双维度分组"的
+SQL）不一样，Company: All 更简单。
+
+### 16.2 后端：`getKpiCurrencyBreakdownForCompanies()`
+
+```
+GET /api/dashboard/kpi-all/currency-breakdown?tenant_ids=&date_from=&date_to=&base_currency=
+```
+
+逻辑跟 `getKpiCurrencyBreakdown()`（第 13 节）几乎一致，区别只有两处：
+1. 币种清单里"该 tenant 配置的币种"这一步，单公司版是 `CurrencyDao#findCurrencyByTenantId`（单个 id），
+   这次新增 `findCurrencyByTenantIds`（批量，一条 `WHERE tenant_id IN (...)`，不是每家公司查一次）。
+2. 不算 Earnings——`earnings`/`earningsConverted` 两个字段固定 `null`（复用同一个
+   `DashboardCurrencyAmountDTO`，不新建 DTO）。
+
+### 16.3 前端接入
+
+`springCompaniesCurrencyBreakdownData`（新 state），复用现有 `groupAllMode`/`groupAllTenantIds`（`/kpi-all`
+KPI 卡片本来就在用的同一套 scope 判断和公司列表解析），不用新写判断逻辑。`earningsCurrencyRows` 新增
+`groupAllMode` 分支读这份数据；`useConvertedEarnings`/`allCurrencyEarningsReady` 同样加了对应分支，判断
+标准跟单公司/Group 版一致（"响应是否落地"）。
+
+### 16.4 真实验证
+
+IG 这个 Group 标签下的子公司 95/AG/RS/CX（tenant_id 2/5/3/6），2026 年 8 月，`base_currency=MYR` 时
+`MYR` 行算出 **220,199.32**——跟截图里 "Net Profit 220,199.32" 完全一致（也正好等于第 14 节 Group Net
+Profit Tab 里 AG+95+RS+CX 四家公司 Net Profit 直接相加：`183,029.94+26,220.36+16,349.02-5,400.00`）。
+
+### 16.5 尚未覆盖 / 未验证
+
+- 只做到后端真实数据验证 + 前端 `vite build` 编译通过，没有实机登录浏览器肉眼确认表格渲染正常
+- `VG` 这家公司没有传进这次验证用的 `tenant_ids` 列表（截图里显示 0.00，原因同第 14.4 节——`company_tenant_ids`/`tenant_ids` 由前端算好传入，不影响这条规则本身）
+
+---
+
+## 17. Company: All Earnings：批量降级链路
+
+> 范围：这次改了主意——第 9.1 节原本商量好 Company: All 不做 Earnings，现在要加上。**只做了 KPI 卡片
+> 的 Earnings 金额本身**，Currency Tab 的 Earning 列、Trend Chart 的 Earnings 线、"较上一期"对比这三样
+> 还没做，是下一步。这次纯后端改动，`Controller` 和接口路径/参数都没变——`GET /api/dashboard/kpi-all`
+> 这个接口本来就有 `showEarnings`/`earnings` 这两个字段位置（单公司版一直在用），只是 Company: All 这
+> 条路径之前固定传 `false`/不填，这次把算法接上。
+
+### 17.1 需求：为什么不能"先加总再乘一个百分比"
+
+用户提的算法：`All Earnings = Σ 每家公司各自的 Earnings`，不是 `(Σ每家公司NetProfit) × 一个统一的百分比`。
+原因是同一个 Group 标签下的几家公司，持股链路可能完全不一样——A 公司可能对当前登录身份有直接持股，
+B 公司可能没有直接持股、要借道它分给的 Group 再算一层，C 公司可能两条都没有（贡献 0）。所以每家公司
+必须**独立**走一遍第 11 节那套"直接持股优先、查不到就借道 Group 降级"的判断，算出自己的 Earnings，
+最后把这些独立算出来的金额加总——不是共用一个百分比。
+
+### 17.2 性能：如何避免"每家公司查一次"变成 N+1
+
+这是这次讨论花时间最多的地方。原始想法（每家公司调一次现成的 `resolveEffectiveEarningsPercentage()`）
+会导致持股%这部分的查询次数随 `tenant_ids` 里的公司数量线性增长——公司越多越慢，用户明确要求不能这样。
+
+**解法：把这个方法整个改写成批量版 `resolveEffectiveEarningsPercentagesForTenants(tenantIds, dateTo,
+ownerType, allowGroupCascade)`**，固定 3 条 SQL 以内，不管 `tenantIds` 有多少个：
+
+```
+Step 1（1 条 SQL）：批量查这批 tenant 里，哪些对当前登录身份有直接持股行
+                    （findLiveOwnershipForTenants / findHistoricalOwnershipForTenants）
+Step 2（1 条 SQL）：Step 1 没查到直接持股的那些公司，批量查它们各自分给了哪个 Group
+                    （findCompanyGroupAllocationsForTenants / 历史版）
+Step 3（1 条 SQL）：Step 2 查出来的 Group id 去重后，批量查登录身份在这些 Group 里各自的直接持股%
+                    （复用 Step 1 同一条批量查询方法，只是这次传 Group id 列表）
+```
+
+第 3 步复用第 1 步同一条 DAO 方法（`findLiveOwnershipForTenants` 不关心传进去的 id 是公司还是 Group，
+`tenant_ownership` 表本来就是同一张表），所以**只新增了 4 条 DAO 查询**（Step 1/2 各自的当月版+历史版），
+不是 6 条。业务规则（直接持股优先、`allowGroupCascade=false` 时不降级、一家公司最多分给一个 Group）
+跟单公司版 `resolveEffectiveEarningsPercentage()` 完全一致，只是"查询"这一步从循环变成批量。
+
+新增 `DashboardDao` 方法（`backend/src/main/resources/mybatis/DashboardMapper.xml` 对应 4 条 SQL，全部
+把单 tenant 版本的 `WHERE tenant_id = ?` 换成 `WHERE tenant_id IN (...)`，业务逻辑一字不改）：
+
+```java
+List<TenantOwnership> findLiveOwnershipForTenants(tenantIds, accountId, ownerType);
+List<TenantOwnershipHistory> findHistoricalOwnershipForTenants(tenantIds, accountId, ownerType, effectiveMonth);
+List<TenantOwnership> findCompanyGroupAllocationsForTenants(tenantIds);
+List<TenantOwnershipHistory> findHistoricalCompanyGroupAllocationsForTenants(tenantIds, effectiveMonth);
+```
+
+### 17.3 后端：`getKpiForCompanies()` + `computeCompaniesEarnings()`
+
+```
+GET /api/dashboard/kpi-all?tenant_ids=&date_from=&date_to=&currency=
+```
+（接口不变，`DashboardKpiDTO` 的 `showEarnings`/`earnings` 字段这次真正填上了）
+
+`computeCompaniesEarnings(tenantIds, dateFrom, dateTo, currency, ownerType)`：
+1. 调 17.2 的批量方法拿到 `Map<tenantId, percentage>`——**只包含算出了非零百分比的公司**，一家公司没
+   有直接持股、也没有走通降级的，直接不在这个 Map 里（贡献 0，不是显式存一个 0 进去）。
+2. 这个 Map 是空的 → 返回 `null`，`showEarnings=false`，跟单公司"没配置持股就不显示卡片"的行为一致。
+3. 批量查这批公司各自的 Win/Loss+Cr/Dr（复用 `aggregateWinLossByRoleAndTenant`/`aggregateCrDrByRoleAndTenant`，
+   Group Profit 那边本来就在用的同一条查询，1 次调用不随公司数量变化），算出每家公司自己的 NetProfit。
+4. 遍历 Map 里有百分比的公司：`companyEarnings = companyNetProfit × percentage / 100`（`earningsFrom()`，
+   跟单公司同一个方法），全部加总就是 `dto.earnings`。
+
+### 17.3.1 Bug：前端 `kpi` useMemo 的 `groupAllMode` 分支硬编码 `showEarnings: false`
+
+**现象**：17.3 的后端改完、真机刷新 Company: All 页面（`Group ID: IG` + `Company: All`），Earnings 卡片
+还是没有出现——只有 Profit/Expenses/Net Profit 三张卡片。
+
+**排查**：`useDashboardPage.js` 的 `kpi` useMemo 里，`groupAllMode` 分支是这次改动之前写的，那时
+`getKpiForCompanies()` 确实固定返回 `showEarnings=false`，所以前端也照抄了 `showEarnings: false,
+earnings: 0` 写死在分支里——这次后端把 17.3 接上之后，前端这个写死的分支完全没跟着更新，一直在用旧的
+假数据覆盖掉后端已经算好的真实 `showEarnings`/`earnings`。
+
+**修复**：`groupAllMode` 分支直接改成调 `buildKpiFromSpringPayload(springKpiAllData)`——这是单公司分支
+本来就在用的同一个函数，已经处理好了 `showEarnings`/`earnings` 读取，以及 `previous*` 字段为 `null`
+时不伪造 `comparisons` 这些细节，不需要重新写一份。`kpi-all` 这个接口目前还没有 `previousProfit` 等字段
+（17.5 里提到的"较上一期"对比还没做），所以这次改完 `comparisons` 仍然是空对象，行为上不会多显示涨跌
+箭头——只是 Earnings 卡片本身终于会正确出现了。
+
+**教训**：这次是"后端字段加上了，但前端消费那一层没跟着改"——因为 KPI 卡片的读取逻辑（`kpi` useMemo）
+分成了好几个 scope 各自的分支（单公司/Group/Company:All），改动只针对了后端 DTO，没有同时检查每个
+消费该 DTO 的前端分支是不是也需要跟着放开写死的字段。以后改"接口返回值形状"这种改动，要记得同步检查
+前端有没有类似 `groupAllMode` 这种"手写了一份旧行为副本、没有复用现成转换函数"的分支。
+
+### 17.4 真实验证（意外验证了历史月份快照读取路径）
+
+IG 这个 Group 标签下的 95/AG/RS/CX（tenant_id 2/5/3/6），K 账号（account_id=3，`owner_type='owner'`），
+2026-08-01～08-31，MYR：
+
+```
+Profit = 401,150.32    Expenses = -180,951.00    NetProfit = 220,199.32   （跟截图完全一致）
+Earnings = 171,360.68
+```
+
+用当前（live）配置口算过一遍，算出来是 133,280.53，跟实际跑出来的 171,360.68 对不上——排查后发现是
+**历史月份快照口径的问题，不是 bug**：K 账号在 IG 的持股比例，`tenant_ownership`（live 表）现在是
+70%，但 `tenant_ownership_history` 里 `effective_month='2026-08-01'` 那一行存的是 **90%**（8 月当时的
+快照，后来改过）。查询逻辑因为 `YearMonth.from(dateTo)`（2026-08）不等于当前月份（系统当前是 2026-09），
+正确地走了历史表分支、用了 90% 而不是 70%。用 90% 重新手算：
+
+```
+AG: 183,029.94 × 100% × 90% = 164,726.95
+95: 26,220.36 × 30% × 90% = 7,079.50
+RS: 16,349.02 × 30% × 90% = 4,414.24
+CX: -5,400.00 × 100% × 90% = -4,860.00
+合计 = 171,360.68
+```
+
+跟实际输出完全一致——说明这次新写的批量降级逻辑，"当月查 live 表 / 历史月份查快照表"这条分支切换
+也是对的，不是凑巧算对，是历史数据本身就跟当前配置不一样，代码正确反映了这一点。
+
+**验证方法**：`resolveOwnerType()`/`findOwnershipPercentage()` 这些依赖真实登录 session
+（`SecurityUtils.currentUser()`），这次没有真机登录，而是在一次性 test 里手动构造了一个
+`LoginUserPrincipal`（`user_type="owner"`, `user_id=3`）塞进 `SecurityContextHolder`，绕开真实登录流程
+直接测 service 方法——测完立刻删掉了这个 test 文件，不是留在代码库里的常驻测试。
+
+### 17.5 尚未覆盖 / 未验证
+
+- Currency Tab 的 Earning 列（`getKpiCurrencyBreakdownForCompanies()`，见第 16 节）——目前 `earnings`/
+  `earningsConverted` 还是固定 `null`，这次批量降级逻辑还没接进按币种拆分那条路径（需要"按 tenant+
+  currency 双维度"的公司级数据，理论上可以复用第 15 节 Group Currency Tab 已经写的
+  `aggregateWinLossByRoleAndTenantAndCurrency`，只是权重从"股权%"换成"批量降级算出来的 Earnings %"）
+- ~~Trend Chart 的 Earnings 线（`getTrendForCompanies()`）——同样没做~~——**已做**，见第 18 节
+- "较上一期" `previousEarnings` 对比——`getKpiForCompanies()` 目前只算了当期，上一期区间
+  （`resolvePreviousRange()`，第 7.1 节已有）还没接上 Earnings 这条
+- 只做到后端真实数据验证（用伪造的 `SecurityContext` 测的），没有真机登录浏览器肉眼确认 Company: All
+  的 Earnings 卡片渲染正常
+- 只验证了"4 家公司全部需要走降级链路、且全部借道同一个 Group"这一种真实场景，没有验证过"部分公司
+  有直接持股、部分公司需要降级、部分公司两条都没有"混合在同一次请求里的情况——理论上代码逻辑是按
+  这种混合场景设计的（17.2 的 Step 1 天然会把有直接持股的公司分流出去，不会进入 Step 2/3），但没有
+  拿真实数据凑出这么一个混合场景测过
+
+---
+
+## 18. Company: All Trend Chart Earnings 线：公司 × 月份双批量
+
+> 范围：`GET /api/dashboard/chart-all` 走势图的 Earnings 线。跟第 17 节 KPI 卡片的 Earnings 金额是
+> 同一批工作的下半场——第 17 节做的是"批量公司，单一日期"，这次要的是"批量公司 **且** 批量月份"（走势
+> 图区间可能横跨好几个月，每一天要用它自己所在月份的持股%去乘，不是整个区间共用一个百分比，这点
+> 跟单公司 Trend Chart、Group Trend Chart 的规则一致，见 8.1.1/10.4 节）。不新增端点——`DashboardTrendPointDTO`
+> 早就有 `earnings` 字段，这次是"给已有字段补数据"。
+
+### 18.1 后端：2 条新 SQL，"公司+月份"双重 `IN` 一次查完
+
+第 17.2 节的批量方法只批量了"公司"这一个维度（一次查询只对应一个日期）。这次每一步都要**同时**批量
+"公司"和"月份"两个维度，所以在 `DashboardMapper.xml` 里新增了 2 条 SQL（`WHERE tenant_id IN (...) AND
+effective_month IN (...)`，两个 `IN` 都在同一条查询里）：
+
+```java
+List<TenantOwnershipHistory> findOwnershipPercentagesForTenantsAndMonths(tenantIds, accountId, ownerType, effectiveMonths);
+List<TenantOwnershipHistory> findCompanyGroupAllocationsForTenantsAndMonths(tenantIds, effectiveMonths);
+```
+
+分别是 `findOwnershipPercentagesByMonths`（单 tenant、批量月份）和 `findCompanyGroupAllocationsByMonths`
+（同上）的"批量 tenant"版——四个方法当中现成的两个只批量了月份，这次让它们也能批量 tenant，一次查询
+拿到"这批公司 × 这批月份"的完整网格，不是循环。
+
+### 18.2 Service：三层封装，跟 17.2 的三步骤对应
+
+```
+resolveOwnershipPercentagesForTenantsByMonth(tenantIds, ...)
+    → 18.1 新 SQL（历史月份）+ findLiveOwnershipForTenants（当月，17.2 已有）
+    → Map<tenantId, Map<YearMonth, percentage>>
+
+resolveCompanyGroupAllocationsForTenantsByMonth(tenantIds, ...)
+    → 18.1 新 SQL（历史月份）+ findCompanyGroupAllocationsForTenants（当月，17.2 已有）
+    → Map<tenantId, Map<YearMonth, GroupAllocation>>
+
+resolveEffectiveEarningsPercentagesForTenantsByMonth(tenantIds, dateFrom, dateTo, ownerType, allowGroupCascade)
+    → 直接持股优先，查不到再看有没有 Group 分配，两个都有才用"分配% × Group 持股%"
+    → 每家公司、每个月份各自独立判断（跟 17.2 一样，不是共用一个百分比）
+    → Map<tenantId, Map<YearMonth, percentage>>
+```
+
+第三层内部会再调一次 `resolveOwnershipPercentagesForTenantsByMonth`（这次传的是查出来的 Group id 列表，
+不是公司列表）——跟 17.2 的"Step 3 复用 Step 1 同一条方法"是同一个套路。
+
+**实际查询次数**：`resolveOwnershipPercentagesForTenantsByMonth`/`resolveCompanyGroupAllocationsForTenantsByMonth`
+各自最多 2 条 SQL（历史批量 1 条 + 当月批量 1 条，区间不含当月或不含历史月份时更少）。
+`resolveEffectiveEarningsPercentagesForTenantsByMonth` 内部调用了 3 次这两个方法（公司的直接持股、公司
+的 Group 分配、Group 的直接持股），所以**最多 6 条 SQL**，不是字面意义的"固定 2 条"——但关键是这 6 条
+**不会因为公司数量或走势图区间跨了几个月而增加**，横跨 1 个月是这个数，横跨 12 个月还是这个数。
+
+`applyCompaniesTrendEarnings(points, tenantIds, dateFrom, dateTo, currency, ownerType)`：
+1. 调用上面的批量方法拿到 `Map<tenantId, Map<YearMonth, percentage>>`；整个 Map 是空的（没有一家公司
+   有任何持股）→ 所有日期的 `earnings` 直接设成 `0`，跟单公司版"缺失月份按 0% 处理"的规则一致。
+2. 批量查这批公司每一天的 Win/Loss+Cr/Dr（复用 `aggregateWinLossByRoleAndTenantAndDate`/
+   `aggregateCrDrByRoleAndTenantAndDate`——Group Trend Chart 已经在用的同一条查询，不是新写的）。
+3. 逐天遍历 `points`：算出这一天属于哪个月，再遍历每家公司，查表拿到这家公司这个月的百分比（没有就
+   跳过，不计入），乘上这家公司这一天的 NetProfit，所有公司当天加总写回 `point.earnings`。
+
+### 18.3 真实验证
+
+IG 这个 Group 的 95/AG/RS/CX（tenant_id 2/5/3/6），K 账号（account_id=3），2026-08-01～08-31，MYR：
+
+把 `getTrendForCompanies()` 返回的 31 个点的 `netProfit`/`earnings` 各自加总：
+
+```
+Σ netProfit = 220,199.32   （跟第 16 节 Currency Tab、KPI 卡片的 Net Profit 完全一致）
+Σ earnings  = 171,360.68   （跟第 17 节 KPI 卡片的 Earnings 完全一致，只有最后一位小数因为
+                             按天各自四舍五入累加有 0.00001 的浮点误差，可以忽略）
+```
+
+**两条完全独立的代码路径**（第 17 节是"批量公司、单一日期，算一个总数"；这次是"批量公司、批量月份，
+逐天算完再加总"）算出同一个结果，是比单独跑一次更强的交叉验证——不是同一段代码跑两次凑巧对上，是
+两种不同的实现方式从两个方向殊途同归。
+
+### 18.4 前端：这次不需要改代码
+
+查完发现前端早就是"通用"写法，不需要为这个功能专门改：
+- `chartRows` 里 `groupAllMode` 分支本来就在复用 `buildSpringTrendChartRows()`——跟单公司/Group Trend
+  Chart 用的是同一个函数，这个函数只是单纯读 `point.earnings` 字段，不关心数据是从哪个 scope 来的。
+- Earnings 这条线要不要画出来（`chartSeries`），前端读的是 `kpi.showEarnings`——这个在第 17.3.1 节
+  已经修过了（`groupAllMode` 分支从硬编码 `false` 改成了 `buildKpiFromSpringPayload()`）。
+
+所以这次只更新了一处过时的注释（`chartRows` useMemo 上面那段说明，原本写着"kpi-all 没有 Earnings
+线"，现在已经不对了），没有实际的前端逻辑改动——`vite build` 编译通过。
+
+### 18.5 尚未覆盖 / 未验证
+
+- 只做到后端真实数据验证（伪造 `SecurityContext` 测的，测完删掉），没有真机登录浏览器肉眼确认走势图
+  上 Earnings 那条线的形状/数字正常
+- 同第 17.5 节：只验证了"全部公司都要走降级链路、且都借道同一个 Group"这一种场景，没有测过直接持股/
+  降级/两者皆无混合出现的情况
+- "较上一期"对比这次也没有涉及 Trend Chart（Trend Chart 本来就没有"较上一期"的概念，第 7 节那是 KPI
+  卡片专属功能）

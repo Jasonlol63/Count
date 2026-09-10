@@ -40,126 +40,244 @@
         )
     </sql>
 
+    <!-- ============================================================================
+         Win/Loss 桶 + Cr/Dr 桶的共享核心逻辑（类别 A 优化，见 dashboard-springboot-kpi.md）。
+
+         这两个 <sql> 片段是本文件业务规则的唯一来源：WIN/LOSE/ADJUSTMENT 判断、手动 PROFIT
+         转账、RATE 中间人手续费两种历史格式、CLEAR 排除——原本在 12 条 <select> 里逐字复制了
+         12 遍，现在只在这两处维护一遍。下面每条 <select> 只负责传 3 个开关（groupByTenant /
+         groupByCurrency / groupByDate）决定这次要不要把某个维度当分组列，以及外层 SELECT/
+         GROUP BY 要不要带上那一列——不分组的维度里，currency 会退回按 #{currencyCode} 过滤
+         （不同货币的 amount 不能直接相加），tenant/date 则单纯不出现在结果里。
+
+         每条 <select> 的方法名、参数、返回类型（DashboardServiceImpl 那边用到的）一个都没有变，
+         这次纯粹是 XML 内部"怎么拼出同一段 SQL"的重构。
+         ============================================================================ -->
+    <sql id="dashboardWinLossCore">
+        SELECT
+            <if test="'${groupByTenant}' == 'true'">t.tenant_id AS tenantId,</if>
+            <if test="'${groupByCurrency}' == 'true'">c.code AS currencyCode,</if>
+            <if test="'${groupByDate}' == 'true'">t.transaction_date AS date,</if>
+            a.role AS role,
+            CASE
+                WHEN t.transaction_type = 'WIN' THEN t.amount
+                WHEN t.transaction_type = 'LOSE' THEN -t.amount
+                WHEN t.transaction_type = 'ADJUSTMENT' THEN t.amount
+                ELSE 0
+            END AS amt
+        FROM transactions t
+        INNER JOIN account a ON a.id = t.account_id
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        WHERE t.tenant_id IN
+        <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+            #{tid}
+        </foreach>
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_date &gt;= #{dateFrom}
+          AND t.transaction_date &lt;= #{dateTo}
+          AND t.transaction_type IN ('WIN', 'LOSE', 'ADJUSTMENT')
+          <if test="'${groupByCurrency}' != 'true'">AND UPPER(c.code) = UPPER(#{currencyCode})</if>
+          AND UPPER(a.role) IN
+          <foreach collection="roles" item="r" open="(" separator="," close=")">
+              UPPER(#{r})
+          </foreach>
+
+        UNION ALL
+
+        SELECT
+            <if test="'${groupByTenant}' == 'true'">t.tenant_id AS tenantId,</if>
+            <if test="'${groupByCurrency}' == 'true'">c.code AS currencyCode,</if>
+            <if test="'${groupByDate}' == 'true'">t.transaction_date AS date,</if>
+            a.role AS role, -t.amount AS amt
+        FROM transactions t
+        INNER JOIN account a ON a.id = t.account_id
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        WHERE t.tenant_id IN
+        <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+            #{tid}
+        </foreach>
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_date &gt;= #{dateFrom}
+          AND t.transaction_date &lt;= #{dateTo}
+          AND t.transaction_type = 'PROFIT'
+          <if test="'${groupByCurrency}' != 'true'">AND UPPER(c.code) = UPPER(#{currencyCode})</if>
+          AND UPPER(a.role) IN
+          <foreach collection="roles" item="r" open="(" separator="," close=")">
+              UPPER(#{r})
+          </foreach>
+
+        UNION ALL
+
+        SELECT
+            <if test="'${groupByTenant}' == 'true'">t.tenant_id AS tenantId,</if>
+            <if test="'${groupByCurrency}' == 'true'">c.code AS currencyCode,</if>
+            <if test="'${groupByDate}' == 'true'">t.transaction_date AS date,</if>
+            a.role AS role, t.amount AS amt
+        FROM transactions t
+        INNER JOIN account a ON a.id = t.from_account_id
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        WHERE t.tenant_id IN
+        <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+            #{tid}
+        </foreach>
+          AND t.from_account_id IS NOT NULL
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_date &gt;= #{dateFrom}
+          AND t.transaction_date &lt;= #{dateTo}
+          AND t.transaction_type = 'PROFIT'
+          <if test="'${groupByCurrency}' != 'true'">AND UPPER(c.code) = UPPER(#{currencyCode})</if>
+          AND UPPER(a.role) IN
+          <foreach collection="roles" item="r" open="(" separator="," close=")">
+              UPPER(#{r})
+          </foreach>
+
+        UNION ALL
+
+        <!-- RATE 中间人手续费单边行：account_id=middleman, from_account_id 为空 → +amount -->
+        SELECT
+            <if test="'${groupByTenant}' == 'true'">t.tenant_id AS tenantId,</if>
+            <if test="'${groupByCurrency}' == 'true'">c.code AS currencyCode,</if>
+            <if test="'${groupByDate}' == 'true'">t.transaction_date AS date,</if>
+            a.role AS role, t.amount AS amt
+        FROM transactions t
+        INNER JOIN account a ON a.id = t.account_id
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        WHERE t.tenant_id IN
+        <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+            #{tid}
+        </foreach>
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_date &gt;= #{dateFrom}
+          AND t.transaction_date &lt;= #{dateTo}
+          AND t.transaction_type = 'RATE'
+          AND t.from_account_id IS NULL
+          AND <include refid="dashboardRateMiddlemanFeeDescription"/>
+          AND <include refid="dashboardRateMiddlemanFeeLeg"/>
+          <if test="'${groupByCurrency}' != 'true'">AND UPPER(c.code) = UPPER(#{currencyCode})</if>
+          AND UPPER(a.role) IN
+          <foreach collection="roles" item="r" open="(" separator="," close=")">
+              UPPER(#{r})
+          </foreach>
+
+        UNION ALL
+
+        <!-- RATE 中间人手续费旧版两边行：from_account_id=middleman → +amount
+             （例如 "Rate charge (x2.93) from SGD 49000.00" 这种旧文案，没有 rate_group 主腿标记，
+             只能靠 transactions_rate.middleman_account_id 反查） -->
+        SELECT
+            <if test="'${groupByTenant}' == 'true'">t.tenant_id AS tenantId,</if>
+            <if test="'${groupByCurrency}' == 'true'">c.code AS currencyCode,</if>
+            <if test="'${groupByDate}' == 'true'">t.transaction_date AS date,</if>
+            a.role AS role, t.amount AS amt
+        FROM transactions t
+        INNER JOIN account a ON a.id = t.from_account_id
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        WHERE t.tenant_id IN
+        <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+            #{tid}
+        </foreach>
+          AND t.from_account_id IS NOT NULL
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_date &gt;= #{dateFrom}
+          AND t.transaction_date &lt;= #{dateTo}
+          AND t.transaction_type = 'RATE'
+          AND <include refid="dashboardRateMiddlemanFeeLeg"/>
+          <if test="'${groupByCurrency}' != 'true'">AND UPPER(c.code) = UPPER(#{currencyCode})</if>
+          AND UPPER(a.role) IN
+          <foreach collection="roles" item="r" open="(" separator="," close=")">
+              UPPER(#{r})
+          </foreach>
+    </sql>
+
+    <sql id="dashboardCrDrCore">
+        SELECT
+            <if test="'${groupByTenant}' == 'true'">t.tenant_id AS tenantId,</if>
+            <if test="'${groupByCurrency}' == 'true'">c.code AS currencyCode,</if>
+            <if test="'${groupByDate}' == 'true'">t.transaction_date AS date,</if>
+            a.role AS role, -t.amount AS amt
+        FROM transactions t
+        INNER JOIN account a ON a.id = t.account_id
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        WHERE t.tenant_id IN
+        <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+            #{tid}
+        </foreach>
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_date &gt;= #{dateFrom}
+          AND t.transaction_date &lt;= #{dateTo}
+          AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
+          AND <include refid="dashboardRateTransferLegOnly"/>
+          <if test="'${groupByCurrency}' != 'true'">AND UPPER(c.code) = UPPER(#{currencyCode})</if>
+          AND UPPER(a.role) IN
+          <foreach collection="roles" item="r" open="(" separator="," close=")">
+              UPPER(#{r})
+          </foreach>
+
+        UNION ALL
+
+        SELECT
+            <if test="'${groupByTenant}' == 'true'">t.tenant_id AS tenantId,</if>
+            <if test="'${groupByCurrency}' == 'true'">c.code AS currencyCode,</if>
+            <if test="'${groupByDate}' == 'true'">t.transaction_date AS date,</if>
+            a.role AS role, t.amount AS amt
+        FROM transactions t
+        INNER JOIN account a ON a.id = t.from_account_id
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        WHERE t.tenant_id IN
+        <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+            #{tid}
+        </foreach>
+          AND t.from_account_id IS NOT NULL
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_date &gt;= #{dateFrom}
+          AND t.transaction_date &lt;= #{dateTo}
+          AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
+          AND <include refid="dashboardRateTransferLegOnly"/>
+          <if test="'${groupByCurrency}' != 'true'">AND UPPER(c.code) = UPPER(#{currencyCode})</if>
+          AND UPPER(a.role) IN
+          <foreach collection="roles" item="r" open="(" separator="," close=")">
+              UPPER(#{r})
+          </foreach>
+
+        UNION ALL
+
+        <!-- RATE 中间人手续费付款方视角：account_id=付款方、from_account_id 非空 → -amount -->
+        SELECT
+            <if test="'${groupByTenant}' == 'true'">t.tenant_id AS tenantId,</if>
+            <if test="'${groupByCurrency}' == 'true'">c.code AS currencyCode,</if>
+            <if test="'${groupByDate}' == 'true'">t.transaction_date AS date,</if>
+            a.role AS role, -t.amount AS amt
+        FROM transactions t
+        INNER JOIN account a ON a.id = t.account_id
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        WHERE t.tenant_id IN
+        <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+            #{tid}
+        </foreach>
+          AND t.from_account_id IS NOT NULL
+          AND t.approval_status = 'APPROVED'
+          AND t.transaction_date &gt;= #{dateFrom}
+          AND t.transaction_date &lt;= #{dateTo}
+          AND t.transaction_type = 'RATE'
+          AND <include refid="dashboardRateMiddlemanFeeLeg"/>
+          <if test="'${groupByCurrency}' != 'true'">AND UPPER(c.code) = UPPER(#{currencyCode})</if>
+          AND UPPER(a.role) IN
+          <foreach collection="roles" item="r" open="(" separator="," close=")">
+              UPPER(#{r})
+          </foreach>
+    </sql>
+
     <!-- Win/Loss 桶：WIN(+)/LOSE(-)/ADJUSTMENT(原样) 记在 account_id 一侧；
          手动 PROFIT 类型转账 To(-)/From(+)；RATE 中间人手续费 +amount（自己的收入，非 Cr/Dr）；
          按 role 汇总；按币种过滤 —— 不同货币的 amount 不能直接相加，只统计 currencyCode 这一种货币 -->
     <select id="aggregateWinLossByRole" resultType="com.eazycount.dto.DashboardKpiDTO$RoleAmount">
         SELECT x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
         FROM (
-            SELECT
-                a.role AS role,
-                CASE
-                    WHEN t.transaction_type = 'WIN' THEN t.amount
-                    WHEN t.transaction_type = 'LOSE' THEN -t.amount
-                    WHEN t.transaction_type = 'ADJUSTMENT' THEN t.amount
-                    ELSE 0
-                END AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('WIN', 'LOSE', 'ADJUSTMENT')
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'PROFIT'
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'PROFIT'
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费单边行：account_id=middleman, from_account_id 为空 → +amount -->
-            SELECT a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND t.from_account_id IS NULL
-              AND <include refid="dashboardRateMiddlemanFeeDescription"/>
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费旧版两边行：from_account_id=middleman → +amount
-                 （例如 "Rate charge (x2.93) from SGD 49000.00" 这种旧文案，没有 rate_group 主腿标记，
-                 只能靠 transactions_rate.middleman_account_id 反查） -->
-            SELECT a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
+            <include refid="dashboardWinLossCore">
+                <property name="groupByTenant" value="false"/>
+                <property name="groupByCurrency" value="false"/>
+                <property name="groupByDate" value="false"/>
+            </include>
         ) x
         GROUP BY x.role
     </select>
@@ -171,69 +289,11 @@
     <select id="aggregateCrDrByRole" resultType="com.eazycount.dto.DashboardKpiDTO$RoleAmount">
         SELECT x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
         FROM (
-            SELECT a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
-              AND <include refid="dashboardRateTransferLegOnly"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
-              AND <include refid="dashboardRateTransferLegOnly"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费付款方视角：account_id=付款方、from_account_id 非空 → -amount -->
-            SELECT a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
+            <include refid="dashboardCrDrCore">
+                <property name="groupByTenant" value="false"/>
+                <property name="groupByCurrency" value="false"/>
+                <property name="groupByDate" value="false"/>
+            </include>
         ) x
         GROUP BY x.role
     </select>
@@ -243,114 +303,11 @@
     <select id="aggregateWinLossByRoleAndCurrency" resultType="com.eazycount.dto.DashboardKpiDTO$RoleAmount">
         SELECT x.currencyCode AS currencyCode, x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
         FROM (
-            SELECT
-                c.code AS currencyCode,
-                a.role AS role,
-                CASE
-                    WHEN t.transaction_type = 'WIN' THEN t.amount
-                    WHEN t.transaction_type = 'LOSE' THEN -t.amount
-                    WHEN t.transaction_type = 'ADJUSTMENT' THEN t.amount
-                    ELSE 0
-                END AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('WIN', 'LOSE', 'ADJUSTMENT')
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT c.code AS currencyCode, a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'PROFIT'
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT c.code AS currencyCode, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'PROFIT'
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费单边行：account_id=middleman, from_account_id 为空 → +amount -->
-            SELECT c.code AS currencyCode, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND t.from_account_id IS NULL
-              AND <include refid="dashboardRateMiddlemanFeeDescription"/>
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费旧版两边行：from_account_id=middleman → +amount -->
-            SELECT c.code AS currencyCode, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
+            <include refid="dashboardWinLossCore">
+                <property name="groupByTenant" value="false"/>
+                <property name="groupByCurrency" value="true"/>
+                <property name="groupByDate" value="false"/>
+            </include>
         ) x
         GROUP BY x.currencyCode, x.role
     </select>
@@ -360,66 +317,11 @@
     <select id="aggregateCrDrByRoleAndCurrency" resultType="com.eazycount.dto.DashboardKpiDTO$RoleAmount">
         SELECT x.currencyCode AS currencyCode, x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
         FROM (
-            SELECT c.code AS currencyCode, a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
-              AND <include refid="dashboardRateTransferLegOnly"/>
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT c.code AS currencyCode, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
-              AND <include refid="dashboardRateTransferLegOnly"/>
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费付款方视角：account_id=付款方、from_account_id 非空 → -amount -->
-            SELECT c.code AS currencyCode, a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
+            <include refid="dashboardCrDrCore">
+                <property name="groupByTenant" value="false"/>
+                <property name="groupByCurrency" value="true"/>
+                <property name="groupByDate" value="false"/>
+            </include>
         ) x
         GROUP BY x.currencyCode, x.role
     </select>
@@ -429,119 +331,11 @@
     <select id="aggregateWinLossByRoleAndTenant" resultType="com.eazycount.dto.DashboardKpiDTO$RoleAmount">
         SELECT x.tenantId AS tenantId, x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
         FROM (
-            SELECT
-                t.tenant_id AS tenantId,
-                a.role AS role,
-                CASE
-                    WHEN t.transaction_type = 'WIN' THEN t.amount
-                    WHEN t.transaction_type = 'LOSE' THEN -t.amount
-                    WHEN t.transaction_type = 'ADJUSTMENT' THEN t.amount
-                    ELSE 0
-                END AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('WIN', 'LOSE', 'ADJUSTMENT')
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT t.tenant_id AS tenantId, a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'PROFIT'
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT t.tenant_id AS tenantId, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'PROFIT'
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费单边行：account_id=middleman, from_account_id 为空 → +amount -->
-            SELECT t.tenant_id AS tenantId, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND t.from_account_id IS NULL
-              AND <include refid="dashboardRateMiddlemanFeeDescription"/>
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费旧版两边行：from_account_id=middleman → +amount -->
-            SELECT t.tenant_id AS tenantId, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
+            <include refid="dashboardWinLossCore">
+                <property name="groupByTenant" value="true"/>
+                <property name="groupByCurrency" value="false"/>
+                <property name="groupByDate" value="false"/>
+            </include>
         ) x
         GROUP BY x.tenantId, x.role
     </select>
@@ -551,71 +345,42 @@
     <select id="aggregateCrDrByRoleAndTenant" resultType="com.eazycount.dto.DashboardKpiDTO$RoleAmount">
         SELECT x.tenantId AS tenantId, x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
         FROM (
-            SELECT t.tenant_id AS tenantId, a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
-              AND <include refid="dashboardRateTransferLegOnly"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT t.tenant_id AS tenantId, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
-              AND <include refid="dashboardRateTransferLegOnly"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费付款方视角：account_id=付款方、from_account_id 非空 → -amount -->
-            SELECT t.tenant_id AS tenantId, a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
+            <include refid="dashboardCrDrCore">
+                <property name="groupByTenant" value="true"/>
+                <property name="groupByCurrency" value="false"/>
+                <property name="groupByDate" value="false"/>
+            </include>
         ) x
         GROUP BY x.tenantId, x.role
+    </select>
+
+    <!-- Win/Loss 桶（Group Currency 卡片用）：跟 aggregateWinLossByRoleAndTenant 完全同一套规则，
+         只是去掉币种过滤、同时按 tenant_id 和 currency 两个维度分组——一条 SQL 拿到 Group 下每家
+         子公司在每个币种各自的数字 -->
+    <select id="aggregateWinLossByRoleAndTenantAndCurrency" resultType="com.eazycount.dto.DashboardKpiDTO$RoleAmount">
+        SELECT x.tenantId AS tenantId, x.currencyCode AS currencyCode, x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
+        FROM (
+            <include refid="dashboardWinLossCore">
+                <property name="groupByTenant" value="true"/>
+                <property name="groupByCurrency" value="true"/>
+                <property name="groupByDate" value="false"/>
+            </include>
+        ) x
+        GROUP BY x.tenantId, x.currencyCode, x.role
+    </select>
+
+    <!-- Cr/Dr 桶（Group Currency 卡片用）：跟 aggregateCrDrByRoleAndTenant 完全同一套规则，
+         只是去掉币种过滤、同时按 tenant_id 和 currency 两个维度分组，理由同上 -->
+    <select id="aggregateCrDrByRoleAndTenantAndCurrency" resultType="com.eazycount.dto.DashboardKpiDTO$RoleAmount">
+        SELECT x.tenantId AS tenantId, x.currencyCode AS currencyCode, x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
+        FROM (
+            <include refid="dashboardCrDrCore">
+                <property name="groupByTenant" value="true"/>
+                <property name="groupByCurrency" value="true"/>
+                <property name="groupByDate" value="false"/>
+            </include>
+        ) x
+        GROUP BY x.tenantId, x.currencyCode, x.role
     </select>
 
     <!-- Win/Loss 桶（Group Trend Chart 用）：跟 aggregateWinLossByRoleAndTenant 完全同一套规则，
@@ -624,120 +389,11 @@
     <select id="aggregateWinLossByRoleAndTenantAndDate" resultType="com.eazycount.dto.DashboardTrendPointDTO$RoleAmount">
         SELECT x.tenantId AS tenantId, x.date AS date, x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
         FROM (
-            SELECT
-                t.tenant_id AS tenantId,
-                t.transaction_date AS date,
-                a.role AS role,
-                CASE
-                    WHEN t.transaction_type = 'WIN' THEN t.amount
-                    WHEN t.transaction_type = 'LOSE' THEN -t.amount
-                    WHEN t.transaction_type = 'ADJUSTMENT' THEN t.amount
-                    ELSE 0
-                END AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('WIN', 'LOSE', 'ADJUSTMENT')
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT t.tenant_id AS tenantId, t.transaction_date AS date, a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'PROFIT'
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT t.tenant_id AS tenantId, t.transaction_date AS date, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'PROFIT'
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费单边行：account_id=middleman, from_account_id 为空 → +amount -->
-            SELECT t.tenant_id AS tenantId, t.transaction_date AS date, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND t.from_account_id IS NULL
-              AND <include refid="dashboardRateMiddlemanFeeDescription"/>
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费旧版两边行：from_account_id=middleman → +amount -->
-            SELECT t.tenant_id AS tenantId, t.transaction_date AS date, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
+            <include refid="dashboardWinLossCore">
+                <property name="groupByTenant" value="true"/>
+                <property name="groupByCurrency" value="false"/>
+                <property name="groupByDate" value="true"/>
+            </include>
         ) x
         GROUP BY x.tenantId, x.date, x.role
     </select>
@@ -747,69 +403,11 @@
     <select id="aggregateCrDrByRoleAndTenantAndDate" resultType="com.eazycount.dto.DashboardTrendPointDTO$RoleAmount">
         SELECT x.tenantId AS tenantId, x.date AS date, x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
         FROM (
-            SELECT t.tenant_id AS tenantId, t.transaction_date AS date, a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
-              AND <include refid="dashboardRateTransferLegOnly"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT t.tenant_id AS tenantId, t.transaction_date AS date, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
-              AND <include refid="dashboardRateTransferLegOnly"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费付款方视角：account_id=付款方、from_account_id 非空 → -amount -->
-            SELECT t.tenant_id AS tenantId, t.transaction_date AS date, a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
+            <include refid="dashboardCrDrCore">
+                <property name="groupByTenant" value="true"/>
+                <property name="groupByCurrency" value="false"/>
+                <property name="groupByDate" value="true"/>
+            </include>
         ) x
         GROUP BY x.tenantId, x.date, x.role
     </select>
@@ -819,119 +417,11 @@
     <select id="aggregateWinLossByRoleAndDate" resultType="com.eazycount.dto.DashboardTrendPointDTO$RoleAmount">
         SELECT x.date AS date, x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
         FROM (
-            SELECT
-                t.transaction_date AS date,
-                a.role AS role,
-                CASE
-                    WHEN t.transaction_type = 'WIN' THEN t.amount
-                    WHEN t.transaction_type = 'LOSE' THEN -t.amount
-                    WHEN t.transaction_type = 'ADJUSTMENT' THEN t.amount
-                    ELSE 0
-                END AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('WIN', 'LOSE', 'ADJUSTMENT')
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT t.transaction_date AS date, a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'PROFIT'
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT t.transaction_date AS date, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'PROFIT'
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费单边行：account_id=middleman, from_account_id 为空 → +amount -->
-            SELECT t.transaction_date AS date, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND t.from_account_id IS NULL
-              AND <include refid="dashboardRateMiddlemanFeeDescription"/>
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费旧版两边行：from_account_id=middleman → +amount -->
-            SELECT t.transaction_date AS date, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
+            <include refid="dashboardWinLossCore">
+                <property name="groupByTenant" value="false"/>
+                <property name="groupByCurrency" value="false"/>
+                <property name="groupByDate" value="true"/>
+            </include>
         ) x
         GROUP BY x.date, x.role
     </select>
@@ -941,115 +431,19 @@
     <select id="aggregateCrDrByRoleAndDate" resultType="com.eazycount.dto.DashboardTrendPointDTO$RoleAmount">
         SELECT x.date AS date, x.role AS role, COALESCE(SUM(x.amt), 0) AS amount
         FROM (
-            SELECT t.transaction_date AS date, a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
-              AND <include refid="dashboardRateTransferLegOnly"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            SELECT t.transaction_date AS date, a.role AS role, t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.from_account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type IN ('PAYMENT', 'CLAIM', 'CONTRA', 'RATE')
-              AND <include refid="dashboardRateTransferLegOnly"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
-
-            UNION ALL
-
-            <!-- RATE 中间人手续费付款方视角：account_id=付款方、from_account_id 非空 → -amount -->
-            SELECT t.transaction_date AS date, a.role AS role, -t.amount AS amt
-            FROM transactions t
-            INNER JOIN account a ON a.id = t.account_id
-            INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
-            WHERE t.tenant_id IN
-            <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
-                #{tid}
-            </foreach>
-              AND t.from_account_id IS NOT NULL
-              AND t.approval_status = 'APPROVED'
-              AND t.transaction_date &gt;= #{dateFrom}
-              AND t.transaction_date &lt;= #{dateTo}
-              AND t.transaction_type = 'RATE'
-              AND <include refid="dashboardRateMiddlemanFeeLeg"/>
-              AND UPPER(c.code) = UPPER(#{currencyCode})
-              AND UPPER(a.role) IN
-              <foreach collection="roles" item="r" open="(" separator="," close=")">
-                  UPPER(#{r})
-              </foreach>
+            <include refid="dashboardCrDrCore">
+                <property name="groupByTenant" value="false"/>
+                <property name="groupByCurrency" value="false"/>
+                <property name="groupByDate" value="true"/>
+            </include>
         ) x
         GROUP BY x.date, x.role
     </select>
 
-    <!-- 当前（live）股权行：Earnings 卡片乘数来源，当月/未指定历史月份时查询 -->
-    <select id="findLiveOwnership" resultType="com.eazycount.entity.TenantOwnership">
-        SELECT
-            id,
-            tenant_id AS tenantId,
-            account_id AS accountId,
-            owner_type AS ownerType,
-            partner_tenant_id AS partnerTenantId,
-            percentage,
-            read_only AS readOnly,
-            sort_order AS sortOrder
-        FROM tenant_ownership
-        WHERE tenant_id = #{tenantId}
-          AND account_id = #{accountId}
-          AND owner_type = #{ownerType}
-        LIMIT 1
-    </select>
-
-    <!-- 历史股权快照行：查过去月份的 Dashboard 数字时用，effectiveMonth 传该月第一天 -->
-    <select id="findHistoricalOwnership" resultType="com.eazycount.entity.TenantOwnershipHistory">
-        SELECT
-            id,
-            tenant_id AS tenantId,
-            effective_month AS effectiveMonth,
-            account_id AS accountId,
-            owner_type AS ownerType,
-            partner_tenant_id AS partnerTenantId,
-            percentage,
-            read_only AS readOnly,
-            saved_by AS savedBy,
-            saved_at AS savedAt
-        FROM tenant_ownership_history
-        WHERE tenant_id = #{tenantId}
-          AND account_id = #{accountId}
-          AND owner_type = #{ownerType}
-          AND effective_month = #{effectiveMonth}
-        LIMIT 1
-    </select>
-
-    <!-- 公司->Group 股权分配行（当月/未指定历史月份）：一条 SQL 批量拿到 Group 下每家公司分配给
-         该 Group 的百分比，用来给每家公司的 Net Profit 加权，汇总成 Group Profit -->
-    <select id="findGroupEquityPercentages" resultType="com.eazycount.entity.TenantOwnership">
+    <!-- 当前（live）直接持股行：一条 SQL 查一批 tenant（可以是一批公司，也可以是降级链路里查出来
+         的一批 Group）各自有没有对当前登录身份的直接持股行。单一 tenant 的场景传只有一个元素的
+         列表即可，不需要另外一条单 tenant 版本的查询。 -->
+    <select id="findLiveOwnershipForTenants" resultType="com.eazycount.entity.TenantOwnership">
         SELECT
             id,
             tenant_id AS tenantId,
@@ -1061,15 +455,37 @@
             sort_order AS sortOrder
         FROM tenant_ownership
         WHERE tenant_id IN
-        <foreach collection="companyTenantIds" item="tid" open="(" separator="," close=")">
+        <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+            #{tid}
+        </foreach>
+          AND account_id = #{accountId}
+          AND owner_type = #{ownerType}
+    </select>
+
+    <!-- 【Company: All Earnings 用】一条 SQL 查一批公司各自分给了哪个 Group（如果有）——不区分
+         特定 Group，需要限定某个特定 Group 时在 Java 里按 partnerTenantId 筛（一家公司最多分给
+         一个 Group，筛选结果等价于专门查询）。 -->
+    <select id="findCompanyGroupAllocationsForTenants" resultType="com.eazycount.entity.TenantOwnership">
+        SELECT
+            id,
+            tenant_id AS tenantId,
+            account_id AS accountId,
+            owner_type AS ownerType,
+            partner_tenant_id AS partnerTenantId,
+            percentage,
+            read_only AS readOnly,
+            sort_order AS sortOrder
+        FROM tenant_ownership
+        WHERE tenant_id IN
+        <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
             #{tid}
         </foreach>
           AND owner_type = 'group'
-          AND partner_tenant_id = #{groupTenantId}
     </select>
 
-    <!-- 公司->Group 股权分配行（历史快照）：同上，effectiveMonth 传该月第一天 -->
-    <select id="findHistoricalGroupEquityPercentages" resultType="com.eazycount.entity.TenantOwnershipHistory">
+    <!-- 【Company: All Trend Chart Earnings 线用】findOwnershipPercentagesByMonths 的"批量公司 +
+         批量月份"版：一条 SQL 同时按 tenant_id 和 effective_month 两个维度批量 -->
+    <select id="findOwnershipPercentagesForTenantsAndMonths" resultType="com.eazycount.entity.TenantOwnershipHistory">
         SELECT
             id,
             tenant_id AS tenantId,
@@ -1083,32 +499,9 @@
             saved_at AS savedAt
         FROM tenant_ownership_history
         WHERE tenant_id IN
-        <foreach collection="companyTenantIds" item="tid" open="(" separator="," close=")">
+        <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
             #{tid}
         </foreach>
-          AND owner_type = 'group'
-          AND partner_tenant_id = #{groupTenantId}
-          AND effective_month = #{effectiveMonth}
-    </select>
-
-    <!-- 【Trend Chart 的 Earnings 走势线用，Company/Group 通用】一次性批量查"当前登录身份在
-         这一个 tenant 上"一批历史月份各自的股权% —— 一条 effective_month IN (...) 查完，
-         不按月份循环发 SQL。tenantId 传公司自己的 id 或 Group 自己的 id 都行，这张表本来就
-         不区分 tenant_id 指向的是公司还是 Group。 -->
-    <select id="findOwnershipPercentagesByMonths" resultType="com.eazycount.entity.TenantOwnershipHistory">
-        SELECT
-            id,
-            tenant_id AS tenantId,
-            effective_month AS effectiveMonth,
-            account_id AS accountId,
-            owner_type AS ownerType,
-            partner_tenant_id AS partnerTenantId,
-            percentage,
-            read_only AS readOnly,
-            saved_by AS savedBy,
-            saved_at AS savedAt
-        FROM tenant_ownership_history
-        WHERE tenant_id = #{tenantId}
           AND account_id = #{accountId}
           AND owner_type = #{ownerType}
           AND effective_month IN
@@ -1117,9 +510,8 @@
           </foreach>
     </select>
 
-    <!-- 【Group Profit 走势线用】findGroupEquityPercentages 的"按月批量"版本——一批子公司、
-         一批历史月份，一条 effective_month IN (...) 查完，不按月份循环查询。 -->
-    <select id="findGroupEquityPercentagesByMonths" resultType="com.eazycount.entity.TenantOwnershipHistory">
+    <!-- findCompanyGroupAllocationsByMonths 的"批量公司 + 批量月份"版，理由同上 -->
+    <select id="findCompanyGroupAllocationsForTenantsAndMonths" resultType="com.eazycount.entity.TenantOwnershipHistory">
         SELECT
             id,
             tenant_id AS tenantId,
@@ -1133,70 +525,9 @@
             saved_at AS savedAt
         FROM tenant_ownership_history
         WHERE tenant_id IN
-        <foreach collection="companyTenantIds" item="tid" open="(" separator="," close=")">
+        <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
             #{tid}
         </foreach>
-          AND owner_type = 'group'
-          AND partner_tenant_id = #{groupTenantId}
-          AND effective_month IN
-          <foreach collection="effectiveMonths" item="m" open="(" separator="," close=")">
-              #{m}
-          </foreach>
-    </select>
-
-    <!-- Company Earnings card fallback: this company's own Group allocation row (live table). -->
-    <select id="findCompanyGroupAllocation" resultType="com.eazycount.entity.TenantOwnership">
-        SELECT
-            id,
-            tenant_id AS tenantId,
-            account_id AS accountId,
-            owner_type AS ownerType,
-            partner_tenant_id AS partnerTenantId,
-            percentage,
-            read_only AS readOnly,
-            sort_order AS sortOrder
-        FROM tenant_ownership
-        WHERE tenant_id = #{tenantId}
-          AND owner_type = 'group'
-        LIMIT 1
-    </select>
-
-    <!-- Historical version of the above — past month's snapshot. -->
-    <select id="findHistoricalCompanyGroupAllocation" resultType="com.eazycount.entity.TenantOwnershipHistory">
-        SELECT
-            id,
-            tenant_id AS tenantId,
-            effective_month AS effectiveMonth,
-            account_id AS accountId,
-            owner_type AS ownerType,
-            partner_tenant_id AS partnerTenantId,
-            percentage,
-            read_only AS readOnly,
-            saved_by AS savedBy,
-            saved_at AS savedAt
-        FROM tenant_ownership_history
-        WHERE tenant_id = #{tenantId}
-          AND owner_type = 'group'
-          AND effective_month = #{effectiveMonth}
-        LIMIT 1
-    </select>
-
-    <!-- Trend Chart Earnings line fallback: this company's own Group allocation row across a
-         batch of past months, one query (effective_month IN (...)), not one query per month. -->
-    <select id="findCompanyGroupAllocationsByMonths" resultType="com.eazycount.entity.TenantOwnershipHistory">
-        SELECT
-            id,
-            tenant_id AS tenantId,
-            effective_month AS effectiveMonth,
-            account_id AS accountId,
-            owner_type AS ownerType,
-            partner_tenant_id AS partnerTenantId,
-            percentage,
-            read_only AS readOnly,
-            saved_by AS savedBy,
-            saved_at AS savedAt
-        FROM tenant_ownership_history
-        WHERE tenant_id = #{tenantId}
           AND owner_type = 'group'
           AND effective_month IN
           <foreach collection="effectiveMonths" item="m" open="(" separator="," close=")">

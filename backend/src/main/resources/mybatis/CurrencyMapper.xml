@@ -32,6 +32,14 @@
         where tenant_id = #{tenantId}
     </select>
 
+    <select id="findCurrencyByTenantIds" resultMap="CurrencyMap">
+        select * from currency
+        where tenant_id IN
+        <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+            #{tid}
+        </foreach>
+    </select>
+
     <select id="findByIdAndTenantId" resultMap="CurrencyMap">
         SELECT id, tenant_id, code, sync_source, status, created_at, updated_at
         FROM currency

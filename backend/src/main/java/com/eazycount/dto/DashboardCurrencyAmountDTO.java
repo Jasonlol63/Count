@@ -31,4 +31,14 @@ public class DashboardCurrencyAmountDTO {
     private BigDecimal rate;
     private BigDecimal earnings;
     private BigDecimal earningsConverted;
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CompanyNetProfit {
+        private String code;
+        private BigDecimal netProfit;
+        private String group;
+    }
 }

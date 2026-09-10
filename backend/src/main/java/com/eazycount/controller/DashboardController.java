@@ -3,7 +3,6 @@ package com.eazycount.controller;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.TenantDao;
 import com.eazycount.dto.DashboardCurrencyAmountDTO;
-import com.eazycount.dto.DashboardGroupCompanyNetProfitDTO;
 import com.eazycount.dto.DashboardKpiDTO;
 import com.eazycount.dto.DashboardTrendPointDTO;
 import com.eazycount.entity.Tenant;
@@ -103,8 +102,39 @@ public class DashboardController {
             LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
             LocalDate dateTo = LocalDate.parse(dateToStr.trim());
 
-            List<DashboardGroupCompanyNetProfitDTO> rows = dashboardService.getGroupCompanyNetProfitBreakdown(
+            List<DashboardCurrencyAmountDTO.CompanyNetProfit> rows = dashboardService.getGroupCompanyNetProfitBreakdown(
                     groupTenantId, companyTenantIds, dateFrom, dateTo, currency);
+
+            body.put("status", "success");
+            body.put("success", true);
+            body.put("message", "");
+            body.put("data", rows);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
+    // Group-only Currency tab: same param shape as /group-kpi, but each row is this Group's
+    // own weighted Net Profit in that currency (see getGroupKpiCurrencyBreakdown for the
+    // per-currency weighting rule). Reuses DashboardCurrencyAmountDTO — same fields the
+    // single-company /kpi/currency-breakdown returns.
+    @GetMapping("/group-kpi/currency-breakdown")
+    public ResponseEntity<Map<String, Object>> getGroupKpiCurrencyBreakdown(
+            @RequestParam(value = "group_tenant_id", required = true) String groupTenantIdStr,
+            @RequestParam(value = "company_tenant_ids", required = false) String companyTenantIdsStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "base_currency", required = true) String baseCurrency) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        try {
+            Integer groupTenantId = resolveTenantId(groupTenantIdStr);
+            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+
+            List<DashboardCurrencyAmountDTO> rows = dashboardService.getGroupKpiCurrencyBreakdown(
+                    groupTenantId, companyTenantIds, dateFrom, dateTo, baseCurrency);
 
             body.put("status", "success");
             body.put("success", true);
@@ -134,6 +164,33 @@ public class DashboardController {
             body.put("success", true);
             body.put("message", "");
             body.put("data", kpi);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
+    // "Company: All" Currency tab — same param shape as /kpi-all, same DashboardCurrencyAmountDTO
+    // shape the single-company /kpi/currency-breakdown returns. No Earnings (see service javadoc).
+    @GetMapping("/kpi-all/currency-breakdown")
+    public ResponseEntity<Map<String, Object>> getKpiCurrencyBreakdownForCompanies(
+            @RequestParam(value = "tenant_ids", required = true) String tenantIdsStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "base_currency", required = true) String baseCurrency) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        try {
+            List<Integer> tenantIds = parseTenantIds(tenantIdsStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+
+            List<DashboardCurrencyAmountDTO> rows = dashboardService.getKpiCurrencyBreakdownForCompanies(
+                    tenantIds, dateFrom, dateTo, baseCurrency);
+
+            body.put("status", "success");
+            body.put("success", true);
+            body.put("message", "");
+            body.put("data", rows);
             return ResponseEntity.ok(body);
         } catch (BusinessException e) {
             return error(e.getMessage());

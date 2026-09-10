@@ -14,6 +14,10 @@ public interface CurrencyDao {
     //List, Create, Delete Currency
     List<Currency> findCurrencyByTenantId(Integer tenantId);
 
+    // Company: All Currency tab — one batch query for every company's configured currencies,
+    // not one findCurrencyByTenantId call per company.
+    List<Currency> findCurrencyByTenantIds(@Param("tenantIds") List<Integer> tenantIds);
+
     Currency findByIdAndTenantId(@Param("id") int id, @Param("tenantId") int tenantId);
 
     Currency findByTenantIdAndCode(@Param("tenantId") int tenantId, @Param("code") String code);
