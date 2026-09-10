@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.ExchangeRateDao">
+
+    <resultMap id="ExchangeRateMap" type="com.eazycount.entity.ExchangeRate">
+        <id column="id" property="id"/>
+        <result column="currency_code" property="currencyCode"/>
+        <result column="rate_to_usd" property="rateToUsd"/>
+        <result column="rate_date" property="rateDate"/>
+        <result column="source" property="source"/>
+        <result column="created_at" property="createAt"/>
+        <result column="updated_at" property="updateAt"/>
+    </resultMap>
+
+    <select id="findDistinctActiveCurrencyCodes" resultType="string">
+        SELECT DISTINCT UPPER(TRIM(code))
+        FROM currency
+        WHERE status = 'ACTIVE'
+    </select>
+
+    <select id="findLatestRates" resultMap="ExchangeRateMap">
+        SELECT er.*
+        FROM exchange_rate er
+        INNER JOIN (
+            SELECT currency_code, MAX(rate_date) AS rate_date
+            FROM exchange_rate
+            WHERE rate_date &lt;= CURDATE()
+            GROUP BY currency_code
+        ) latest ON latest.currency_code = er.currency_code AND latest.rate_date = er.rate_date
+    </select>
+
+    <insert id="upsertRate">
+        INSERT INTO exchange_rate (currency_code, rate_to_usd, rate_date, source, created_at, updated_at)
+        VALUES (#{currencyCode}, #{rateToUsd}, #{rateDate}, #{source}, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+            rate_to_usd = VALUES(rate_to_usd),
+            source = VALUES(source),
+            updated_at = NOW()
+    </insert>
+
+</mapper>

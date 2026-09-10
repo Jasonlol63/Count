@@ -9,10 +9,10 @@
 > `dashboardConstants.js` / `dashboardChart.jsx` / `loginScope.js`——把 Dashboard 页面还在打的旧 PHP 接口换成
 > Spring，打不到 Spring 后端的功能（Group-All 跨组合并、多公司 subset 合并、按币种拆分的 Earnings 面板、
 > FX 换算）UI 组件保留挂载，但不再发请求，渲染成空/`-`。
-> **最后更新**：2026-09-10（新增第 10.8 节：Group Trend Chart——跟 Group KPI 同一套算法拆到逐天；
-> 第 8.1.1 节：Company 模式 Trend Chart 的 Earnings 线改成按月精确查股权%，不再是整个区间一个百分比
-> 顶到底，`DashboardTrendPointDTO` 新增 `earnings` 字段；Bug 6（Group Profit 永远算出 0，因为
-> `groupKpiCompanyTenantIds` 借用了 Company: All 专属的"排除 C168"规则）已真机验证修复生效）
+> **最后更新**：2026-09-10（新增第 11 节：Company Earnings 卡片 + Trend Chart 走势线的"直接持股 or
+> 借道 Group"降级链路——公司自己没有直接持股配置时，改成查它分给了哪个 Group、再查登录身份在那个
+> Group 里的持股%，两个百分比相乘得出有效持股率；KPI 卡片部分已真机验证数字对了，Trend Chart 部分
+> 还没有真机验证）
 
 ---
 
@@ -29,6 +29,7 @@
 8. [Trend Chart 走势图](#8-trend-chart-走势图)
 9. [Company: All 多公司汇总](#9-company-all-多公司汇总)
 10. [Group KPI：Group 自己视角的 KPI 卡片](#10-group-kpigroup-自己视角的-kpi-卡片)
+11. [Company Earnings 降级链路：直接持股 or 借道 Group](#11-company-earnings-降级链路直接持股-or-借道-group)
 
 ---
 
@@ -701,4 +702,92 @@ GET /api/dashboard/chart-group?group_tenant_id=&company_tenant_ids=&date_from=&d
 **这次没做/没验证的部分**：
 - 只做到前后端编译通过（`mvn compile` + `vite build`），**没有真机打开 Group 页面切到 Trend Chart 肉眼确认走势线数字是否正确**——KPI 卡片那部分已经真机验证过了（见上面 10.7），但 Trend Chart 这次没有单独再测一遍
 - 按月精确算股权百分比这个逻辑本身，没有拿"股权比例中途真的变过"的真实场景测过（同 8.1.1 节的未验证事项）
+
+---
+
+## 11. Company Earnings 降级链路：直接持股 or 借道 Group
+
+> 范围：只动 **Company 视角的 Earnings**（KPI 卡片 + Trend Chart 走势线），Group 视角自己的 Earnings
+> （第 10 节）完全不受影响、不会触发这套降级。这次没有改后端接口的参数或响应体形状，`Controller` 和
+> 前端都不用动——纯粹是 `DashboardServiceImpl` 内部"这个百分比要去哪查"的判断逻辑升级。
+
+### 11.1 需求背景
+
+用户发现一个真实场景：C168 这家公司自己在 Ownership 页面的 "Account Ownership" 标签页**没有配置任何直接持股**，但它把 10% 的股权分给了 AP 这个 Group（`tenant_ownership` 表里 `tenant_id=C168、owner_type='group'、partner_tenant_id=AP` 那一行）；同时登录身份 K 在 AP 这个 Group 自己身上（"Group Earnings" 标签页）配置了持股。
+
+**在这次改动之前**，C168 的 Earnings 卡片只查 C168 自己身上有没有 `owner_type='owner'/'user'` 的直接持股行——查不到就直接不显示卡片，即使 K 实际上通过"C168 → AP → K"这条链路间接持有 C168 的一部分收益。
+
+**用户要的效果**：C168 的 Earnings 卡片应该按这个公式算出来并展示：
+```
+C168 Earnings = C168 NetProfit × (C168 分给 AP 的%) × (K 在 AP 里的持股%)
+```
+这条链路是**降级路径**，优先级低于直接持股——如果 C168 自己本来就配了 K 的直接持股，就直接用那个数字，完全不看 Group 这条路；只有直接持股查不到的时候，才尝试走 Group 这条路；两条路都查不到，才完全不显示 Earnings 卡片。用户确认过：**一家公司不会同时分股权给两个不同的 Group**，所以降级路径永远最多涉及一个 Group，不用处理"多个 Group 加权平均"这种情况。
+
+### 11.2 后端：Dao / Mapper 新增
+
+新增 3 条查询，全部复用现成的 `TenantOwnership`/`TenantOwnershipHistory` 实体，没有建新 DTO：
+
+| 方法 | 用途 |
+|---|---|
+| `findCompanyGroupAllocation(tenantId)` | KPI 卡片用：查这家公司自己名下 `owner_type='group'` 的那一行（**当月**，live 表，`LIMIT 1`——一家公司最多分给一个 Group，用户已确认） |
+| `findHistoricalCompanyGroupAllocation(tenantId, effectiveMonth)` | 上面那条的历史快照版本（`tenant_ownership_history`，指定月份，`LIMIT 1`） |
+| `findCompanyGroupAllocationsByMonths(tenantId, effectiveMonths)` | Trend Chart 用：批量版，一条 `effective_month IN (...)` 查出这家公司在**一批历史月份**里各自的 Group 分配行，不按月循环查询 |
+
+这三条本质上是 `findGroupEquityPercentages`/`findHistoricalGroupEquityPercentages`/`findGroupEquityPercentagesByMonths`（第 10.3 节）的**反方向查询**——那三条是"已知 Group，查一批公司分了多少给它"，这三条是"已知一家公司，查它分给了哪个 Group、分了多少"（`groupTenantId` 反而是查出来的结果之一，不是查询条件）。
+
+"K 在 AP 里的持股%"这一步**不需要新查询**——直接复用已经有的 `findOwnershipPercentage()`（KPI 用）/`findOwnershipPercentagesByMonths`（Trend 用），只是把参数从"公司自己的 tenantId"换成"查出来的 Group 的 tenantId"，这两个方法本来就是通用的，不关心 tenant 是公司还是 Group。
+
+### 11.3 后端：Service（KPI 卡片部分）
+
+`applyEarnings()`/`resolveEarningsAmount()` 都新增一个 `allowGroupCascade: boolean` 参数，内部不再直接调 `findOwnershipPercentage()`，改成调新增的：
+
+```
+resolveEffectiveEarningsPercentage(tenantId, dateTo, ownerType, allowGroupCascade):
+  1. direct = findOwnershipPercentage(tenantId, dateTo, ownerType)
+  2. direct 查到且 > 0 → 直接返回 direct（原有逻辑一个字没改，优先级最高）
+  3. allowGroupCascade = false → 返回 null（不降级）
+  4. 查这家公司的 Group 分配行 findCompanyGroupAllocation(tenantId, dateTo)
+     → 查不到 / 百分比 ≤ 0 → 返回 null
+  5. 用查到的 groupTenantId 再查一次 findOwnershipPercentage(groupTenantId, dateTo, ownerType)
+     → 查不到 / ≤ 0 → 返回 null
+  6. 两个百分比相乘 ÷ 100（scale=8，跟 earningsFrom() 同一个精度约定）→ 作为"有效持股率"返回
+```
+
+调用方：
+- **`getKpi()`**（Company 视角）两处调用（当前区间 + 上一期）都传 `allowGroupCascade=true`——允许降级。
+- **`getKpiForGroup()`**（Group 视角）两处调用都传 `false`——Group 自己的 Earnings 只查 `tenant_id=Group自己id` 那一行，不会再往上一层去找"这个 Group 有没有分给另一个 Group"（目前数据结构也没有这种嵌套关系，传 `false` 是为了以后万一出现类似结构时不会被误触发）。
+
+`dto.earningsPercentage` 展示的就是这个"有效持股率"（比如 10% × 70% = 7%），前端卡片本来就只显示 `earnings` 这个金额，没有单独把百分比数字显示出来，所以不存在"标签写的是直接持股%、其实是换算出来的%"这种文案对不上的问题。
+
+**验证**：用户拿真实数据测过，C168（没有直接持股）+ K（在 AP 里有持股）这个组合，Earnings 卡片正确显示出来了，数字对上——**这部分已经真机验证过，不是只编译通过**。
+
+### 11.4 后端：Service（Trend Chart 走势线部分）
+
+Trend Chart 的 Earnings 线本来就是"按月算"的（第 8.1.1 节），所以这次要做的是把 11.3 的两级判断按月重新实现一遍，而不是简单调用一次：
+
+```
+resolveEffectiveEarningsPercentagesByMonth(tenantId, accountId, ownerType, dateFrom, dateTo, allowGroupCascade):
+  1. directByMonth = resolveOwnershipPercentagesByMonth(...)   // 第 8.1.1 节现成的方法，原样复用
+  2. allowGroupCascade = false → 直接返回 directByMonth
+  3. allocationByMonth = resolveCompanyGroupAllocationsByMonth(tenantId, dateFrom, dateTo)
+     // 新增：跟 resolveOwnershipPercentagesByMonth 同一个"当前月 live + 其余月份批量历史查询"模式，
+     // 只是查的是"公司自己的 Group 分配行"，不是"身份的持股行"
+  4. allocationByMonth 是空的（这几个月这家公司压根没分给任何 Group）→ 直接返回 directByMonth
+  5. 把 allocationByMonth 里出现过的 Group（去重，通常就一个）各自批量查一次
+     resolveOwnershipPercentagesByMonth(该Group的id, accountId, ownerType, dateFrom, dateTo)
+     → 一个 Map<groupTenantId, Map<月份, 百分比>>
+  6. 遍历每个月：这个月直接持股已经 > 0 → 跳过，保留 directByMonth 的值（直接持股优先级更高）；
+     否则查这个月的 Group 分配% 和对应 Group 该月的持股%，两个都 > 0 才补进结果，缺一个就跳过
+     （跳过 = 那个月留空，`applyTrendEarnings` 会把它当 0% 处理，这个规则第 8.1.1 节已经定了）
+```
+
+调用方：`getTrend()`（Company）传 `allowGroupCascade=true`；`getTrendForGroup()` 传 `false`（等价于之前的行为，只是统一走同一套代码，不用维护两份逻辑）。
+
+**性能确认**：不管区间横跨多少个月，"公司的 Group 分配"这一步固定是"1 条批量历史查询 + 1 次 live 查询"；"登录身份在 Group 里的持股"这一步是**按去重后的 Group 数量**各来一组"批量历史 + live"查询——用户已经确认一家公司最多分给一个 Group，所以实际最多只会多这一组（2 条）查询，不会随时间跨度或 Group 数量线性增长。前端请求数完全不变，还是 1 次 `GET /api/dashboard/chart`。
+
+### 11.5 尚未覆盖 / 未验证
+
+- **Trend Chart 这部分只做到后端编译通过，没有真机打开走势线肉眼确认 Earnings 那条线在"直接持股查不到、走 Group 降级"的月份数字是否正确**——KPI 卡片那部分已经验证过（见 11.3），Trend Chart 这次没有单独测
+- ~~`getKpiCurrencyBreakdown()`（按币种拆分的 Earnings 面板）没有接上这套降级逻辑~~——**已补上**：改成调 `resolveEffectiveEarningsPercentage(tenantId, dateTo, ownerType, true)`，跟 `getKpi()` 同一个方法、同一个 `allowGroupCascade=true`，只查一次（不是每个币种查一次），套到每个币种的净利润上。只影响 Earning Tab 的 `earnings`/`earningsConverted` 两个字段，Currency Tab 的 `netProfit`/`amount`/`rate` 不受影响。这次只做到后端编译通过，没有真机验证过借道 Group 场景下这个面板的数字。
+- 一家公司同时分股权给两个不同 Group 这种情况没有处理（用户已确认这不会发生，`findCompanyGroupAllocation`/`findCompanyGroupAllocationsByMonths` 都是 `LIMIT 1`/取查到的第一批，如果数据库里意外出现多行，行为是"随便挑一行"而不是报错或加权平均）
 - `groupsAllGroupLevel`（`Group ID: All`）的 Trend Chart 跟 KPI 卡片一样，这次没有覆盖到，继续显示为空

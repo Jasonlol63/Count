@@ -1,5 +1,7 @@
 package com.eazycount.service;
 
+import com.eazycount.dto.DashboardCurrencyAmountDTO;
+import com.eazycount.dto.DashboardGroupCompanyNetProfitDTO;
 import com.eazycount.dto.DashboardKpiDTO;
 import com.eazycount.dto.DashboardTrendPointDTO;
 
@@ -10,6 +12,13 @@ public interface DashboardService {
 
     // KPI cards for one tenant/currency over [dateFrom, dateTo], plus the previous period.
     DashboardKpiDTO getKpi(Integer tenantId, LocalDate dateFrom, LocalDate dateTo, String currencyCode);
+
+    // Currency-tab breakdown: this tenant's Net Profit broken out per currency it actually has
+    // transactions in for [dateFrom, dateTo] (one batched query, not one call per currency),
+    // each row converted into baseCurrencyCode via ExchangeRateService. A currency with no rate
+    // yet still returns its originalAmount, with amount/rate left null.
+    List<DashboardCurrencyAmountDTO> getKpiCurrencyBreakdown(Integer tenantId, LocalDate dateFrom, LocalDate dateTo,
+                                                              String baseCurrencyCode);
 
     //Trend Chart use, same rules as getKpi, one point per day in [dateFrom, dateTo].
     List<DashboardTrendPointDTO> getTrend(Integer tenantId, LocalDate dateFrom, LocalDate dateTo, String currencyCode);
@@ -33,4 +42,12 @@ public interface DashboardService {
     // of one flat percentage for the whole range; a month with no config counts as 0%.
     List<DashboardTrendPointDTO> getTrendForGroup(Integer groupTenantId, List<Integer> companyTenantIds,
                                                    LocalDate dateFrom, LocalDate dateTo, String currencyCode);
+
+    // Group-only "Net Profit" tab: each member company's own Net Profit (not weighted by its
+    // equity % into the Group), in a single requested currency — no FX conversion. Separate,
+    // on-demand endpoint (only called when that tab is actually visible) rather than folded
+    // into getKpiForGroup(), so scopes that never need it don't pay for it.
+    List<DashboardGroupCompanyNetProfitDTO> getGroupCompanyNetProfitBreakdown(
+            Integer groupTenantId, List<Integer> companyTenantIds,
+            LocalDate dateFrom, LocalDate dateTo, String currencyCode);
 }

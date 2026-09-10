@@ -1,16 +1,21 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.common.BusinessException;
+import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.DashboardDao;
 import com.eazycount.dao.TenantDao;
+import com.eazycount.dto.DashboardCurrencyAmountDTO;
+import com.eazycount.dto.DashboardGroupCompanyNetProfitDTO;
 import com.eazycount.dto.DashboardKpiDTO;
 import com.eazycount.dto.DashboardTrendPointDTO;
+import com.eazycount.entity.Currency;
 import com.eazycount.entity.Tenant;
 import com.eazycount.entity.TenantOwnership;
 import com.eazycount.entity.TenantOwnershipHistory;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.DashboardService;
+import com.eazycount.service.ExchangeRateService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +28,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 @Service
@@ -37,6 +43,117 @@ public class DashboardServiceImpl implements DashboardService {
 
     @Autowired
     private TenantDao tenantDao;
+
+    @Autowired
+    private ExchangeRateService exchangeRateService;
+
+    @Autowired
+    private CurrencyDao currencyDao;
+
+    @Override
+    public List<DashboardCurrencyAmountDTO> getKpiCurrencyBreakdown(Integer tenantId, LocalDate dateFrom,
+                                                                     LocalDate dateTo, String baseCurrencyCode) {
+        if (tenantId == null) {
+            throw new BusinessException("tenant_id is required");
+        }
+        if (dateFrom == null || dateTo == null) {
+            throw new BusinessException("date_from and date_to are required");
+        }
+        if (dateFrom.isAfter(dateTo)) {
+            throw new BusinessException("date_from must not be after date_to");
+        }
+        if (baseCurrencyCode == null || baseCurrencyCode.isBlank()) {
+            throw new BusinessException("base_currency is required");
+        }
+        String base = baseCurrencyCode.trim().toUpperCase();
+
+        Tenant tenant = tenantDao.findTenantById(tenantId);
+        if (tenant == null) {
+            throw new BusinessException("Tenant not found");
+        }
+        // GROUP tenants aren't supported yet — same scope as getKpi.
+        if (tenant.getTenantType() != Tenant.TenantType.COMPANY) {
+            return List.of();
+        }
+
+        List<Integer> tenantIds = List.of(tenantId);
+        List<String> roles = List.of(ROLE_PROFIT, ROLE_EXPENSES);
+        Map<String, Map<String, BigDecimal>> winLossByCurrencyRole = toCurrencyRoleMap(
+                dashboardDao.aggregateWinLossByRoleAndCurrency(tenantIds, dateFrom, dateTo, roles));
+        Map<String, Map<String, BigDecimal>> crDrByCurrencyRole = toCurrencyRoleMap(
+                dashboardDao.aggregateCrDrByRoleAndCurrency(tenantIds, dateFrom, dateTo, roles));
+
+        // Every currency configured for this tenant is shown — not just the ones with activity
+        // this period — so a currency with no transactions still renders its row ("—" amount,
+        // real rate) instead of disappearing from the table.
+        TreeSet<String> currencyCodes = new TreeSet<>();
+        for (Currency currency : currencyDao.findCurrencyByTenantId(tenantId)) {
+            if (currency.getStatus() == Currency.Status.ACTIVE && currency.getCode() != null) {
+                currencyCodes.add(currency.getCode().trim().toUpperCase());
+            }
+        }
+        currencyCodes.addAll(winLossByCurrencyRole.keySet());
+        currencyCodes.addAll(crDrByCurrencyRole.keySet());
+        currencyCodes.add(base);
+
+        // One DB read for every rate this request will need, reused below in a pure in-memory
+        // loop — no per-row, per-currency query.
+        Map<String, BigDecimal> ratesToUsd = exchangeRateService.loadRatesToUsd();
+
+        // Earning tab: same effective-percentage resolution as the KPI card's Earnings figure
+        // (applyEarnings/resolveEarningsAmount) — direct ownership first, falling back through
+        // a Group allocation when this company has none (see §11 in dashboard-springboot-kpi.md).
+        // Resolved once here, not once per currency. Currency Tab's netProfit/amount/rate above
+        // are untouched by this — only earnings/earningsConverted depend on it.
+        String ownerType = resolveOwnerType();
+        BigDecimal earningsPercentage = ownerType != null
+                ? resolveEffectiveEarningsPercentage(tenantId, dateTo, ownerType, true)
+                : null;
+
+        List<DashboardCurrencyAmountDTO> rows = new ArrayList<>();
+        for (String code : currencyCodes) {
+            boolean hasActivity = winLossByCurrencyRole.containsKey(code) || crDrByCurrencyRole.containsKey(code);
+            BigDecimal netProfit;
+            if (hasActivity || code.equals(base)) {
+                // Base currency always resolves to a real number (0 if no activity), same as
+                // the single-currency getKpi(); any other currency with zero transactions this
+                // period is left null so the frontend renders "—" instead of a misleading 0.
+                Map<String, BigDecimal> winLossByRole = winLossByCurrencyRole.getOrDefault(code, Map.of());
+                Map<String, BigDecimal> crDrByRole = crDrByCurrencyRole.getOrDefault(code, Map.of());
+                BigDecimal profit = amountForRole(ROLE_PROFIT, winLossByRole, crDrByRole);
+                BigDecimal expenses = amountForRole(ROLE_EXPENSES, winLossByRole, crDrByRole);
+                netProfit = profit.add(expenses);
+            } else {
+                netProfit = null;
+            }
+
+            // Rate is independent of whether this period had any activity — always resolved.
+            BigDecimal amount = netProfit != null
+                    ? exchangeRateService.convert(netProfit, code, base, ratesToUsd)
+                    : null;
+            BigDecimal rate = exchangeRateService.convert(BigDecimal.ONE, code, base, ratesToUsd);
+
+            // Earning tab wants 0 (not "—") for a currency with no activity or no ownership
+            // stake — unlike Net Profit, "nothing earned" is a real, displayable answer here.
+            BigDecimal earnings = earningsPercentage != null && earningsPercentage.compareTo(BigDecimal.ZERO) > 0
+                    ? earningsFrom(netProfit != null ? netProfit : BigDecimal.ZERO, earningsPercentage)
+                    : BigDecimal.ZERO;
+            BigDecimal earningsConverted = exchangeRateService.convert(earnings, code, base, ratesToUsd);
+
+            rows.add(new DashboardCurrencyAmountDTO(code, netProfit, amount, rate, earnings, earningsConverted));
+        }
+        return rows;
+    }
+
+    private static Map<String, Map<String, BigDecimal>> toCurrencyRoleMap(List<DashboardKpiDTO.RoleAmount> rows) {
+        Map<String, Map<String, BigDecimal>> byCurrency = new HashMap<>();
+        for (DashboardKpiDTO.RoleAmount row : rows) {
+            String code = row.getCurrencyCode() == null ? "" : row.getCurrencyCode().trim().toUpperCase();
+            String role = row.getRole() == null ? "" : row.getRole().trim().toUpperCase();
+            byCurrency.computeIfAbsent(code, c -> new HashMap<>()).merge(role, row.getAmount(), BigDecimal::add);
+        }
+        return byCurrency;
+    }
 
     @Override
     public DashboardKpiDTO getKpi(Integer tenantId, LocalDate dateFrom, LocalDate dateTo, String currencyCode) {
@@ -72,7 +189,7 @@ public class DashboardServiceImpl implements DashboardService {
         dto.setProfit(current.profit);
         dto.setExpenses(current.expenses);
         dto.setNetProfit(current.netProfit);
-        applyEarnings(dto, tenantId, dateTo, current.netProfit);
+        applyEarnings(dto, tenantId, dateTo, current.netProfit, true);
 
         LocalDate[] previousRange = resolvePreviousRange(dateFrom, dateTo);
         LocalDate previousDateFrom = previousRange[0];
@@ -85,7 +202,7 @@ public class DashboardServiceImpl implements DashboardService {
         dto.setPreviousExpenses(previous.expenses);
         dto.setPreviousNetProfit(previous.netProfit);
         if (dto.isShowEarnings()) {
-            dto.setPreviousEarnings(resolveEarningsAmount(tenantId, previousDateTo, previous.netProfit));
+            dto.setPreviousEarnings(resolveEarningsAmount(tenantId, previousDateTo, previous.netProfit, true));
         }
 
         return dto;
@@ -155,7 +272,8 @@ public class DashboardServiceImpl implements DashboardService {
         dto.setNetProfit(current.netProfit);
         // Group Earnings reuses applyEarnings as-is: it just looks up the tenant_ownership row
         // for tenant_id = groupTenantId and multiplies by Group Net Profit — no new code needed.
-        applyEarnings(dto, groupTenantId, dateTo, current.netProfit);
+        // allowGroupCascade=false: a Group's own Earnings never falls back through another Group.
+        applyEarnings(dto, groupTenantId, dateTo, current.netProfit, false);
 
         LocalDate[] previousRange = resolvePreviousRange(dateFrom, dateTo);
         LocalDate previousDateFrom = previousRange[0];
@@ -168,10 +286,69 @@ public class DashboardServiceImpl implements DashboardService {
         dto.setPreviousExpenses(previous.expenses);
         dto.setPreviousNetProfit(previous.netProfit);
         if (dto.isShowEarnings()) {
-            dto.setPreviousEarnings(resolveEarningsAmount(groupTenantId, previousDateTo, previous.netProfit));
+            dto.setPreviousEarnings(resolveEarningsAmount(groupTenantId, previousDateTo, previous.netProfit, false));
         }
 
         return dto;
+    }
+
+    @Override
+    public List<DashboardGroupCompanyNetProfitDTO> getGroupCompanyNetProfitBreakdown(
+            Integer groupTenantId, List<Integer> companyTenantIds,
+            LocalDate dateFrom, LocalDate dateTo, String currencyCode) {
+        if (groupTenantId == null) {
+            throw new BusinessException("group_tenant_id is required");
+        }
+        if (dateFrom == null || dateTo == null) {
+            throw new BusinessException("date_from and date_to are required");
+        }
+        if (dateFrom.isAfter(dateTo)) {
+            throw new BusinessException("date_from must not be after date_to");
+        }
+        if (currencyCode == null || currencyCode.isBlank()) {
+            throw new BusinessException("currency is required");
+        }
+        String currency = currencyCode.trim();
+        List<Integer> companies = companyTenantIds == null ? List.of() : companyTenantIds;
+
+        Tenant tenant = tenantDao.findTenantById(groupTenantId);
+        if (tenant == null) {
+            throw new BusinessException("Tenant not found");
+        }
+        if (tenant.getTenantType() != Tenant.TenantType.GROUP) {
+            throw new BusinessException("Tenant is not a Group");
+        }
+        if (companies.isEmpty()) {
+            return List.of();
+        }
+
+        // Same two batched-by-tenant queries computeGroupProfit() already runs to weight Group
+        // Profit — reused here for their un-weighted per-company figures instead, one query
+        // total (not one per company).
+        List<String> roles = List.of(ROLE_PROFIT, ROLE_EXPENSES);
+        Map<Integer, Map<String, BigDecimal>> winLossByTenantRole = toTenantRoleMap(
+                dashboardDao.aggregateWinLossByRoleAndTenant(companies, dateFrom, dateTo, roles, currency));
+        Map<Integer, Map<String, BigDecimal>> crDrByTenantRole = toTenantRoleMap(
+                dashboardDao.aggregateCrDrByRoleAndTenant(companies, dateFrom, dateTo, roles, currency));
+
+        // One batch lookup for every company's display code, not one findTenantById per row.
+        Map<Integer, String> companyCodeByTenantId = new HashMap<>();
+        for (Tenant company : tenantDao.findTenantsByIds(companies)) {
+            companyCodeByTenantId.put(company.getId(), company.getCode());
+        }
+
+        List<DashboardGroupCompanyNetProfitDTO> rows = new ArrayList<>();
+        for (Integer companyTenantId : companies) {
+            Map<String, BigDecimal> winLossByRole = winLossByTenantRole.getOrDefault(companyTenantId, Map.of());
+            Map<String, BigDecimal> crDrByRole = crDrByTenantRole.getOrDefault(companyTenantId, Map.of());
+            BigDecimal profit = amountForRole(ROLE_PROFIT, winLossByRole, crDrByRole);
+            BigDecimal expenses = amountForRole(ROLE_EXPENSES, winLossByRole, crDrByRole);
+            BigDecimal netProfit = profit.add(expenses);
+
+            String code = companyCodeByTenantId.getOrDefault(companyTenantId, String.valueOf(companyTenantId));
+            rows.add(new DashboardGroupCompanyNetProfitDTO(code, netProfit, tenant.getCode()));
+        }
+        return rows;
     }
 
     /* Group Profit (weighted rollup of member companies) + Group Expenses (Group's own ledger). */
@@ -283,7 +460,7 @@ public class DashboardServiceImpl implements DashboardService {
         if (ownerType != null) {
             Integer accountId = SecurityUtils.currentUser().user_id;
             Map<YearMonth, BigDecimal> percentageByMonth =
-                    resolveOwnershipPercentagesByMonth(tenantId, accountId, ownerType, dateFrom, dateTo);
+                    resolveEffectiveEarningsPercentagesByMonth(tenantId, accountId, ownerType, dateFrom, dateTo, true);
             applyTrendEarnings(points, percentageByMonth);
         }
 
@@ -344,11 +521,12 @@ public class DashboardServiceImpl implements DashboardService {
 
         List<DashboardTrendPointDTO> points = buildGroupTrendPoints(groupTenantId, companies, dateFrom, dateTo, currency);
 
+        // allowGroupCascade=false: a Group's own Earnings never falls back through another Group.
         String ownerType = resolveOwnerType();
         if (ownerType != null) {
             Integer accountId = SecurityUtils.currentUser().user_id;
-            Map<YearMonth, BigDecimal> percentageByMonth =
-                    resolveOwnershipPercentagesByMonth(groupTenantId, accountId, ownerType, dateFrom, dateTo);
+            Map<YearMonth, BigDecimal> percentageByMonth = resolveEffectiveEarningsPercentagesByMonth(
+                    groupTenantId, accountId, ownerType, dateFrom, dateTo, false);
             applyTrendEarnings(points, percentageByMonth);
         }
 
@@ -459,6 +637,82 @@ public class DashboardServiceImpl implements DashboardService {
             }
         }
         return percentageByMonth;
+    }
+
+    /*
+     * Trend Chart Earnings line with the same company -> Group fallback as
+     * resolveEffectiveEarningsPercentage, just per month instead of a single date. For each
+     * month: direct ownership wins if present; otherwise, if allowGroupCascade, fall back to
+     * (company's % into its Group that month) x (login's % in that Group that month). A company
+     * allocates to at most one Group, so this adds at most one extra batch query per distinct
+     * Group encountered (in practice just one).
+     */
+    private Map<YearMonth, BigDecimal> resolveEffectiveEarningsPercentagesByMonth(Integer tenantId, Integer accountId,
+            String ownerType, LocalDate dateFrom, LocalDate dateTo, boolean allowGroupCascade) {
+        Map<YearMonth, BigDecimal> directByMonth =
+                resolveOwnershipPercentagesByMonth(tenantId, accountId, ownerType, dateFrom, dateTo);
+        if (!allowGroupCascade) {
+            return directByMonth;
+        }
+
+        Map<YearMonth, GroupAllocation> allocationByMonth = resolveCompanyGroupAllocationsByMonth(tenantId, dateFrom, dateTo);
+        if (allocationByMonth.isEmpty()) {
+            return directByMonth;
+        }
+
+        // Batch-fetch the login's own % in every distinct Group these months allocated to (usually just one).
+        Map<Integer, Map<YearMonth, BigDecimal>> groupShareByGroupId = new HashMap<>();
+        for (GroupAllocation allocation : allocationByMonth.values()) {
+            groupShareByGroupId.computeIfAbsent(allocation.groupTenantId,
+                    gid -> resolveOwnershipPercentagesByMonth(gid, accountId, ownerType, dateFrom, dateTo));
+        }
+
+        Map<YearMonth, BigDecimal> combined = new HashMap<>(directByMonth);
+        for (Map.Entry<YearMonth, GroupAllocation> entry : allocationByMonth.entrySet()) {
+            YearMonth month = entry.getKey();
+            BigDecimal direct = directByMonth.get(month);
+            if (direct != null && direct.compareTo(BigDecimal.ZERO) > 0) {
+                continue; // Direct ownership already covers this month.
+            }
+            GroupAllocation allocation = entry.getValue();
+            if (allocation.percentage.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            BigDecimal groupShare = groupShareByGroupId.getOrDefault(allocation.groupTenantId, Map.of()).get(month);
+            if (groupShare == null || groupShare.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            combined.put(month, allocation.percentage
+                    .multiply(groupShare)
+                    .divide(BigDecimal.valueOf(100), EARNINGS_SCALE, RoundingMode.HALF_UP));
+        }
+        return combined;
+    }
+
+    /* Per-month version of findCompanyGroupAllocation — same live/history split, batched history lookup. */
+    private Map<YearMonth, GroupAllocation> resolveCompanyGroupAllocationsByMonth(Integer tenantId,
+                                                                                   LocalDate dateFrom, LocalDate dateTo) {
+        Map<YearMonth, GroupAllocation> allocationByMonth = new HashMap<>();
+        YearMonth currentMonth = YearMonth.now();
+        List<LocalDate> historyMonths = new ArrayList<>();
+        for (YearMonth month = YearMonth.from(dateFrom); !month.isAfter(YearMonth.from(dateTo)); month = month.plusMonths(1)) {
+            if (!month.equals(currentMonth)) {
+                historyMonths.add(month.atDay(1));
+            }
+        }
+        if (!historyMonths.isEmpty()) {
+            for (TenantOwnershipHistory row : dashboardDao.findCompanyGroupAllocationsByMonths(tenantId, historyMonths)) {
+                allocationByMonth.put(YearMonth.from(row.getEffectiveMonth()),
+                        new GroupAllocation(row.getPartnerTenantId(), row.getPercentage()));
+            }
+        }
+        if (!YearMonth.from(dateFrom).isAfter(currentMonth) && !currentMonth.isAfter(YearMonth.from(dateTo))) {
+            TenantOwnership live = dashboardDao.findCompanyGroupAllocation(tenantId);
+            if (live != null) {
+                allocationByMonth.put(currentMonth, new GroupAllocation(live.getPartnerTenantId(), live.getPercentage()));
+            }
+        }
+        return allocationByMonth;
     }
 
     /* Group Profit Trend Chart: same pattern as above, "one identity" swapped for "a batch of member companies". */
@@ -586,14 +840,15 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     /* Earnings reflects only the current login's own share (owner, or PARTNERSHIP admin). */
-    private void applyEarnings(DashboardKpiDTO dto, Integer tenantId, LocalDate dateTo, BigDecimal netProfit) {
+    private void applyEarnings(DashboardKpiDTO dto, Integer tenantId, LocalDate dateTo, BigDecimal netProfit,
+                                boolean allowGroupCascade) {
         String ownerType = resolveOwnerType();
         if (ownerType == null) {
             dto.setShowEarnings(false);
             return;
         }
 
-        BigDecimal percentage = findOwnershipPercentage(tenantId, dateTo, ownerType);
+        BigDecimal percentage = resolveEffectiveEarningsPercentage(tenantId, dateTo, ownerType, allowGroupCascade);
         if (percentage == null || percentage.compareTo(BigDecimal.ZERO) <= 0) {
             dto.setShowEarnings(false);
             return;
@@ -605,16 +860,74 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     /* Same as applyEarnings, for the previous period's netProfit. */
-    private BigDecimal resolveEarningsAmount(Integer tenantId, LocalDate dateTo, BigDecimal netProfit) {
+    private BigDecimal resolveEarningsAmount(Integer tenantId, LocalDate dateTo, BigDecimal netProfit,
+                                              boolean allowGroupCascade) {
         String ownerType = resolveOwnerType();
         if (ownerType == null) {
             return null;
         }
-        BigDecimal percentage = findOwnershipPercentage(tenantId, dateTo, ownerType);
+        BigDecimal percentage = resolveEffectiveEarningsPercentage(tenantId, dateTo, ownerType, allowGroupCascade);
         if (percentage == null || percentage.compareTo(BigDecimal.ZERO) <= 0) {
             return null;
         }
         return earningsFrom(netProfit, percentage);
+    }
+
+    /*
+     * Earnings percentage for one tenant, with an optional fallback path for companies:
+     * 1. Direct ownership on the tenant itself (findOwnershipPercentage) — if found and > 0,
+     *    use it as-is. This always wins when it exists.
+     * 2. Only when allowGroupCascade is true and step 1 found nothing: check whether this
+     *    company allocated equity to a Group (findCompanyGroupAllocation), then whether the
+     *    current login has a direct share in that Group. If both exist, the effective
+     *    percentage is (company's % into the Group) × (login's % in the Group) / 100 — e.g.
+     *    a company gives 10% to Group AP, and the login owns 70% of AP, so the login's
+     *    effective share of the company is 7%.
+     * allowGroupCascade is false for a Group's own Earnings (getKpiForGroup) — a Group's
+     * Earnings never cascades through another Group.
+     */
+    private BigDecimal resolveEffectiveEarningsPercentage(Integer tenantId, LocalDate dateTo, String ownerType,
+                                                           boolean allowGroupCascade) {
+        BigDecimal direct = findOwnershipPercentage(tenantId, dateTo, ownerType);
+        if (direct != null && direct.compareTo(BigDecimal.ZERO) > 0) {
+            return direct;
+        }
+        if (!allowGroupCascade) {
+            return null;
+        }
+
+        GroupAllocation allocation = findCompanyGroupAllocation(tenantId, dateTo);
+        if (allocation == null || allocation.percentage.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        BigDecimal groupSharePercentage = findOwnershipPercentage(allocation.groupTenantId, dateTo, ownerType);
+        if (groupSharePercentage == null || groupSharePercentage.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        return allocation.percentage
+                .multiply(groupSharePercentage)
+                .divide(BigDecimal.valueOf(100), EARNINGS_SCALE, RoundingMode.HALF_UP);
+    }
+
+    /* This company's own "equity allocated to a Group" row — at most one Group per company. */
+    private GroupAllocation findCompanyGroupAllocation(Integer tenantId, LocalDate dateTo) {
+        YearMonth ownershipMonth = YearMonth.from(dateTo);
+        if (ownershipMonth.equals(YearMonth.now())) {
+            TenantOwnership row = dashboardDao.findCompanyGroupAllocation(tenantId);
+            return row == null ? null : new GroupAllocation(row.getPartnerTenantId(), row.getPercentage());
+        }
+        TenantOwnershipHistory row = dashboardDao.findHistoricalCompanyGroupAllocation(tenantId, ownershipMonth.atDay(1));
+        return row == null ? null : new GroupAllocation(row.getPartnerTenantId(), row.getPercentage());
+    }
+
+    private static final class GroupAllocation {
+        private final Integer groupTenantId;
+        private final BigDecimal percentage;
+
+        private GroupAllocation(Integer groupTenantId, BigDecimal percentage) {
+            this.groupTenantId = groupTenantId;
+            this.percentage = percentage;
+        }
     }
 
     /* "owner" / "user" (PARTNERSHIP admin) / null (member logins can't own shares). */

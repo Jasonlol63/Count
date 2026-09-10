@@ -126,6 +126,20 @@
         LIMIT 1
     </select>
 
+    <select id="findTenantsByIds" resultMap="TenantMap">
+        SELECT
+        <include refid="TenantColumns"/>
+        FROM tenant t
+        LEFT JOIN tenant parent_t
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
+        WHERE t.id IN
+        <foreach collection="tenantIds" item="tid" open="(" separator="," close=")">
+            #{tid}
+        </foreach>
+          AND t.status = 'ACTIVE'
+    </select>
+
     <select id="findTenantFeaturesById" resultMap="TenantDTOMap">
         SELECT
         <include refid="TenantDtoSelectColumns"/>

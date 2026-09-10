@@ -39,5 +39,6 @@ public class DashboardKpiDTO {
         private String role;
         private BigDecimal amount;
         private Integer tenantId;  //Group Profit rollup use.
+        private String currencyCode;  //Currency breakdown use (aggregate*ByRoleAndCurrency).
     }
 }

@@ -72,3 +72,10 @@ file:
 app:
   mail:
     from: kunzzit02@gmail.com
+  exchange-rate:
+    # Daily at 00:05 — Frankfurter/ECB data itself only refreshes once a day, so there is
+    # no benefit to polling more often.
+    cron: "0 5 0 * * *"
+    # v2 renamed the endpoint/params (base+quotes -> /rates); v1 keeps the base+symbols -> /latest
+    # shape this job uses and is documented as frozen (stable), not deprecated.
+    frankfurter-url: https://api.frankfurter.dev/v1/latest

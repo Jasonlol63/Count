@@ -2,6 +2,8 @@ package com.eazycount.controller;
 
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.TenantDao;
+import com.eazycount.dto.DashboardCurrencyAmountDTO;
+import com.eazycount.dto.DashboardGroupCompanyNetProfitDTO;
 import com.eazycount.dto.DashboardKpiDTO;
 import com.eazycount.dto.DashboardTrendPointDTO;
 import com.eazycount.entity.Tenant;
@@ -78,6 +80,36 @@ public class DashboardController {
             body.put("success", true);
             body.put("message", "");
             body.put("data", kpi);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
+    // Group-only "Net Profit" tab: each member company's own Net Profit (not weighted by
+    // equity %), same params as /group-kpi. Separate on-demand endpoint — only called when
+    // that tab is actually visible (groupOnlyDashboard + at least one member company).
+    @GetMapping("/group-kpi/net-profit")
+    public ResponseEntity<Map<String, Object>> getGroupCompanyNetProfitBreakdown(
+            @RequestParam(value = "group_tenant_id", required = true) String groupTenantIdStr,
+            @RequestParam(value = "company_tenant_ids", required = false) String companyTenantIdsStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "currency", required = true) String currency) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        try {
+            Integer groupTenantId = resolveTenantId(groupTenantIdStr);
+            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+
+            List<DashboardGroupCompanyNetProfitDTO> rows = dashboardService.getGroupCompanyNetProfitBreakdown(
+                    groupTenantId, companyTenantIds, dateFrom, dateTo, currency);
+
+            body.put("status", "success");
+            body.put("success", true);
+            body.put("message", "");
+            body.put("data", rows);
             return ResponseEntity.ok(body);
         } catch (BusinessException e) {
             return error(e.getMessage());
@@ -183,7 +215,30 @@ public class DashboardController {
         }
     }
 
+    @GetMapping("/kpi/currency-breakdown")
+    public ResponseEntity<Map<String, Object>> getKpiCurrencyBreakdown(
+            @RequestParam(value = "tenant_id", required = true) String tenantIdStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "base_currency", required = true) String baseCurrency) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        try {
+            Integer tenantId = resolveTenantId(tenantIdStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
 
+            List<DashboardCurrencyAmountDTO> rows =
+                    dashboardService.getKpiCurrencyBreakdown(tenantId, dateFrom, dateTo, baseCurrency);
+
+            body.put("status", "success");
+            body.put("success", true);
+            body.put("message", "");
+            body.put("data", rows);
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
 
     private Integer resolveTenantId(String tenantIdStr) {
         if (tenantIdStr == null || tenantIdStr.isBlank()) {

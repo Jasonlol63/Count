@@ -15,6 +15,10 @@ public interface TenantDao {
 
   Tenant findTenantByCode(@Param("code") String code);
 
+  // Batch lookup for the Group "Net Profit" tab — one query for every member company's code,
+  // not one findTenantById call per company.
+  List<Tenant> findTenantsByIds(@Param("tenantIds") List<Integer> tenantIds);
+
   List<TenantDTO> findTenantFeaturesById(@Param("tenantId") int tenantId);
 
   List<TenantDTO> findTenantFeaturesByOwnerId(@Param("ownerId") int ownerId);
