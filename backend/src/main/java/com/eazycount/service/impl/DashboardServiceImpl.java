@@ -156,6 +156,23 @@ public class DashboardServiceImpl implements DashboardService {
 
         Map<String, BigDecimal> ratesToUsd = exchangeRateService.loadRatesToUsd();
 
+        // Earning tab: same rule as the KPI card's Earnings (computeCompaniesEarnings) and the
+        // Trend Chart's Earnings line (applyCompaniesTrendEarnings) — each company resolves its
+        // own effective percentage independently and contributes its own Net Profit × that
+        // percentage; NOT one shared percentage over the combined total, since companies in
+        // this list can have different direct-or-cascade ownership paths. Per-company-per-
+        // currency figures and percentages are each one batched query, not one per company.
+        String ownerType = resolveOwnerType();
+        Map<Integer, BigDecimal> percentageByTenant = ownerType != null
+                ? resolveEffectiveEarningsPercentagesForTenants(tenantIds, dateTo, ownerType, true)
+                : Map.of();
+        Map<Integer, Map<String, Map<String, BigDecimal>>> winLossByTenantCurrencyRole = percentageByTenant.isEmpty()
+                ? Map.of() : toTenantCurrencyRoleMap(
+                        dashboardDao.aggregateWinLossByRoleAndTenantAndCurrency(tenantIds, dateFrom, dateTo, roles));
+        Map<Integer, Map<String, Map<String, BigDecimal>>> crDrByTenantCurrencyRole = percentageByTenant.isEmpty()
+                ? Map.of() : toTenantCurrencyRoleMap(
+                        dashboardDao.aggregateCrDrByRoleAndTenantAndCurrency(tenantIds, dateFrom, dateTo, roles));
+
         List<DashboardCurrencyAmountDTO> rows = new ArrayList<>();
         for (String code : currencyCodes) {
             boolean hasActivity = winLossByCurrencyRole.containsKey(code) || crDrByCurrencyRole.containsKey(code);
@@ -175,9 +192,18 @@ public class DashboardServiceImpl implements DashboardService {
                     : null;
             BigDecimal rate = exchangeRateService.convert(BigDecimal.ONE, code, base, ratesToUsd);
 
-            // No Earnings for Company: All — a multi-company sum has no defined ownership
-            // meaning (§9.1 in dashboard-springboot-kpi.md).
-            rows.add(new DashboardCurrencyAmountDTO(code, netProfit, amount, rate, null, null));
+            BigDecimal earnings = sumWeightedGroupProfit(tenantIds, percentageByTenant, companyTenantId -> {
+                Map<String, BigDecimal> companyWinLossByRole = winLossByTenantCurrencyRole
+                        .getOrDefault(companyTenantId, Map.of()).getOrDefault(code, Map.of());
+                Map<String, BigDecimal> companyCrDrByRole = crDrByTenantCurrencyRole
+                        .getOrDefault(companyTenantId, Map.of()).getOrDefault(code, Map.of());
+                BigDecimal companyProfit = amountForRole(ROLE_PROFIT, companyWinLossByRole, companyCrDrByRole);
+                BigDecimal companyExpenses = amountForRole(ROLE_EXPENSES, companyWinLossByRole, companyCrDrByRole);
+                return companyProfit.add(companyExpenses);
+            });
+            BigDecimal earningsConverted = exchangeRateService.convert(earnings, code, base, ratesToUsd);
+
+            rows.add(new DashboardCurrencyAmountDTO(code, netProfit, amount, rate, earnings, earningsConverted));
         }
         return rows;
     }

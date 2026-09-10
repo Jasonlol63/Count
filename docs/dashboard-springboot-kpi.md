@@ -9,10 +9,11 @@
 > `dashboardConstants.js` / `dashboardChart.jsx` / `loginScope.js`——把 Dashboard 页面还在打的旧 PHP 接口换成
 > Spring，打不到 Spring 后端的功能（Group-All 跨组合并、多公司 subset 合并、按币种拆分的 Earnings 面板、
 > FX 换算）UI 组件保留挂载，但不再发请求，渲染成空/`-`。
-> **最后更新**：2026-09-10（新增第 12～18 节：汇率同步定时任务 + 换算引擎、单公司 Currency/Earning
+> **最后更新**：2026-09-10（新增第 12～19 节：汇率同步定时任务 + 换算引擎、单公司 Currency/Earning
 > Tab 按币种拆分、Group Net Profit Tab（按公司拆分）、Group Currency Tab（按币种拆分，Group 加权版）、
 > Company: All Currency Tab（按币种拆分，纯求和版）、Company: All Earnings KPI 卡片 + Trend Chart
-> Earnings 线（批量降级链路，公司数量/月份跨度都不会增加查询次数）。第 11 节的降级链路记录：Company
+> Earnings 线（批量降级链路，公司数量/月份跨度都不会增加查询次数）、Company: All Currency Tab 的
+> Earning 列（第 19 节，补上了第 16/17 节留下的缺口）。第 11 节的降级链路记录：Company
 > Earnings 卡片 + Trend Chart 走势线的"直接持股 or 借道 Group"降级链路——公司自己没有直接持股配置时，
 > 改成查它分给了哪个 Group、再查登录身份在那个 Group 里的持股%，两个百分比相乘得出有效持股率；KPI
 > 卡片部分已真机验证数字对了，Trend Chart 部分还没有真机验证）
@@ -40,6 +41,7 @@
 16. [Company: All Currency Tab：按币种拆分（纯求和版）](#16-company-all-currency-tab按币种拆分纯求和版)
 17. [Company: All Earnings：批量降级链路](#17-company-all-earnings批量降级链路)
 18. [Company: All Trend Chart Earnings 线：公司 × 月份双批量](#18-company-all-trend-chart-earnings-线公司--月份双批量)
+19. [Company: All Currency Tab 的 Earning 列：补上最后一块拼图](#19-company-all-currency-tab-的-earning-列补上最后一块拼图)
 
 ---
 
@@ -550,7 +552,7 @@ GET /api/dashboard/chart-all?tenant_ids=1,2,3&date_from=&date_to=&currency=
 ### 9.6 尚未覆盖 / 未验证
 
 - **Currency 选择器**：这次只做了金额数字，`fetchCompanyCurrencySettingCodes()`（groupAllMode 下货币列表的来源之一）之前已经被短路成直接返回空数组，这次没有去验证 Company:All 模式下切换货币这个交互本身还能不能正常工作——如果测出来货币选不了或选了没反应，从这里查起
-- ~~**Earnings 卡片**、**"较上一期"对比**：`getKpiForCompanies()`/`getTrendForCompanies()` 都没有算，是这次明确商量好先不做的，不是漏了~~——**已改主意，Earnings 卡片补上了**，见第 17 节；"较上一期"对比、Trend Chart 的 Earnings 线、Currency Tab 的 Earning 列这三样还没做（Currency Tab 的 Currency 列本身已经在第 16 节做了）
+- ~~**Earnings 卡片**、**"较上一期"对比**：`getKpiForCompanies()`/`getTrendForCompanies()` 都没有算，是这次明确商量好先不做的，不是漏了~~——**已改主意，Earnings 卡片补上了**，见第 17 节；~~Trend Chart 的 Earnings 线、Currency Tab 的 Earning 列这两样还没做~~——**都已补上**，Trend Chart 见第 18 节，Currency Tab 的 Earning 列见第 19 节；"较上一期"对比仍然没做（Currency Tab 的 Currency 列本身已经在第 16 节做了）
 - 只验证过 2 家公司加总（95+AG）的场景，没有测过 5 家公司同时加总，理论上 SQL `IN (...)` 加再多个 id 都是同一个查询模式，但没有拿真实的 5 家公司数据跑过一遍对总数
 
 ---
@@ -1052,8 +1054,8 @@ GET /api/dashboard/kpi-all/currency-breakdown?tenant_ids=&date_from=&date_to=&ba
 逻辑跟 `getKpiCurrencyBreakdown()`（第 13 节）几乎一致，区别只有两处：
 1. 币种清单里"该 tenant 配置的币种"这一步，单公司版是 `CurrencyDao#findCurrencyByTenantId`（单个 id），
    这次新增 `findCurrencyByTenantIds`（批量，一条 `WHERE tenant_id IN (...)`，不是每家公司查一次）。
-2. 不算 Earnings——`earnings`/`earningsConverted` 两个字段固定 `null`（复用同一个
-   `DashboardCurrencyAmountDTO`，不新建 DTO）。
+2. ~~不算 Earnings——`earnings`/`earningsConverted` 两个字段固定 `null`~~——**已补上**，见第 19 节
+   （复用同一个 `DashboardCurrencyAmountDTO`，不新建 DTO）。
 
 ### 16.3 前端接入
 
@@ -1194,10 +1196,8 @@ CX: -5,400.00 × 100% × 90% = -4,860.00
 
 ### 17.5 尚未覆盖 / 未验证
 
-- Currency Tab 的 Earning 列（`getKpiCurrencyBreakdownForCompanies()`，见第 16 节）——目前 `earnings`/
-  `earningsConverted` 还是固定 `null`，这次批量降级逻辑还没接进按币种拆分那条路径（需要"按 tenant+
-  currency 双维度"的公司级数据，理论上可以复用第 15 节 Group Currency Tab 已经写的
-  `aggregateWinLossByRoleAndTenantAndCurrency`，只是权重从"股权%"换成"批量降级算出来的 Earnings %"）
+- ~~Currency Tab 的 Earning 列（`getKpiCurrencyBreakdownForCompanies()`，见第 16 节）——目前 `earnings`/
+  `earningsConverted` 还是固定 `null`，这次批量降级逻辑还没接进按币种拆分那条路径~~——**已做**，见第 19 节
 - ~~Trend Chart 的 Earnings 线（`getTrendForCompanies()`）——同样没做~~——**已做**，见第 18 节
 - "较上一期" `previousEarnings` 对比——`getKpiForCompanies()` 目前只算了当期，上一期区间
   （`resolvePreviousRange()`，第 7.1 节已有）还没接上 Earnings 这条
@@ -1300,5 +1300,76 @@ IG 这个 Group 的 95/AG/RS/CX（tenant_id 2/5/3/6），K 账号（account_id=3
   上 Earnings 那条线的形状/数字正常
 - 同第 17.5 节：只验证了"全部公司都要走降级链路、且都借道同一个 Group"这一种场景，没有测过直接持股/
   降级/两者皆无混合出现的情况
+
+---
+
+## 19. Company: All Currency Tab 的 Earning 列：补上最后一块拼图
+
+> 范围：第 16 节做 Company: All Currency Tab 时，`earnings`/`earningsConverted` 两个字段固定写死
+> `null`（当时的业务规则：多公司加总没有明确持股归属）。后来第 17/18 节改了主意，把 Company: All 的
+> KPI 卡片 Earnings、Trend Chart Earnings 线都补上了，Currency Tab 这个缺口从那时候起就被记在第
+> 16.5/17.5 节的"尚未覆盖"里，一直没有跟上。这次把它补齐——`GET /api/dashboard/kpi-all/currency-
+> breakdown` 这一个端点的 `earnings`/`earningsConverted` 字段接上真实算法，**接口路径和参数都没变**。
+
+### 19.1 算法：跟 KPI 卡片、Trend Chart 用同一套规则，按币种展开
+
+跟第 17 节 KPI 卡片 Earnings 的道理完全一样：**不能**"这个币种的总 Net Profit × 一个共享百分比"，
+因为同一批公司的持股/降级路径可能完全不同。正确算法是每个币种各自独立算：
+
+```
+Earning(某币种) = Σ 每家公司 的 (这家公司在这个币种下的 Net Profit × 这家公司自己的有效持股%)
+```
+
+"有效持股%"就是第 11 节那套"直接持股优先，没有就借道 Group 降级"的判断，每家公司各自独立走一遍。
+
+### 19.2 后端：复用第 15/17 节已有的查询，没有新写 SQL
+
+`getKpiCurrencyBreakdownForCompanies()` 里新增的部分，两块都是直接复用现成的方法，一条新 SQL 都
+没写：
+
+1. **按公司+按币种的 Win/Loss、Cr/Dr**——`aggregateWinLossByRoleAndTenantAndCurrency`/
+   `aggregateCrDrByRoleAndTenantAndCurrency`，第 15 节 Group Currency Tab 已经在用的同一对查询，
+   批量传 `tenantIds`，一次查完，不会因为公司数量或币种数量增加请求量。
+2. **每家公司自己的有效持股%**——`resolveEffectiveEarningsPercentagesForTenants(tenantIds, dateTo,
+   ownerType, allowGroupCascade=true)`，第 17 节 KPI 卡片 Earnings 已经在用的批量方法，同样是固定
+   次数的查询。
+3. **加权求和**——直接复用了这次代码优化阶段刚抽出来的 `sumWeightedGroupProfit()` 工具方法（本来是
+   给"Net Profit × 股权%"用的），这里把"股权%"换成"有效持股%"，循环逻辑一字不改。
+4. 没有任何公司有持股%（比如登录身份是纯 member）时，加权求和结果自然是 `0`——刚好符合 Earning
+   Tab"没活动/没持股要显示 `0` 而不是 `—`"的既有规则（第 13 节），不需要额外分支判断。
+
+### 19.3 前端：修复了一个"忘记跟着改"的硬编码
+
+`useDashboardPage.js` 的 `earningsCurrencyRows` 这个 useMemo，`groupAllMode` 分支在后端还没实现
+Earning 列的时候，把 `earnings`/`earningsConverted` 写死成了 `null`（跟第 17 节修过的那个 KPI 卡片
+`showEarnings: false` 硬编码是同一类问题）。这次后端接上真实算法后，这处前端代码没有跟着改，导致
+即使后端已经算出真实数字，前端 Earning Tab 还是显示"—"。
+
+修复：把这两个字段改成跟单公司/Group 分支一样，读取后端返回的真实值：
+
+```js
+earnings: row.earnings != null ? parseFloat(row.earnings) : null,
+earningsConverted: row.earningsConverted != null ? parseFloat(row.earningsConverted) : null,
+```
+
+顺手把上面那条过时的注释（"No Earning tab for this scope...earnings always null"）也一起改掉了。
+
+### 19.4 真实验证
+
+IG 这个 Group 标签下的子公司 95/AG/RS/CX（tenant_id 2/5/3/6），2026 年 8 月，`base_currency=MYR`：
+
+Currency Tab 里 `MYR` 这一行算出的 `earnings` = **171,360.67951977**，跟第 17 节 KPI 卡片 Company:
+All 的 Earnings 基线数字（这个场景下所有交易都发生在 MYR，所以两者应该完全相等）精确对上——交叉验证
+了新算法正确。
+
+### 19.5 尚未覆盖 / 未验证
+
+- 只做到后端真实数据验证（伪造 `SecurityContext` 测的，测完删掉）+ 前端代码审查，没有真机登录浏览器
+  肉眼确认 Company: All 的 Earning Tab 渲染正常（用户反馈过一次"整个面板空白"，但那次截图的日期范围
+  是单独一天，跟这次前端字段修复是否完全解决了显示问题还没有确认）
+- "较上一期" `previousEarnings` 对比——Currency Tab 本来就没有"较上一期"这个维度（KPI 卡片才有），
+  不适用
+- 同第 17.5/18.5 节：只验证了"全部公司都要走降级链路、且都借道同一个 Group"这一种真实场景，没有验证
+  过直接持股/降级/两者皆无混合出现在同一次请求里的情况
 - "较上一期"对比这次也没有涉及 Trend Chart（Trend Chart 本来就没有"较上一期"的概念，第 7 节那是 KPI
   卡片专属功能）

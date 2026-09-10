@@ -1,9 +1,12 @@
 # Dashboard 后端代码优化记录（可读性 + 查询去重）
 
 > **范围**：只针对 `Count` 仓库后端 Dashboard 相关代码做内部重构——`DashboardServiceImpl.java` /
-> `DashboardDao.java` / `DashboardMapper.xml`。**不改变任何对外行为**：Controller 端点、DTO 字段、
-> 前端调用方式全部不变，所有改动对前端和调用方完全透明。
-> **最后更新**：2026-09-10
+> `DashboardDao.java` / `DashboardMapper.xml` / `DashboardCurrencyAmountDTO.java`。**不改变任何对外
+> 行为**：Controller 端点路径、JSON 响应字段、前端调用方式全部不变（第 11 节的 DTO 合并改了 Java 里
+> 的类型引用路径，但序列化出去的 JSON 字段名和形状没变）。
+> **最后更新**：2026-09-10（新增第 11～13 节：`DashboardGroupCompanyNetProfitDTO` 合并进
+> `DashboardCurrencyAmountDTO.CompanyNetProfit` 内嵌类、Service 层参数校验样板抽取 + Group 加权求和
+> 算法合并、注释精简）
 
 ---
 
@@ -18,7 +21,10 @@
 7. [过程中踩的坑](#7-过程中踩的坑)
 8. [明确不做的部分（以及为什么）](#8-明确不做的部分以及为什么)
 9. [验证方式与结果](#9-验证方式与结果)
-10. [尚未开始的后续优化项](#10-尚未开始的后续优化项)
+10. [DTO 合并：DashboardGroupCompanyNetProfitDTO → 内嵌类](#10-dto-合并dashboardgroupcompanynetprofitdto--内嵌类)
+11. [Service 层第二轮：参数校验样板抽取 + Group 加权求和算法合并](#11-service-层第二轮参数校验样板抽取--group-加权求和算法合并)
+12. [注释精简](#12-注释精简)
+13. [尚未开始的后续优化项](#13-尚未开始的后续优化项)
 
 ---
 
@@ -324,9 +330,121 @@ Controller 层的"端点是不是可以合并"这个想法也讨论过，结论�
 
 ---
 
-## 10. 尚未开始的后续优化项
+## 10. DTO 合并：DashboardGroupCompanyNetProfitDTO → 内嵌类
+
+用户提的规则：Dashboard 相关的 DTO 只保留三类——Chart 一个、KPI 卡片一个、Currency 一个，不要为了
+一个小结构就单开一个文件。`DashboardGroupCompanyNetProfitDTO`（Group Net Profit Tab 用，3 个字段：
+`code`/`netProfit`/`group`）单独占了一个文件，问题是它跟哪个"大类"合并。
+
+**没有直接把字段塞进 `DashboardCurrencyAmountDTO`**：两者字段语义不兼容——`DashboardCurrencyAmountDTO`
+的 `code` 是**货币代码**（如 `MYR`），`DashboardGroupCompanyNetProfitDTO` 的 `code` 是**公司租户代码**
+（如 `"95"`）；前者有 `originalAmount`/`amount`/`rate`/`earnings`/`earningsConverted` 五个跟汇率换算
+相关的字段，后者只有 `netProfit`/`group`、完全不做汇率换算。强行合并成一个 DTO 会出现"货币场景下
+`netProfit`/`group` 永远 null，公司场景下另外五个字段永远 null"的半空结构，字段名字面意思也会打架。
+
+**改成内嵌静态类**：参照代码里已经在用的 `DashboardKpiDTO.RoleAmount`/`DashboardTrendPointDTO.RoleAmount`
+模式——物理上塞进同一个 `.java` 文件（满足"少开文件"），逻辑上字段互不污染：
+
+```java
+public class DashboardCurrencyAmountDTO {
+    private String code;            // 货币代码
+    private BigDecimal originalAmount, amount, rate, earnings, earningsConverted;
+
+    public static class CompanyNetProfit {   // 原 DashboardGroupCompanyNetProfitDTO
+        private String code;        // 公司租户代码——跟外层的 code 语义不同，故意不共用
+        private BigDecimal netProfit;
+        private String group;
+    }
+}
+```
+
+`DashboardGroupCompanyNetProfitDTO.java` 整个文件删除，`DashboardService.java`/`DashboardServiceImpl.java`/
+`DashboardController.java` 里 5 处引用改成 `DashboardCurrencyAmountDTO.CompanyNetProfit`（导入、方法
+签名、`new` 实例化）。JSON 序列化结果不变——Jackson 序列化内嵌类跟序列化顶层类没有区别，字段名一样，
+前端零改动。
+
+验证：`mvnw compile` BUILD SUCCESS，无遗留引用（`grep DashboardGroupCompanyNetProfitDTO` 全仓库零命中）。
+
+---
+
+## 11. Service 层第二轮：参数校验样板抽取 + Group 加权求和算法合并
+
+第 3～5 节做完 Mapper/DAO 层之后，用户又问了一轮"Service 层还能怎么优化"，挑了其中两项动手：
+
+### 11.1 参数校验样板抽取
+
+`DashboardServiceImpl` 里 10 个 public 方法（`getKpi`/`getKpiForGroup`/`getKpiForCompanies`/
+`getTrend`/`getTrendForGroup`/`getTrendForCompanies`/`getKpiCurrencyBreakdown`/
+`getKpiCurrencyBreakdownForCompanies`/`getGroupKpiCurrencyBreakdown`/`getGroupCompanyNetProfitBreakdown`）
+开头几乎都是同一套校验逻辑，只是参数名字不同（`tenantId` vs `groupTenantId` vs `tenantIds`，
+`currencyCode` vs `baseCurrencyCode`）。抽成几个共享的私有校验方法：
+
+```java
+requireTenantId(Integer)        requireGroupTenantId(Integer)     requireTenantIds(List<Integer>)
+requireDateRange(from, to)      requireCurrency(String) -> trim   requireBaseCurrency(String) -> trim+upper
+orEmpty(List<Integer>)          requireTenant(Integer) -> Tenant  requireGroupTenant(Integer) -> Tenant
+```
+
+`requireTenant`/`requireGroupTenant` 顺带把"查 tenant + 校验类型"这段也在 4 个 Group 系方法里去重了
+（`getKpiForGroup`/`getTrendForGroup`/`getGroupCompanyNetProfitBreakdown`/`getGroupKpiCurrencyBreakdown`
+原本各自写一遍 `findTenantById` + null 检查 + `GROUP` 类型检查）。10 个方法开头从 10～15 行压缩到
+3～5 行，报错文案、判断顺序一字不改。
+
+### 11.2 Group 加权求和算法合并
+
+"按股权% 加权求和 Group Profit" 这段算法，原本在三个地方各写了一遍：`computeGroupProfit`（KPI 卡片
+总数）、`getGroupKpiCurrencyBreakdown` 内联的按币种循环、`buildGroupTrendPoints` 内联的按天循环——
+三处循环骨架完全一样，只有"这家公司的 Net Profit 怎么取"这一步不同。抽成一个共享方法：
+
+```java
+private static BigDecimal sumWeightedGroupProfit(List<Integer> companyTenantIds,
+        Map<Integer, BigDecimal> equityPercentageByTenant, Function<Integer, BigDecimal> companyNetProfitFn) {
+    BigDecimal total = BigDecimal.ZERO;
+    for (Integer tenantId : companyTenantIds) {
+        BigDecimal percentage = equityPercentageByTenant.get(tenantId);
+        if (percentage == null || percentage.compareTo(BigDecimal.ZERO) == 0) continue;
+        total = total.add(companyNetProfitFn.apply(tenantId)
+                .multiply(percentage).divide(BigDecimal.valueOf(100), EARNINGS_SCALE, RoundingMode.HALF_UP));
+    }
+    return total;
+}
+```
+
+三处调用点各自只传一个"怎么取这家公司 Net Profit"的 lambda，跟 `buildKpiDto` 用 `BiFunction` 注入
+"净利润怎么算"是同一个手法。
+
+**踩的坑**：`buildGroupTrendPoints` 里被 lambda 捕获的几个变量（`for` 循环里会重新赋值的 `date`；
+只在 `if` 块里条件赋值的两个 Map）不满足 Java "lambda 只能捕获 effectively final 变量"的要求，
+编译报错 `local variables referenced from a lambda expression must be final or effectively final`。
+修复：循环内加一份 `LocalDate currentDate = date;`；两个 Map 在 `if` 块结束后各自赋给一个 `final`
+局部变量，lambda 里引用这些 final 副本，不直接引用会被重新赋值的原变量。
+
+**验证**：`mvnw compile` BUILD SUCCESS；真机回归覆盖了全部 9 个对外方法（KPI×3、Trend×3、
+Currency×3），六组基线数字精确对上，且 Company:All 的 Currency 汇总（220199.31856310）与
+`getGroupCompanyNetProfitBreakdown` 四家公司 Net Profit 相加的结果精确一致，交叉验证了加权求和
+逻辑没有被改变。
+
+---
+
+## 12. 注释精简
+
+用户要求把 `DashboardServiceImpl.java` 里的注释都改短一些，但要保证看得懂、保持英文。逐个检查了
+文件里全部 75 处注释，把多句话的"为什么"说明压缩成一到两句紧凑的话，业务规则本身（比如持股降级
+公式、"没活动显示 0 不是 —"这类规则）一个字都没丢，本来就短的单行注释保持不变。改完 `mvnw compile`
+BUILD SUCCESS——注释不影响字节码，编译通过也顺带确认了没有不小心改到代码本身。
+
+发现但没动的一处：`earningsFrom()` 方法上面的注释写着"Live table for the current month, monthly
+snapshot history table otherwise"，内容跟这个方法实际做的事（纯乘除运算，不查表）对不上，像是早前
+重构时从别处误留下来的。这是内容准确性问题，不是长度问题，所以没有一并改掉，留给用户确认要不要
+处理。
+
+---
+
+## 13. 尚未开始的后续优化项
 
 - **Controller 响应包装样板代码去重**：已提出方向（不合并端点，只抽取重复的"try/catch + 统一
   响应体包装"逻辑），尚未开始实施，等用户确认。
+- **`earningsFrom()` 上方的过时/不准确注释**：见第 12 节末尾，内容跟方法实际行为对不上，需要确认
+  是修正内容还是直接删掉。
 - 本文档只覆盖这次"代码优化"阶段的改动；Dashboard 各功能本身的业务规则、算法、真机验证记录，
   仍然维护在 [`dashboard-springboot-kpi.md`](./dashboard-springboot-kpi.md) 里，本文件不重复记录。
