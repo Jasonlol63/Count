@@ -1,7 +1,7 @@
 package com.eazycount.cron;
 
 import com.eazycount.dao.ExchangeRateDao;
-import com.eazycount.dto.FrankfurterRatesResponse;
+import com.eazycount.dto.FrankfurterRateRow;
 import com.eazycount.entity.ExchangeRate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +15,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -82,24 +83,25 @@ public class ExchangeRateSyncJob {
     }
 
     private void syncFiatRates(List<String> fiatCodes, LocalDate today) {
-        String url = UriComponentsBuilder.fromHttpUrl(frankfurterUrl)
-                .queryParam("base", USD)
-                .queryParam("symbols", String.join(",", fiatCodes))
-                .toUriString();
-
-        FrankfurterRatesResponse response = restTemplate.getForObject(url, FrankfurterRatesResponse.class);
-        if (response == null || response.getRates() == null) {
-            log.warn("Exchange rate sync: empty response from Frankfurter for {}", fiatCodes);
-            return;
+        Map<String, BigDecimal> usdToQuote;
+        try {
+            usdToQuote = fetchUsdToQuote(fiatCodes);
+        } catch (RestClientException e) {
+            // The batch call 4xx's as a whole if even one quote is invalid/unsupported (e.g. a
+            // typo'd currency code a tenant entered, like "RM" instead of "MYR") — that must not
+            // take every other currency's refresh down with it. Falling back to one request per
+            // currency here (only on this failure path, not the common case) still lets every
+            // *valid* code sync; only the bad one(s) get logged and skipped below.
+            log.warn("Exchange rate sync: batch fetch failed for {} ({}), retrying per-currency",
+                    fiatCodes, e.getMessage());
+            usdToQuote = fetchUsdToQuoteIndividually(fiatCodes);
         }
 
-        Map<String, BigDecimal> usdToQuote = response.getRates();
         for (String code : fiatCodes) {
             BigDecimal rate = usdToQuote.get(code);
             if (rate == null || rate.signum() <= 0) {
-                // A currency missing from the batch response (delisted, typo, unsupported) is
-                // logged and left untouched rather than retried per-code — the old system's
-                // per-currency backfill loop is exactly the slowdown this table replaces.
+                // A currency missing from the response (delisted, typo, unsupported) is logged
+                // and left untouched — its previous rate_date row simply stays the latest one.
                 log.warn("Exchange rate sync: no rate returned for {}, leaving previous value in place", code);
                 continue;
             }
@@ -107,5 +109,37 @@ public class ExchangeRateSyncJob {
             BigDecimal rateToUsd = BigDecimal.ONE.divide(rate, RATE_SCALE, RoundingMode.HALF_UP);
             exchangeRateDao.upsertRate(new ExchangeRate(code, rateToUsd, today, "frankfurter"));
         }
+    }
+
+    // /v2/rates takes `quotes` (not `symbols`, which is the retired v1 /latest param) and
+    // returns a JSON array of one row per quote currency, not a single {rates:{...}} map.
+    private Map<String, BigDecimal> fetchUsdToQuote(List<String> quoteCodes) {
+        String url = UriComponentsBuilder.fromHttpUrl(frankfurterUrl)
+                .queryParam("base", USD)
+                .queryParam("quotes", String.join(",", quoteCodes))
+                .toUriString();
+
+        FrankfurterRateRow[] rows = restTemplate.getForObject(url, FrankfurterRateRow[].class);
+        if (rows == null) {
+            return Map.of();
+        }
+        return Arrays.stream(rows)
+                .filter(row -> row.getQuote() != null && row.getRate() != null)
+                .collect(Collectors.toMap(
+                        row -> row.getQuote().trim().toUpperCase(),
+                        FrankfurterRateRow::getRate,
+                        (a, b) -> a));
+    }
+
+    private Map<String, BigDecimal> fetchUsdToQuoteIndividually(List<String> quoteCodes) {
+        Map<String, BigDecimal> merged = new java.util.HashMap<>();
+        for (String code : quoteCodes) {
+            try {
+                merged.putAll(fetchUsdToQuote(List.of(code)));
+            } catch (RestClientException e) {
+                log.warn("Exchange rate sync: {} has no usable Frankfurter rate ({})", code, e.getMessage());
+            }
+        }
+        return merged;
     }
 }

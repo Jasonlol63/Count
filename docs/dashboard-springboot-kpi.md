@@ -1664,3 +1664,167 @@ Group: All（groupTenantIds=[32,33]）
   All/Group: All 专门验证"自定义天数区间"（按天数平移那条规则）或"整年"这两种边界情况——理论上
   `resolvePreviousRange()` 是完全复用第 7 节已经验证过的方法，不应该有 scope 相关的差异，但没有
   拿真实数据凑出这两种场景专门测过
+
+## 22. 每日汇率同步（`exchange_rate`）：v2 参数/响应格式修复 + tenant 脏数据 + 前端 Currency 面板 loading 打架
+
+> 触发原因：用户反馈 Dashboard 切换公司时 Currency 面板会"疯狂跳闪"，另外发现 NPR
+> （尼泊尔卢比）这个货币的汇率一直拿不到。排查发现是两个独立问题叠加：`ExchangeRateSyncJob`
+> 每天同步汇率的请求本身就是坏的（不是 NPR 专属问题，是全部法币汇率都没在正常刷新），加上前端
+> Currency 面板有两条数据管线在同时跑、各自的 loading 状态互相不同步。
+
+### 22.1 后端 bug：`ExchangeRateSyncJob` 用 v2 的 URL，却传 v1 的参数/期待 v1 的响应格式
+
+[`application.yml`](../backend/src/main/resources/application.yml) 里 `frankfurter-url` 配的是
+`https://api.frankfurter.dev/v2/rates`，但 [`ExchangeRateSyncJob.java`](../backend/src/main/java/com/eazycount/cron/ExchangeRateSyncJob.java)
+原来的代码是照着 v1 `/latest` 的协议写的：
+
+- 参数用的是 v1 的 `symbols`（v2 `/rates` 只认 `quotes`，传 `symbols` 直接 422）
+- 响应解析用 `FrankfurterRatesResponse{base,date,rates:Map<String,BigDecimal>}` 这个对象形状去反序列化（v2 `/rates` 实际返回的是**数组** `[{date,base,quote,rate}, ...]`，一个币种一行）
+
+后果：`syncFiatRates()` 每天的请求全部 422 失败，被 `syncDailyRates()` 的 catch 吞掉、只留一条
+warning log——**除了 USD 和写死 1:1 的 USDT/USDC，其他所有法币汇率完全没有在刷新**，不是 NPR
+一个币种的问题。数据库实测：`exchange_rate` 表最新数据停留在两天前（cron 每天 00:05 跑但一直
+失败）。另外 v1 `/latest`（纯 ECB 数据源）本身也不支持 NPR，就算参数改对也拿不到——必须用 v2
+（多数据源聚合）才有 NPR。
+
+### 22.2 修复：`quotes` 参数 + 数组响应解析 + 批量失败降级逐个重试
+
+- 新建 [`FrankfurterRateRow.java`](../backend/src/main/java/com/eazycount/dto/FrankfurterRateRow.java)
+  （`{date, base, quote, rate}`）替换旧的 `FrankfurterRatesResponse.java`（已删除，无其他引用）
+- `syncFiatRates()` 参数改成 `quotes`，响应按数组解析
+- 额外发现并修的第二个问题：批量请求只要有**一个**不认识的货币代码（见 22.3）就会整批 422，
+  之前"缺哪个币种就跳过哪个、其他正常返回"的假设不成立。改成：批量请求失败时自动降级成
+  **逐个货币单独请求**，坏的代码单独失败、记 log 跳过，不再拖累其他正常币种——跟前端
+  `frankfurterRates.js` 里原本就有的逐个 backfill 思路一致，只是移到了批量失败时才触发（不影响
+  正常情况下一次批量搞定的性能）
+
+### 22.3 真实验证 + 顺带挖出的 tenant 脏数据
+
+用一次性 JUnit 测试类手动触发 `syncDailyRates()`（验证完删除，未留在代码库），跑完直接查
+`count_real.exchange_rate` 表：
+
+```
+第一次跑：批量请求 422 —— "invalid currency: RM,THE"
+```
+
+`currency` 表里混进了两个不是真实 ISO 代码的"货币"：
+
+| tenant_id | currency.id | code | 状态 |
+|---|---|---|---|
+| 9 | 238 | `RM` | **有真实数据在用，不能删** —— 2596 笔 `transactions`、45 个账户（`account_currency`）关联 |
+| 20 | 361 | `THE` | 纯脏数据，0 笔交易、只挂 2 个账户（5672/5673，且这两个账户本来就同时挂着 MYR/SGD/USDT）—— **已清理**：`DELETE FROM account_currency WHERE currency_id=361`，`DELETE FROM currency WHERE id=361` |
+
+加上批量降级逐个重试的修复后重新跑，验证成功：
+
+```
+NPR   rate_to_usd = 0.00655394   rate_date = 2026-09-11   ✅ 第一次成功写入
+AUD/CAD/EUR/HKD/IDR/PGK/THB/USD/USDT   全部刷新到当天      ✅
+RM/THE  单独请求仍然 422（本来就不是真实货币代码）—— 记 log 跳过，不影响其他币种  ✅
+```
+
+（MYR/SGD/CNY 这次因为 Frankfurter 公共 API 对连续逐个请求的瞬时限流/超时没刷新成功，停留在
+前一天汇率——不是代码问题，`RM`/`THE` 清理/避开后批量请求会一次性成功，不会再触发逐个重试这条
+慢路径）
+
+### 22.4 遗留事项：tenant 9 的 `RM` 货币记录 —— 下次要动的话看这里
+
+**现状**：tenant_id=9、currency.id=238、code=`RM`。这是这个 tenant 一直在用的正式货币（马来西亚
+令吉 MYR 的口语简称当年被直接录入成了 `code`），带着 2596 笔历史交易和 45 个账户关联，**不能用
+"THE"那种直接删记录的方式处理**——`CurrencyServiceImpl.deleteCurrencyByIdAndTenantId()`
+（[`CurrencyServiceImpl.java:132-150`](../backend/src/main/java/com/eazycount/service/impl/CurrencyServiceImpl.java)）
+本来就会因为"有账户在用"+"有交易记录"两条规则直接拒绝删除。
+
+**现在的临时状态**：不处理，靠 22.2 的批量失败降级重试机制兜底——`RM` 单独请求 Frankfurter 会
+422（不是真实代码），记 log 跳过，不影响其他货币的每日同步。**唯一的影响**：这个 tenant 的
+Dashboard 里 `RM` 这个货币永远没有汇率，多币种换算/Currency 面板换算这个币种会一直显示"—"。
+
+**真要修的话，需要用户做业务决策**（不是纯技术问题，我不该擅自动）：
+1. 先确认 tenant 9 名下是否已经有一个独立的 `MYR` 币种记录——如果有，`RM` 可能是历史重复/别名，
+   需要考虑"把 45 个账户的关联、2596 笔交易的 `currency_id` 从 238 迁移到那个 MYR 记录，再删掉
+   `RM`"这种数据合并操作（有风险，需要谨慎设计迁移脚本 + 备份）
+2. 如果没有独立的 `MYR` 记录，`RM` 就是这个 tenant 唯一指代马来西亚令吉的方式——最小改动是直接把
+   `currency` 表这一行的 `code` 字段从 `RM` 改成 `MYR`（不新建记录、不迁移交易，`id=238` 不变），
+   改完 Frankfurter 就能正常返回汇率了；但要先确认前端/报表里有没有地方按字符串 `"RM"` 硬编码判断
+   过这个货币（而不是按 `currency_id`），否则改 code 会连带影响那些地方的显示
+
+### 22.5 前端修复：Currency 面板新旧两条数据管线打架导致跳闪
+
+跟后端汇率同步是两个独立问题，同一次排查里一起发现的。[`useDashboardPage.js`](../../Count-frontend/src/pages/dashboard/hooks/useDashboardPage.js)
+里，单公司/Group/Group ID:All/Company:All 这四个场景本来就有各自的 Spring `currency-breakdown`
+端点（第 16/19/20 节），一次性返回换算好的数据；但旧的"逐币种并行请求"链路
+（`loadEarningsByCurrency`/`upgradeActiveScopeEarnings`，为"Show All Currencies"/自定义多选公司
+这两个还没有 Spring 端点的场景保留）**没有对这四个场景做排除**，会跟新链路同时跑，而且渲染卡片
+的 `currencyCardReady`/`summaryEarningsLoading` 门禁只看旧链路自己的 `earningsByCurrencyLoading`——
+新数据早就到了，卡片却还在等旧链路的 N 次逐币种请求跑完，跑完才突兀切一次，这就是"跳闪"的
+直接成因。
+
+修复：新增 `springCurrencyBreakdownScopeActive` 判断（这四个场景是否已经有专属 Spring 端点在服务），
+`loadEarningsByCurrency`/`upgradeActiveScopeEarnings` 命中就直接短路返回，不再重复发起请求；
+`summaryEarningsLoading` 和暴露给组件的 `earningsByCurrencyLoading` 都改用按场景取值的
+`effectiveEarningsByCurrencyLoading`。`vite build` 编译通过。
+
+### 22.6 尚未覆盖 / 未验证
+
+- 22.4 的 `RM` 数据问题**明确没有处理**，需要用户后续做业务决策后再动
+- "Show All Currencies" 开关、自定义多选公司这两个场景仍然没有 Spring `currency-breakdown` 端点，
+  继续走前端 `frankfurterRates.js`（客户端直连 Frankfurter/旧 PHP `fx_rates_api.php`）——这次没有
+  改动，也没有新建端点
+- 前端的跳闪修复只做到代码走查 + `vite build` 编译通过，没有真机登录浏览器肉眼确认切换公司时
+  Currency 面板不再闪烁
+- MYR/SGD/CNY 因为 Frankfurter 公共 API 限流没有刷新成功（22.3），没有专门验证"清理/避开 RM 后
+  批量请求一次性成功"这个预期是否成立——理论上会成立，但没有拿真实 cron 再跑一次确认
+
+## 23. Company→Group 切换时 Group 相关端点重复请求（一次 canceled + 一次成功）
+
+> 触发原因：用户从 Dashboard Network tab 截图发现，从 Company 切到 Group 时，`group-kpi`/
+> `chart-group`/`group-kpi/net-profit`/`group-kpi/currency-breakdown` 这四个接口**各打了两次**——
+> 第一波全部 `canceled`，第二波全部 `200`，多打了一倍的请求。
+
+### 23.1 根因：`currencyCode` 分两波到达，7 个 Group 系接口的 fetch effect 都没有防抖
+
+`handlePickGroup()`（切 Group 的入口）点击后立刻调用 `primeCurrenciesFromCache()`
+（`useDashboardPage.js`），从本地缓存**同步**塞一个 `currencyCode`/币种列表进去，让界面不用等
+网络就有东西先显示。这一步只要让 `currencyCode`/`groupKpiCompanyTenantIds` 变化，下面的
+`useEffect` 立刻就会发请求（第一波）。紧接着 `loadCurrencies` 真正打网络拿这个 Group 的权威币种
+列表，通过 `applyCurrencyCodes()` 再 `setCurrencyCode(...)` 一次——如果这次算出来的值跟缓存那次
+不一样，依赖值变化会让同一批 `useEffect` 重新跑一遍（第二波），第一波的 `AbortController` 被
+`abort()`。
+
+受影响的 7 个 fetch effect（Group 家族全部命中，同一套依赖 `currencyCode`/
+`groupKpiCompanyTenantIds`/`groupsAllLedgerCompanyTenantIds`）：
+
+| 端点 | 场景 |
+|---|---|
+| `GET /api/dashboard/group-kpi` | `groupKpiScope` |
+| `GET /api/dashboard/chart-group` | `groupKpiScope` |
+| `GET /api/dashboard/group-kpi/net-profit` | `groupOnlyDashboard` |
+| `GET /api/dashboard/group-kpi/currency-breakdown` | `groupKpiScope` |
+| `GET /api/dashboard/kpi-all-groups` | `groupsAllGroupLevel` |
+| `GET /api/dashboard/chart-all-groups` | `groupsAllGroupLevel` |
+| `GET /api/dashboard/kpi-all-groups/currency-breakdown` | `groupsAllGroupLevel` |
+
+对比参照：主 `loadDashboard` 触发器本来就有防抖（第 8 节起，`structuralChanged ? 0 :
+LOAD_DASHBOARD_DEBOUNCE_MS`），专门应付"切 scope 时几个依赖值短时间内变两次"这种情况——但这次
+新增的 7 个 Group 专属 fetch effect 当初漏掉了同样的防抖，是这次修复的直接原因。数据本身没有错
+（`AbortController` 正确取消了第一波），纯粹是多打了一倍请求、总耗时也变长了。
+
+### 23.2 修复：给 7 个 effect 都套上跟 `loadDashboard` 一样的 `LOAD_DASHBOARD_DEBOUNCE_MS`
+
+不是简单加 `setTimeout` 包住整个 effect（那样 `AbortController` 没法在防抖窗口内正确处理"还没
+发出去的 fetch"），而是：`AbortController` 照常在 effect 顶层创建，真正的 `fetch` 调用挪进
+`window.setTimeout(..., LOAD_DASHBOARD_DEBOUNCE_MS)` 里；cleanup 函数里 `clearTimeout` 定时器 +
+`controller.abort()` 两个都做——如果依赖值在防抖窗口内又变了，定时器被清掉，`fetch` 根本没发出去，
+`abort()` 对一个从未使用过的 controller 调用是安全的空操作。这样"两波值→两次请求"就变成"两波值→
+只有最后稳定那次真正发请求"，第一波不会再出现在 Network tab 里。
+
+`vite build` 编译通过。
+
+### 23.3 尚未覆盖 / 未验证
+
+- 只做到代码走查 + `vite build` 编译通过，没有真机登录浏览器肉眼确认 Company→Group 切换时
+  Network tab 真的从"4 个 canceled + 4 个 200"变成"4 个 200"
+- 没有验证防抖窗口（90ms，复用 `LOAD_DASHBOARD_DEBOUNCE_MS`）在慢网络/慢设备下是否足够覆盖
+  "缓存值→真实值"这两波之间的实际间隔——理论上够，但没有拿真实数据量大的 tenant 测过
+- 同样的"两波值触发同一批 fetch effect"模式，Company 单公司场景（`isSingleCompanyKpiScope`）、
+  Company:All（`groupAllMode`）的对应 fetch effect 有没有同样的问题，这次没有排查，只处理了用户
+  截图里明确出现的 Group 场景
