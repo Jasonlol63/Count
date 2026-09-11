@@ -1,22 +1,27 @@
 # Dashboard KPI 卡片 — 接入 Spring Boot API
 
-> **范围**：Dashboard 页面 4 张 KPI 卡片（Profit / Expenses / Net Profit / Earnings）+ Trend Chart 走势图，
-> 单一 COMPANY 类型租户 **以及** 同一 Group 标签下的 "Company: All" 多公司汇总，单一货币这一种最简单场景。
+> **范围**：Dashboard 页面 4 张 KPI 卡片（Profit / Expenses / Net Profit / Earnings）+ Trend Chart 走势图
+> + Currency Tab 按币种拆分，单一 COMPANY 类型租户、单一 Group、同一 Group 标签下的 "Company: All"
+> 多公司汇总、以及跨 Group 的 "Group: All" 多 Group 汇总，单一货币这一种最简单场景。
 > **新增后端**：`DashboardController` / `DashboardService(Impl)` / `DashboardDao` + `DashboardMapper.xml` +
-> `DashboardKpiDTO`（内嵌 `RoleAmount` 静态类）/ `DashboardTrendPointDTO`（内嵌 `RoleAmount` 静态类）
-> （新建文件，均在 `Count` 仓库）。
+> `DashboardKpiDTO`（内嵌 `RoleAmount` 静态类）/ `DashboardTrendPointDTO`（内嵌 `RoleAmount` 静态类）/
+> `DashboardCurrencyAmountDTO`（内嵌 `CompanyNetProfit` 静态类）（新建文件，均在 `Count` 仓库）。
 > **前端改动**：`Count-frontend` 仓库的 `useDashboardPage.js` / `dashboardRoutePrefetch.js` /
 > `dashboardConstants.js` / `dashboardChart.jsx` / `loginScope.js`——把 Dashboard 页面还在打的旧 PHP 接口换成
-> Spring，打不到 Spring 后端的功能（Group-All 跨组合并、多公司 subset 合并、按币种拆分的 Earnings 面板、
-> FX 换算）UI 组件保留挂载，但不再发请求，渲染成空/`-`。
-> **最后更新**：2026-09-10（新增第 12～19 节：汇率同步定时任务 + 换算引擎、单公司 Currency/Earning
+> Spring；剩下打不到 Spring 后端的功能（多公司 subset 合并、按币种拆分的 Earnings 面板全局 FX 换算）UI
+> 组件保留挂载，但不再发请求，渲染成空/`-`。
+> **最后更新**：2026-09-11（新增第 12～21 节：汇率同步定时任务 + 换算引擎、单公司 Currency/Earning
 > Tab 按币种拆分、Group Net Profit Tab（按公司拆分）、Group Currency Tab（按币种拆分，Group 加权版）、
 > Company: All Currency Tab（按币种拆分，纯求和版）、Company: All Earnings KPI 卡片 + Trend Chart
 > Earnings 线（批量降级链路，公司数量/月份跨度都不会增加查询次数）、Company: All Currency Tab 的
-> Earning 列（第 19 节，补上了第 16/17 节留下的缺口）。第 11 节的降级链路记录：Company
-> Earnings 卡片 + Trend Chart 走势线的"直接持股 or 借道 Group"降级链路——公司自己没有直接持股配置时，
-> 改成查它分给了哪个 Group、再查登录身份在那个 Group 里的持股%，两个百分比相乘得出有效持股率；KPI
-> 卡片部分已真机验证数字对了，Trend Chart 部分还没有真机验证）
+> Earning 列（第 19 节，补上了第 16/17 节留下的缺口）、**Group: All 多 Group 合并**（第 20 节，KPI
+> 卡片 + Trend Chart + Currency Tab 三块一次做完，跟 Company: All 同一天完成，`GET
+> /api/dashboard/kpi-all-groups`/`chart-all-groups`/`kpi-all-groups/currency-breakdown` 三个新端点）、
+> **Company: All / Group: All 的"较上一期"对比**（第 21 节，新抽了 `buildBatchKpiDto()` 共享骨架，
+> 四个 scope 现在全部有"较上一期"对比，前端零改动——`buildKpiFromSpringPayload()` 本来就是通用的）。
+> 第 11 节的降级链路记录：Company Earnings 卡片 + Trend Chart 走势线的"直接持股 or 借道 Group"降级
+> 链路——公司自己没有直接持股配置时，改成查它分给了哪个 Group、再查登录身份在那个 Group 里的持股%，
+> 两个百分比相乘得出有效持股率；KPI 卡片部分已真机验证数字对了，Trend Chart 部分还没有真机验证）
 
 ---
 
@@ -42,6 +47,8 @@
 17. [Company: All Earnings：批量降级链路](#17-company-all-earnings批量降级链路)
 18. [Company: All Trend Chart Earnings 线：公司 × 月份双批量](#18-company-all-trend-chart-earnings-线公司--月份双批量)
 19. [Company: All Currency Tab 的 Earning 列：补上最后一块拼图](#19-company-all-currency-tab-的-earning-列补上最后一块拼图)
+20. [Group: All 多 Group 合并：KPI 卡片 + Trend Chart + Currency Tab](#20-group-all-多-group-合并kpi-卡片--trend-chart--currency-tab)
+21. [Company: All / Group: All 的"较上一期"对比：补上共享骨架](#21-company-all--group-all-的较上一期对比补上共享骨架)
 
 ---
 
@@ -344,23 +351,44 @@ GET /api/dashboard/kpi?tenant_id=&date_from=&date_to=&currency=
 
 ## 6. 尚未覆盖的范围
 
-以下功能这次都**明确没做**，UI 组件保留挂载，但不会发请求、显示为空/`-`：
+> 这一节最早写于单公司 KPI 卡片刚做完那会，后来陆续被 §9~§20 的功能推进覆盖掉了大半，2026-09-11
+> 借着"当前还有什么没走 Spring API"这个问题整体重新核对了一遍，correction 过时条目、补上现状。
 
-- **Group-All**（同时合并 AP+IG 两个 Group 一起看，也就是"Group ID: All"）、多公司 subset 合并场景的 KPI 计算和 Trend Chart——这两种没有单一的 Group tenant_id 可用，第 10 节的 Group KPI/Trend Chart 接口暂时管不到；"同一 Group 标签下 Company: All"（见第 9 节）、"单个 Group 自己的 KPI + Trend Chart"（见第 10 节，含 10.8）这两种已经做了
-- "Company: All" 场景（第 9 节）下的 Currency 选择器——这次只做了 Profit/Expenses/Net Profit/Trend 的数字，货币选择器那边 `fetchCompanyCurrencySettingCodes()` 还是直接返回空数组，没有验证 Company:All 模式下切换货币会不会正常工作
-- ~~Earnings 按币种拆分的圆环图 + Currency/Amount/Original Amount/Rate 明细列表~~——**已做**：单公司 Currency/Earning Tab 见第 13 节，Group Currency Tab 见第 15 节
-- ~~FX 汇率换算（`frankfurterRates.js`）~~——**已做**：后端 `exchange_rate` 表 + `ExchangeRateService`，见第 12 节；前端仍保留 `frankfurterRates.js` 作为 Rate 列的兜底（后端没有该币种汇率时才用），见 13.4
-- "Company: All" 场景（第 9 节）下的 Currency/Earning Tab 按币种拆分——只做了单公司（第 13 节）和 Group（第 15 节）两种 scope，`getKpiForCompanies()` 场景的按币种拆分没有做
-- Group 级别的股权链路（`tenant_ownership.owner_type='group'`、多层集团路径连乘）——`DashboardServiceImpl` 目前只处理 `owner`/`user` 两种直接持股，`group` 那条链路完全没接
-- "Company: All" 场景下的 Earnings 卡片、"较上一期"对比——`getKpiForCompanies()`/`getTrendForCompanies()` 都没有算这两样（不是漏做，是这次明确商量好不做，见第 9.1 节）
+### 6.1 现状：四个 scope × 三大块，12 项组合已经全部做完
 
-以下部分**代码已经写了，但这次没有拿真实数据交叉验证过**，如果之后发现数字不对可以从这里查起：
+单 Company、单 Group、Company: All、Group: All 这四个 scope，KPI 卡片 + Trend Chart + Currency Tab
+三大块，**全部已经接了 Spring Boot API**（单 Company/Group 见 §1/§10/§13/§15，Company: All 见
+§9/§16~19，Group: All 见 §20）。单 Group 还多一个独有的"Net Profit 按旗下公司拆分"Tab（§14）。
 
-- 历史月份股权快照（`tenant_ownership_history`）的读取路径——`applyEarnings()`/`resolveEarningsAmount()` 里 `YearMonth.now()` 判断分支，这次验证的都是当月数据
-- ~~Earnings 卡片本身的乘数计算（`percentage`、`showEarnings` 判断）——这次验证重点在 Profit/Expenses/Net Profit，没有拿一个真实配了股权比例的账号登录测过 Earnings 卡片~~——**已确认算法正确**（用户验证，见第 11/17/18 节后续多轮真机 + 真实数据交叉验证）
-- 第 7 节"较上一期"对比功能里，Earnings 那一栏的 `previousEarnings`（同样依赖没验证过的股权乘数计算）——Profit/Expenses/Net Profit 三个对比过（用第 5 节 Bug 2/3 里已经验证过的公司 95 数据核对了 7 月/8 月的 Win/Loss+Cr/Dr 桶能正常查出数），Earnings 的对比没测
-- 第 10 节 **Group KPI 全部逻辑**（Group Profit 加权汇总、Group Expenses、Group Earnings）——只做了后端编译通过 + 前端 `vite build` 编译通过，没有拿真实配置过"公司分配股权给 Group"的数据登录跑一遍数字核对，也没有实机打开浏览器验证 Group 页面渲染正常（见第 10.7 节）
-- Bug 5 里 Group 账本 Currency 选择器的修复——只是代码逻辑上"应该对了"，没有真机登录 AP/IG 账号肉眼确认 chip 真的显示出来
+### 6.2 真正还没做的部分
+
+- ~~**"较上一期"百分比对比**——只有单 Company（§7）和单 Group（复用同一套 `buildKpiDto` 骨架）做了。
+  Company: All 和 Group: All 都没有 `previousProfit`/`previousExpenses`/`previousNetProfit`/
+  `previousEarnings` 这几个字段，是明确商量好先跳过、留到后续~~——**已做**，见 §21（四个 scope 现在
+  都有"较上一期"对比了）
+- **多公司"子集合并"场景**——不是选一家公司、也不是选全部（All），而是公司选择器里勾选**部分**公司
+  （前端 `mergedSubsetIds`，`DashboardFilterPanel` 那排 chip 支持多选）。这是独立于 Company: All
+  的一个 scope，完全没有对应的 Spring 端点，KPI 卡片/Trend Chart 都渲染成空——UI 组件还在，只是不
+  发请求
+- **Group: All 场景下没有"Net Profit 按 Group 拆分"Tab**——单 Group 有 §14 那个"按旗下子公司拆分"
+  的 Tab（`/group-kpi/net-profit`），Group: All 这边没有对应的"按 Group 拆分"版本；当初没讨论过要不
+  要做，是一个潜在缺口，不是遗漏
+- **Company: All / Group: All 场景下 Currency 选择器本身能不能正常切换货币**——这两个 scope 的金额
+  数字都已经从 Spring 拿了，但货币选择器那边 `fetchCompanyCurrencySettingCodes()` 之前一直直接返回
+  空数组，没有专门验证过在这两个 scope 下切换显示货币这个交互本身正不正常
+- **跨币种全局 FX 换算面板的边角场景**（前端代码里叫 "per-currency All toggle"）——不影响上面四个
+  scope 已经做好的部分，但严格说这块还没有 100% 走 Spring
+- **Group 级别的多层股权链路**（`tenant_ownership.owner_type='group'`、集团路径连乘超过一层）——
+  §11 的降级链路只处理"公司→Group→登录身份"这一层，没有处理"Group→更上层 Group"这种多层嵌套
+
+### 6.3 代码写了但没拿真实数据交叉验证过的部分
+
+- 历史月份股权快照（`tenant_ownership_history`）的读取路径里，`YearMonth.now()` 判断分支的边界情况
+  （比如查询区间正好横跨"当月"和"历史月"的分界点）
+- 只验证过"全部公司都要走降级链路、且都借道同一个 Group"（§17.5/18.5/19.5）、"AP 一家公司直接持股 +
+  IG 四家公司直接持股"（§20.8）这几种真实场景，没有验证过"部分公司直接持股、部分公司降级、部分公司
+  两条都没有"混合出现在同一次请求里的情况
+- 本节 §6.2 列的几项本身自然也都没有验证——因为还没做
 
 ---
 
@@ -1373,3 +1401,266 @@ All 的 Earnings 基线数字（这个场景下所有交易都发生在 MYR，�
   过直接持股/降级/两者皆无混合出现在同一次请求里的情况
 - "较上一期"对比这次也没有涉及 Trend Chart（Trend Chart 本来就没有"较上一期"的概念，第 7 节那是 KPI
   卡片专属功能）
+
+---
+
+## 20. Group: All 多 Group 合并：KPI 卡片 + Trend Chart + Currency Tab
+
+> 范围：Dashboard 页面 "Group ID" 选择器选 **"All"**（截图里 `Group ID: All / AP / IG`，选 All 且
+> 没有再选具体某家公司时）——同时看当前登录有权限看账本的所有 Group（比如 AP+IG）合并起来的
+> Profit/Expenses/NetProfit/Earnings，KPI 卡片、Trend Chart、Currency Tab 三块一次性做完。
+> 原理跟 Company: All（第 9/16～19 节）一样：**每个 Group 各自独立算出自己的结果，再把这些结果
+> 加总**，不是把底层数据全部摊平之后套一个共同的比例。
+> **新增端点**：`GET /api/dashboard/kpi-all-groups`、`GET /api/dashboard/chart-all-groups`、
+> `GET /api/dashboard/kpi-all-groups/currency-breakdown`。
+
+### 20.1 跟 Company: All 的核心区别
+
+| | Company: All | Group: All |
+|---|---|---|
+| "个体"的 Net Profit 怎么来 | 直接查这家公司自己账本的 Win/Loss+Cr/Dr | **不是**直接查表——是"旗下子公司 Net Profit 按股权% 加权 + Group 自己账本的 Expenses"（第 10 节 `computeGroupKpi()` 那套算法），是一层间接计算 |
+| Earnings 的持股判断 | 直接持股优先，没有就借道 Group 降级（第 11 节） | **只有直接持股，没有降级链路**（`allowGroupCascade` 永远 `false`，跟现有 `getKpiForGroup()` 一致） |
+| Earnings 要不要按"个体"分桶 | 都要（登录身份在不同公司的有效持股%可能不同） | 都要（登录身份在不同 Group 的直接持股%可能不同） |
+
+第一条区别是这次实施的主要难点——Company: All 的所有数字都能"摊平"批量查（`tenant_id IN (...)`
+一次 `SUM` 搞定），但 Group: All 的 Profit/NetProfit 因为要经过"加权"这一步，不能简单摊平。
+
+### 20.2 批量算法：固定查询次数，不随 Group/公司数量增长
+
+如果直接"对每个 Group 调一次现成的 `computeGroupKpi()`"，查询次数会随 Group 数量线性增长。做法是
+把"每个 Group 各自的加权算法"拆开，**底层数据只批量查一次（不分 Group），只在最后"求和"这一步才
+按 Group 拆开算，全程在 Java 内存里处理**：
+
+```
+Step 1（2 条 SQL）：这批 Group 旗下所有公司的 Win/Loss + Cr/Dr（批量，不分 Group）
+Step 2（最多 2 条 SQL）：这些公司各自分给了哪个 Group、分了多少%
+                        —— resolveCompanyGroupAllocationsForTenantsByMonth 本来就不挑 Group，
+                           返回结果里带 groupTenantId 字段，在 Java 里按这个字段分桶即可
+                           （一家公司最多分给一个 Group，分桶不会重复计算）
+Step 3（2 条 SQL）：这批 Group 自己账本的 Profit/Expenses（同一对方法，换成传 Group id 列表，
+                    这两个方法本来就是"按 tenant 分组返回"）
+Step 4（最多 2 条 SQL）：这批 Group 自己的直接持股%（Earnings 用，不降级）
+                        —— resolveEffectiveEarningsPercentagesForTenants(..., allowGroupCascade=false)
+                           传 false 时本来就会跳过降级那几步
+```
+
+固定最多 8 条 SQL，不管选了几个 Group、每个 Group 底下有几家公司都不会增加。Trend Chart、Currency
+Tab 用的是同一套 4 步设计，只是把"总量"版查询换成"按日期"/"按币种"版，权重查询（Step 2/4）本来就是
+按月批量设计的，横跨几个月、多少个币种都不会增加查询次数。
+
+`sumWeightedGroupProfit()`（上次代码优化阶段抽出来的工具方法）在这次里被反复复用——不管是
+"公司 NetProfit × 股权% 汇总成 Group Profit"，还是"Group NetProfit × 持股% 汇总成 Group:All 的
+Earnings"，本质都是同一种"加权求和"。
+
+### 20.3 KPI 卡片：`getKpiForGroups()`
+
+```
+GET /api/dashboard/kpi-all-groups?group_tenant_ids=&company_tenant_ids=&date_from=&date_to=&currency=
+```
+
+- `group_tenant_ids`：这次 "All" 范围内选中的 Group 列表（前端拼好传入，后端不重新判断哪些
+  Group 在范围内）
+- `company_tenant_ids`：这些 Group 旗下所有公司的并集（前端拼好传入，同 `getKpiForGroup()` 的约定；
+  经过讨论确认让前端传比后端自己反查更好——零新增查询、跟前端页面已经显示的公司列表口径完全一致，
+  不会出现"后端自己定义归属规则"跟前端不一致的风险）
+- Profit(总) = Σ 每个 Group 的 Profit（可以摊平，不需要按 Group 保留中间态）
+- Expenses(总) = Σ 每个 Group 自己账本的 Expenses（同上，可摊平）
+- Earnings = Σ 每个 Group 的 (这个 Group 自己的 NetProfit × 这个 Group 自己的直接持股%)
+  （**不能**摊平——必须先算出每个 Group 各自的 NetProfit，再各自乘上各自的% 加总，因为登录身份在
+  不同 Group 的持股% 可能不同）
+
+### 20.4 Trend Chart：`getTrendForGroups()`
+
+```
+GET /api/dashboard/chart-all-groups?group_tenant_ids=&company_tenant_ids=&date_from=&date_to=&currency=
+```
+
+跟 KPI 卡片同一套算法，只是多一个日期维度。逐天遍历时：这一天属于哪个月 → 每个 Group 各自算出
+这一天的 Profit/Expenses/NetProfit（复用按月批量的权重数据）→ Profit/Expenses/NetProfit 摊平求和，
+Earnings 按 Group 分桶加权求和。
+
+跟单 Group Trend Chart（`buildGroupTrendPoints`，两步：先建点、再套一层 `applyTrendEarnings`）不同，
+这次把 Earnings 的计算**融合进同一次逐天循环**里，没有再拆成第二个 pass——因为 Earnings 需要的
+"每个 Group 每天的 NetProfit"，正好是这次循环本来就要算出来的中间值，拆成两步会导致这份中间数据
+被重新算一遍，融合成一次更省事也更快。
+
+### 20.5 Currency Tab：`getGroupsKpiCurrencyBreakdown()`
+
+```
+GET /api/dashboard/kpi-all-groups/currency-breakdown?group_tenant_ids=&company_tenant_ids=&date_from=&date_to=&base_currency=
+```
+
+币种清单复用 `CurrencyDao#findCurrencyByTenantIds()`（用户确认过：Group 和 Company 的币种配置走的
+是同一张表/同一套查询，传 Group id 语义上没问题），但**金额算法不能照抄 Company: All 的"纯求和"**
+——跟 KPI 卡片同一套"每个 Group 各自加权、Earning 列按 Group 分桶"的规则，只是多了"按币种"这一层。
+
+### 20.6 前端接入
+
+发现 `useDashboardPage.js` 里早就为这个功能留好了位置——`groupsAllGroupLevel`（"Group ID: All" +
+没选具体公司）这个变量之前就存在，旁边注释写着"这个新接口还不支持，先不处理（KPI 卡片继续显示
+`-`）"。这次直接把这个空位接上：
+
+- 新增 6 个 state（KPI/Trend/Currency 各一对 `data`/`loading`）+ 3 个 `useEffect`，套路跟单 Group
+  版（`springKpiGroupData`/`springTrendGroupData`/`springGroupCurrencyBreakdownData`）完全一致。
+- 请求参数用两个新 memo：`groupsAllLedgerGroupTenantIds`（从 `ledgerGroupIds` 这批 Group 代码反查
+  各自的数字 tenant id）、`groupsAllLedgerCompanyTenantIds`（复用现成的
+  `resolveGroupsAllMergeCompanyList()`，本来就是给"Company:All + Group:All 同时开"这个场景算公司
+  并集用的，这次直接借用）。
+- `kpi`/`chartRows`/`earningsCurrencyRows`/`allCurrencyEarningsReady`/`useConvertedEarnings` 五个
+  useMemo 里都加了 `groupsAllGroupLevel` 分支，`kpiLoading` 也加了对应的 loading 状态。
+- 顺手修正了两处过时注释：`groupKpiScope` 定义处"这个新接口还不支持"的说明；以及
+  `earningsCurrencyRows` 里"Group 的 Currency Tab Earnings 还没接"的说明（实际早就接了，是注释没
+  跟上代码）。
+- `vite build` 编译通过，三次都是。
+
+### 20.7 真实验证：三次独立交叉验证，同一批数据互相印证
+
+真机数据：AP（tenant_id 32，登录持股 70%，member 公司 1，equity 10%）+ IG（tenant_id 33，登录持股
+90%，member 公司 2/5/6/3），2026 年 8 月，MYR。
+
+验证方法：分别调用已经验证过的单 Group 方法（`getKpiForGroup`/`getTrendForGroup`/
+`getGroupKpiCurrencyBreakdown`）对 AP、IG 各自单独算一遍，手动加总，再跟新写的批量 `*ForGroups()`
+方法对比——不是同一段代码跑两次凑巧对上，是两条独立代码路径互相印证。三次都逐位精确对上：
+
+```
+KPI 卡片：      profit=190059.57202197  expenses=0  netProfit=190059.57202197  earnings=171121.85141977
+Trend Chart：   sumNetProfit=190059.57202197（31天加总）  sumEarnings=171121.85141978
+Currency Tab：  MYR 行 original=190059.57202197  earnings=171121.85141977
+```
+
+三个功能算出来的总数完全一致（同一批真实数据），也各自单独做了 Controller 层验证（真的走一遍参数
+解析 + Service 调用 + JSON 序列化），不只是 Service 层。
+
+### 20.8 尚未覆盖 / 未验证
+
+- 只做到后端真实数据验证（伪造 `SecurityContext` 测的，测完删掉）+ `vite build` 编译通过，没有
+  真机登录浏览器肉眼确认 KPI 卡片/Trend Chart/Currency Tab 三处渲染正常
+- 只验证了"AP 的一家公司直接持股 + IG 的四家公司直接持股，登录身份在两个 Group 都有不同的直接
+  持股%"这一种场景——理论上代码逻辑是按混合场景设计的（一家公司最多分给一个 Group，分桶不会重复
+  计算），但没有拿真实数据凑出"某个 Group 完全没有 member 公司"或"某个 Group 登录身份完全没有
+  持股"这类边界场景测过
+- ~~"较上一期"对比没有做——这次明确商量好先留着，跟 Company: All 的 `previousEarnings` 一起放到后续
+  （见第 9.6/17.5/19.5 节的同类记录）~~——**已做**，见第 21 节
+- `groupsAllLedgerGroupTenantIds`/`groupsAllLedgerCompanyTenantIds` 这两个前端 memo 依赖
+  `ledgerGroupIds`（"有账本权限的 Group 代码列表"）——这个权限判断逻辑本身是前端已有的老代码，这次
+  没有重新审查它在各种登录身份下判断是否正确，只是复用
+
+---
+
+## 21. Company: All / Group: All 的"较上一期"对比：补上共享骨架
+
+> 范围：`getKpiForCompanies()`（Company: All）、`getKpiForGroups()`（Group: All）这两个方法之前
+> 只算当期，`previousProfit`/`previousExpenses`/`previousNetProfit`/`previousEarnings`/
+> `previousDateFrom`/`previousDateTo` 这几个字段全部留空——是第 9.1 节当初明确商量好先跳过的。
+> 这次把这块补上，跟单 Company（`getKpi`）、单 Group（`getKpiForGroup`）用同一套区间对齐算法
+> （第 7 节 `resolvePreviousRange()`），四个 scope 现在全部有"较上一期"对比了。**接口路径和参数
+> 都没变**，前端不需要新写任何代码。
+
+### 21.1 新抽的共享骨架：`buildBatchKpiDto()`
+
+单 Company/单 Group 早就有 `buildKpiDto()` 这个共享骨架（第 1 节），但它是按"一个 tenant id + 一个
+`profitExpensesFn`"设计的，Company: All/Group: All 这两个"批量汇总"场景没法直接套：
+
+- Company: All 的当期数字来自 `computeProfitExpenses(tenantIds, ...)` + 独立的
+  `computeCompaniesEarnings(tenantIds, ...)`——两个查询各自独立，互不依赖。
+- Group: All 的当期数字来自 `computeGroupsKpi(groupTenantIds, companyTenantIds, ...)`（第 20 节），
+  但算 Earnings（`computeGroupsEarnings`）需要**同一次** `computeGroupsKpi` 调用里已经算出来的
+  `netProfitByGroup`（每个 Group 自己的 NetProfit）——如果按 `buildKpiDto()` 那样把"算总数"和"算
+  Earnings"拆成两个独立的注入函数，Group: All 那边就得把 `computeGroupsKpi()`（内含 4 步批量查询）
+  重复调用两次才能拿到 Earnings 需要的中间数据，白白浪费一遍查询。
+
+所以新写了一个 `PeriodTotalsFn` 函数式接口，"算总数"和"算 Earnings"**在同一次调用里一起算完**：
+
+```java
+@FunctionalInterface
+private interface PeriodTotalsFn {
+    ProfitExpensesEarnings apply(LocalDate dateFrom, LocalDate dateTo, boolean needEarnings);
+}
+```
+
+`needEarnings` 这个参数是为了保留单 Company/Group 版本"上一期只有当期显示了 Earnings 才会去查"的
+规则——`buildBatchKpiDto()` 调用上一期时传 `dto.isShowEarnings()`（当期算出来的结果），当期没有
+Earnings 就直接跳过上一期的 Earnings 查询，不白跑一趟：
+
+```java
+private DashboardKpiDTO buildBatchKpiDto(LocalDate dateFrom, LocalDate dateTo, PeriodTotalsFn computeFn) {
+    ProfitExpensesEarnings current = computeFn.apply(dateFrom, dateTo, true);
+    // ...设置 profit/expenses/netProfit/showEarnings/earnings...
+
+    LocalDate[] previousRange = resolvePreviousRange(dateFrom, dateTo);   // 复用第 7 节现成的方法
+    ProfitExpensesEarnings previous = computeFn.apply(previousRange[0], previousRange[1], dto.isShowEarnings());
+    // ...设置 previousProfit/previousExpenses/previousNetProfit/previousEarnings...
+}
+```
+
+`getKpiForCompanies()`/`getKpiForGroups()` 各自传一个 lambda 进去，把"当总数怎么算"和"Earnings 怎么
+算"包在一起：
+
+```java
+// Company: All
+return buildBatchKpiDto(dateFrom, dateTo, (from, to, needEarnings) -> {
+    ProfitExpenses totals = computeProfitExpenses(tenantIds, from, to, currency);
+    BigDecimal earnings = needEarnings && ownerType != null
+            ? computeCompaniesEarnings(tenantIds, from, to, currency, ownerType) : null;
+    return new ProfitExpensesEarnings(totals.profit, totals.expenses, totals.netProfit, earnings);
+});
+
+// Group: All
+return buildBatchKpiDto(dateFrom, dateTo, (from, to, needEarnings) -> {
+    GroupsKpiTotals totals = computeGroupsKpi(groupTenantIds, companies, from, to, currency);
+    BigDecimal earnings = needEarnings && ownerType != null
+            ? computeGroupsEarnings(groupTenantIds, totals.netProfitByGroup, to, ownerType) : null;
+    return new ProfitExpensesEarnings(totals.profit, totals.expenses, totals.netProfit, earnings);
+});
+```
+
+Group: All 这边 `computeGroupsKpi()` 本身（Profit/Expenses 部分）不管要不要 Earnings 都得跑——这个
+没法省，上一期的 Profit/Expenses/NetProfit 本来就要算；`needEarnings` 省掉的只是额外那一次
+"按 Group 查持股%"的查询。
+
+### 21.2 性能：请求量翻倍是这个功能本身自带的代价，不是设计缺陷
+
+"较上一期"这个功能，不管是单 Company/Group 还是这次的 All 场景，本质上都是**同一套批量查询多跑
+一遍**（当期一遍、上一期一遍）——这是第 7 节从一开始就有的设计，这次 All 场景延续同样的代价，
+不是这次引入的新问题。查询次数依然不会随公司/Group 数量增长，只是"当期+上一期"两遍，固定倍数。
+
+### 21.3 真实验证：交叉对比"直接查上一期" vs "让当期请求带出上一期"
+
+2026 年 8 月是整月区间，按 `resolvePreviousRange()` 的"整月对整月"规则，上一期应该精确算成
+2026 年 7 月整月。验证方法：直接拿 7 月的日期区间单独调用一次 `getKpiForCompanies()`/
+`getKpiForGroups()`（当成一次独立的"当期"请求），跟 8 月请求里带出来的 `previous*` 字段对比：
+
+```
+Company: All（tenantIds=[6,5,2,3]）
+  8月请求 previousDateFrom=2026-07-01  previousDateTo=2026-07-31
+  8月请求 previousNetProfit=175641.69774426  previousEarnings=107907.99467995
+  直接调 7 月区间：       netProfit=175641.69774426  earnings=107907.99467995   ✔ 精确对上
+
+Group: All（groupTenantIds=[32,33]）
+  8月请求 previousDateFrom=2026-07-01  previousDateTo=2026-07-31
+  8月请求 previousNetProfit=152258.71811421  previousEarnings=106581.10267995
+  直接调 7 月区间：       netProfit=152258.71811421  earnings=106581.10267995   ✔ 精确对上
+```
+
+同时确认了当期数字（8 月）没有因为这次重构产生回归，跟第 9/20 节记录的基线完全一致。
+
+### 21.4 前端：零改动
+
+`buildKpiFromSpringPayload()`（`useDashboardPage.js`）这个函数从一开始写的时候就是**通用**的——
+只要 `payload.previousProfit`/`previousExpenses`/`previousNetProfit`/`previousEarnings` 有值就会
+建 `comparisons`，不区分是哪个 scope 传进来的。之前 Company: All/Group: All 之所以没有对比箭头，
+纯粹是因为后端没给这些字段（值是 `undefined`），不是前端代码不支持。这次后端一补上，四个 scope
+的 KPI 卡片自动就都有"较上一期"对比了——只是顺手把 `kpi` useMemo 和 `/kpi-all` fetch 那几处说
+"这个 scope 没有较上一期"的过时注释改成了跟现状一致的说法，没有改任何实际逻辑。`vite build`
+编译通过。
+
+### 21.5 尚未覆盖 / 未验证
+
+- 只做到后端真实数据验证（伪造 `SecurityContext` 测的，测完删掉），没有真机登录浏览器肉眼确认
+  Company: All / Group: All 的 KPI 卡片上真的出现了涨跌箭头
+- Trend Chart、Currency Tab 本来就没有"较上一期"这个概念（第 7 节明确过这是 KPI 卡片专属功能），
+  这次也没有涉及，维持现状
+- 只验证了"整月对整月"这一种区间对齐规则（第 7.1 节四种规则里最常用的一种），没有针对 Company:
+  All/Group: All 专门验证"自定义天数区间"（按天数平移那条规则）或"整年"这两种边界情况——理论上
+  `resolvePreviousRange()` 是完全复用第 7 节已经验证过的方法，不应该有 scope 相关的差异，但没有
+  拿真实数据凑出这两种场景专门测过

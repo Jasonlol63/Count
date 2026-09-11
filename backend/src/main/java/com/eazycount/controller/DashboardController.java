@@ -31,167 +31,18 @@ public class DashboardController {
     @Autowired
     private TenantDao tenantDao;
 
+    // ==================== 单 Company ====================
     @GetMapping("/kpi")
     public ResponseEntity<Map<String, Object>> getKpi(
             @RequestParam(value = "tenant_id", required = true) String tenantIdStr,
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "currency", required = true) String currency) {
-        Map<String, Object> body = new LinkedHashMap<>();
         try {
             Integer tenantId = resolveTenantId(tenantIdStr);
             LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
             LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-
-            DashboardKpiDTO kpi = dashboardService.getKpi(tenantId, dateFrom, dateTo, currency);
-
-            body.put("status", "success");
-            body.put("success", true);
-            body.put("message", "");
-            body.put("data", kpi);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
-    }
-
-    // Group 模式 KPI 卡片：group_tenant_id 是 Group 自己的 tenant id，company_tenant_ids 是这个
-    // Group 下面有权限查看的子公司 id 列表（不传或传空字符串就当作没有子公司，Group Profit 为 0）——
-    // 跟 /kpi-all 一样，公司列表由前端算好传进来，后端不重新判断哪些公司属于这个 Group。
-    @GetMapping("/group-kpi")
-    public ResponseEntity<Map<String, Object>> getKpiForGroup(
-            @RequestParam(value = "group_tenant_id", required = true) String groupTenantIdStr,
-            @RequestParam(value = "company_tenant_ids", required = false) String companyTenantIdsStr,
-            @RequestParam(value = "date_from", required = true) String dateFromStr,
-            @RequestParam(value = "date_to", required = true) String dateToStr,
-            @RequestParam(value = "currency", required = true) String currency) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        try {
-            Integer groupTenantId = resolveTenantId(groupTenantIdStr);
-            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-
-            DashboardKpiDTO kpi = dashboardService.getKpiForGroup(
-                    groupTenantId, companyTenantIds, dateFrom, dateTo, currency);
-
-            body.put("status", "success");
-            body.put("success", true);
-            body.put("message", "");
-            body.put("data", kpi);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
-    }
-
-    // Group-only "Net Profit" tab: each member company's own Net Profit (not weighted by
-    // equity %), same params as /group-kpi. Separate on-demand endpoint — only called when
-    // that tab is actually visible (groupOnlyDashboard + at least one member company).
-    @GetMapping("/group-kpi/net-profit")
-    public ResponseEntity<Map<String, Object>> getGroupCompanyNetProfitBreakdown(
-            @RequestParam(value = "group_tenant_id", required = true) String groupTenantIdStr,
-            @RequestParam(value = "company_tenant_ids", required = false) String companyTenantIdsStr,
-            @RequestParam(value = "date_from", required = true) String dateFromStr,
-            @RequestParam(value = "date_to", required = true) String dateToStr,
-            @RequestParam(value = "currency", required = true) String currency) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        try {
-            Integer groupTenantId = resolveTenantId(groupTenantIdStr);
-            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-
-            List<DashboardCurrencyAmountDTO.CompanyNetProfit> rows = dashboardService.getGroupCompanyNetProfitBreakdown(
-                    groupTenantId, companyTenantIds, dateFrom, dateTo, currency);
-
-            body.put("status", "success");
-            body.put("success", true);
-            body.put("message", "");
-            body.put("data", rows);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
-    }
-
-    // Group-only Currency tab: same param shape as /group-kpi, but each row is this Group's
-    // own weighted Net Profit in that currency (see getGroupKpiCurrencyBreakdown for the
-    // per-currency weighting rule). Reuses DashboardCurrencyAmountDTO — same fields the
-    // single-company /kpi/currency-breakdown returns.
-    @GetMapping("/group-kpi/currency-breakdown")
-    public ResponseEntity<Map<String, Object>> getGroupKpiCurrencyBreakdown(
-            @RequestParam(value = "group_tenant_id", required = true) String groupTenantIdStr,
-            @RequestParam(value = "company_tenant_ids", required = false) String companyTenantIdsStr,
-            @RequestParam(value = "date_from", required = true) String dateFromStr,
-            @RequestParam(value = "date_to", required = true) String dateToStr,
-            @RequestParam(value = "base_currency", required = true) String baseCurrency) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        try {
-            Integer groupTenantId = resolveTenantId(groupTenantIdStr);
-            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-
-            List<DashboardCurrencyAmountDTO> rows = dashboardService.getGroupKpiCurrencyBreakdown(
-                    groupTenantId, companyTenantIds, dateFrom, dateTo, baseCurrency);
-
-            body.put("status", "success");
-            body.put("success", true);
-            body.put("message", "");
-            body.put("data", rows);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
-    }
-
-    @GetMapping("/kpi-all")
-    public ResponseEntity<Map<String, Object>> getKpiForCompanies(
-            @RequestParam(value = "tenant_ids", required = true) String tenantIdsStr,
-            @RequestParam(value = "date_from", required = true) String dateFromStr,
-            @RequestParam(value = "date_to", required = true) String dateToStr,
-            @RequestParam(value = "currency", required = true) String currency) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        try {
-            List<Integer> tenantIds = parseTenantIds(tenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-
-            DashboardKpiDTO kpi = dashboardService.getKpiForCompanies(tenantIds, dateFrom, dateTo, currency);
-
-            body.put("status", "success");
-            body.put("success", true);
-            body.put("message", "");
-            body.put("data", kpi);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
-    }
-
-    // "Company: All" Currency tab — same param shape as /kpi-all, same DashboardCurrencyAmountDTO
-    // shape the single-company /kpi/currency-breakdown returns. No Earnings (see service javadoc).
-    @GetMapping("/kpi-all/currency-breakdown")
-    public ResponseEntity<Map<String, Object>> getKpiCurrencyBreakdownForCompanies(
-            @RequestParam(value = "tenant_ids", required = true) String tenantIdsStr,
-            @RequestParam(value = "date_from", required = true) String dateFromStr,
-            @RequestParam(value = "date_to", required = true) String dateToStr,
-            @RequestParam(value = "base_currency", required = true) String baseCurrency) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        try {
-            List<Integer> tenantIds = parseTenantIds(tenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-
-            List<DashboardCurrencyAmountDTO> rows = dashboardService.getKpiCurrencyBreakdownForCompanies(
-                    tenantIds, dateFrom, dateTo, baseCurrency);
-
-            body.put("status", "success");
-            body.put("success", true);
-            body.put("message", "");
-            body.put("data", rows);
-            return ResponseEntity.ok(body);
+            return ok(dashboardService.getKpi(tenantId, dateFrom, dateTo, currency));
         } catch (BusinessException e) {
             return error(e.getMessage());
         }
@@ -203,43 +54,46 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "currency", required = true) String currency) {
-        Map<String, Object> body = new LinkedHashMap<>();
         try {
             Integer tenantId = resolveTenantId(tenantIdStr);
             LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
             LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-
-            List<DashboardTrendPointDTO> trend = dashboardService.getTrend(tenantId, dateFrom, dateTo, currency);
-
-            body.put("status", "success");
-            body.put("success", true);
-            body.put("message", "");
-            body.put("data", trend);
-            return ResponseEntity.ok(body);
+            return ok(dashboardService.getTrend(tenantId, dateFrom, dateTo, currency));
         } catch (BusinessException e) {
             return error(e.getMessage());
         }
     }
 
-    @GetMapping("/chart-all")
-    public ResponseEntity<Map<String, Object>> getTrendForCompanies(
-            @RequestParam(value = "tenant_ids", required = true) String tenantIdsStr,
+    @GetMapping("/kpi/currency-breakdown")
+    public ResponseEntity<Map<String, Object>> getKpiCurrencyBreakdown(
+            @RequestParam(value = "tenant_id", required = true) String tenantIdStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "base_currency", required = true) String baseCurrency) {
+        try {
+            Integer tenantId = resolveTenantId(tenantIdStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+            return ok(dashboardService.getKpiCurrencyBreakdown(tenantId, dateFrom, dateTo, baseCurrency));
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
+    // ==================== 单 Group ====================
+    @GetMapping("/group-kpi")
+    public ResponseEntity<Map<String, Object>> getKpiForGroup(
+            @RequestParam(value = "group_tenant_id", required = true) String groupTenantIdStr,
+            @RequestParam(value = "company_tenant_ids", required = false) String companyTenantIdsStr,
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "currency", required = true) String currency) {
-        Map<String, Object> body = new LinkedHashMap<>();
         try {
-            List<Integer> tenantIds = parseTenantIds(tenantIdsStr);
+            Integer groupTenantId = resolveTenantId(groupTenantIdStr);
+            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
             LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
             LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-
-            List<DashboardTrendPointDTO> trend = dashboardService.getTrendForCompanies(tenantIds, dateFrom, dateTo, currency);
-
-            body.put("status", "success");
-            body.put("success", true);
-            body.put("message", "");
-            body.put("data", trend);
-            return ResponseEntity.ok(body);
+            return ok(dashboardService.getKpiForGroup(groupTenantId, companyTenantIds, dateFrom, dateTo, currency));
         } catch (BusinessException e) {
             return error(e.getMessage());
         }
@@ -252,50 +106,162 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "currency", required = true) String currency) {
-        Map<String, Object> body = new LinkedHashMap<>();
         try {
             Integer groupTenantId = resolveTenantId(groupTenantIdStr);
             List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
             LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
             LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-
-            List<DashboardTrendPointDTO> trend = dashboardService.getTrendForGroup(
-                    groupTenantId, companyTenantIds, dateFrom, dateTo, currency);
-
-            body.put("status", "success");
-            body.put("success", true);
-            body.put("message", "");
-            body.put("data", trend);
-            return ResponseEntity.ok(body);
+            return ok(dashboardService.getTrendForGroup(groupTenantId, companyTenantIds, dateFrom, dateTo, currency));
         } catch (BusinessException e) {
             return error(e.getMessage());
         }
     }
 
-    @GetMapping("/kpi/currency-breakdown")
-    public ResponseEntity<Map<String, Object>> getKpiCurrencyBreakdown(
-            @RequestParam(value = "tenant_id", required = true) String tenantIdStr,
+    @GetMapping("/group-kpi/currency-breakdown")
+    public ResponseEntity<Map<String, Object>> getGroupKpiCurrencyBreakdown(
+            @RequestParam(value = "group_tenant_id", required = true) String groupTenantIdStr,
+            @RequestParam(value = "company_tenant_ids", required = false) String companyTenantIdsStr,
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "base_currency", required = true) String baseCurrency) {
-        Map<String, Object> body = new LinkedHashMap<>();
         try {
-            Integer tenantId = resolveTenantId(tenantIdStr);
+            Integer groupTenantId = resolveTenantId(groupTenantIdStr);
+            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
             LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
             LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-
-            List<DashboardCurrencyAmountDTO> rows =
-                    dashboardService.getKpiCurrencyBreakdown(tenantId, dateFrom, dateTo, baseCurrency);
-
-            body.put("status", "success");
-            body.put("success", true);
-            body.put("message", "");
-            body.put("data", rows);
-            return ResponseEntity.ok(body);
+            return ok(dashboardService.getGroupKpiCurrencyBreakdown(
+                    groupTenantId, companyTenantIds, dateFrom, dateTo, baseCurrency));
         } catch (BusinessException e) {
             return error(e.getMessage());
         }
     }
+
+    @GetMapping("/group-kpi/net-profit")
+    public ResponseEntity<Map<String, Object>> getGroupCompanyNetProfitBreakdown(
+            @RequestParam(value = "group_tenant_id", required = true) String groupTenantIdStr,
+            @RequestParam(value = "company_tenant_ids", required = false) String companyTenantIdsStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "currency", required = true) String currency) {
+        try {
+            Integer groupTenantId = resolveTenantId(groupTenantIdStr);
+            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+            return ok(dashboardService.getGroupCompanyNetProfitBreakdown(
+                    groupTenantId, companyTenantIds, dateFrom, dateTo, currency));
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
+    // ==================== Group: All ====================
+    @GetMapping("/kpi-all-groups")
+    public ResponseEntity<Map<String, Object>> getKpiForGroups(
+            @RequestParam(value = "group_tenant_ids", required = true) String groupTenantIdsStr,
+            @RequestParam(value = "company_tenant_ids", required = false) String companyTenantIdsStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "currency", required = true) String currency) {
+        try {
+            List<Integer> groupTenantIds = parseGroupTenantIds(groupTenantIdsStr);
+            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+            return ok(dashboardService.getKpiForGroups(groupTenantIds, companyTenantIds, dateFrom, dateTo, currency));
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
+    @GetMapping("/chart-all-groups")
+    public ResponseEntity<Map<String, Object>> getTrendForGroups(
+            @RequestParam(value = "group_tenant_ids", required = true) String groupTenantIdsStr,
+            @RequestParam(value = "company_tenant_ids", required = false) String companyTenantIdsStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "currency", required = true) String currency) {
+        try {
+            List<Integer> groupTenantIds = parseGroupTenantIds(groupTenantIdsStr);
+            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+            return ok(dashboardService.getTrendForGroups(groupTenantIds, companyTenantIds, dateFrom, dateTo, currency));
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
+    @GetMapping("/kpi-all-groups/currency-breakdown")
+    public ResponseEntity<Map<String, Object>> getGroupsKpiCurrencyBreakdown(
+            @RequestParam(value = "group_tenant_ids", required = true) String groupTenantIdsStr,
+            @RequestParam(value = "company_tenant_ids", required = false) String companyTenantIdsStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "base_currency", required = true) String baseCurrency) {
+        try {
+            List<Integer> groupTenantIds = parseGroupTenantIds(groupTenantIdsStr);
+            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+            return ok(dashboardService.getGroupsKpiCurrencyBreakdown(
+                    groupTenantIds, companyTenantIds, dateFrom, dateTo, baseCurrency));
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
+    // ==================== Company: All ====================
+
+    @GetMapping("/kpi-all")
+    public ResponseEntity<Map<String, Object>> getKpiForCompanies(
+            @RequestParam(value = "tenant_ids", required = true) String tenantIdsStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "currency", required = true) String currency) {
+        try {
+            List<Integer> tenantIds = parseTenantIds(tenantIdsStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+            return ok(dashboardService.getKpiForCompanies(tenantIds, dateFrom, dateTo, currency));
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
+    @GetMapping("/chart-all")
+    public ResponseEntity<Map<String, Object>> getTrendForCompanies(
+            @RequestParam(value = "tenant_ids", required = true) String tenantIdsStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "currency", required = true) String currency) {
+        try {
+            List<Integer> tenantIds = parseTenantIds(tenantIdsStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+            return ok(dashboardService.getTrendForCompanies(tenantIds, dateFrom, dateTo, currency));
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
+    @GetMapping("/kpi-all/currency-breakdown")
+    public ResponseEntity<Map<String, Object>> getKpiCurrencyBreakdownForCompanies(
+            @RequestParam(value = "tenant_ids", required = true) String tenantIdsStr,
+            @RequestParam(value = "date_from", required = true) String dateFromStr,
+            @RequestParam(value = "date_to", required = true) String dateToStr,
+            @RequestParam(value = "base_currency", required = true) String baseCurrency) {
+        try {
+            List<Integer> tenantIds = parseTenantIds(tenantIdsStr);
+            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+            return ok(dashboardService.getKpiCurrencyBreakdownForCompanies(tenantIds, dateFrom, dateTo, baseCurrency));
+        } catch (BusinessException e) {
+            return error(e.getMessage());
+        }
+    }
+
+    // ==================== 共享辅助方法 ====================
 
     private Integer resolveTenantId(String tenantIdStr) {
         if (tenantIdStr == null || tenantIdStr.isBlank()) {
@@ -335,7 +301,28 @@ public class DashboardController {
         return ids;
     }
 
-    // 跟 parseTenantIds 一样，但空字符串/不传都合法（当作没有子公司），不当错误抛出。
+    private static List<Integer> parseGroupTenantIds(String groupTenantIdsStr) {
+        if (groupTenantIdsStr == null || groupTenantIdsStr.isBlank()) {
+            throw new BusinessException("group_tenant_ids is required");
+        }
+        List<Integer> ids = new ArrayList<>();
+        for (String part : groupTenantIdsStr.split(",")) {
+            String trimmed = part.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            try {
+                ids.add(Integer.valueOf(trimmed));
+            } catch (NumberFormatException e) {
+                throw new BusinessException("Invalid tenant id in group_tenant_ids: '" + trimmed + "'");
+            }
+        }
+        if (ids.isEmpty()) {
+            throw new BusinessException("group_tenant_ids is required");
+        }
+        return ids;
+    }
+
     private static List<Integer> parseTenantIdsAllowEmpty(String tenantIdsStr) {
         if (tenantIdsStr == null || tenantIdsStr.isBlank()) {
             return List.of();
@@ -353,6 +340,15 @@ public class DashboardController {
             }
         }
         return ids;
+    }
+
+    private static ResponseEntity<Map<String, Object>> ok(Object data) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("status", "success");
+        body.put("success", true);
+        body.put("message", "");
+        body.put("data", data);
+        return ResponseEntity.ok(body);
     }
 
     private static ResponseEntity<Map<String, Object>> error(String message) {

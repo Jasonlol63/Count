@@ -1,12 +1,14 @@
 # Dashboard 后端代码优化记录（可读性 + 查询去重）
 
 > **范围**：只针对 `Count` 仓库后端 Dashboard 相关代码做内部重构——`DashboardServiceImpl.java` /
-> `DashboardDao.java` / `DashboardMapper.xml` / `DashboardCurrencyAmountDTO.java`。**不改变任何对外
-> 行为**：Controller 端点路径、JSON 响应字段、前端调用方式全部不变（第 11 节的 DTO 合并改了 Java 里
-> 的类型引用路径，但序列化出去的 JSON 字段名和形状没变）。
-> **最后更新**：2026-09-10（新增第 11～13 节：`DashboardGroupCompanyNetProfitDTO` 合并进
+> `DashboardDao.java` / `DashboardMapper.xml` / `DashboardCurrencyAmountDTO.java` /
+> `DashboardController.java`。**不改变任何对外行为**：端点路径、JSON 响应字段、前端调用方式全部
+> 不变（第 11 节的 DTO 合并改了 Java 里的类型引用路径，但序列化出去的 JSON 字段名和形状没变；第 13
+> 节的 Controller 响应包装去重同理）。
+> **最后更新**：2026-09-11（新增第 11～13 节：`DashboardGroupCompanyNetProfitDTO` 合并进
 > `DashboardCurrencyAmountDTO.CompanyNetProfit` 内嵌类、Service 层参数校验样板抽取 + Group 加权求和
-> 算法合并、注释精简）
+> 算法合并、注释精简、**Controller 响应包装样板代码去重**（第 13 节，`13 个端点是不是搞复杂了`这个
+> 问题分析后确定端点数量本身不用动，真正能精简的是这块））
 
 ---
 
@@ -24,7 +26,8 @@
 10. [DTO 合并：DashboardGroupCompanyNetProfitDTO → 内嵌类](#10-dto-合并dashboardgroupcompanynetprofitdto--内嵌类)
 11. [Service 层第二轮：参数校验样板抽取 + Group 加权求和算法合并](#11-service-层第二轮参数校验样板抽取--group-加权求和算法合并)
 12. [注释精简](#12-注释精简)
-13. [尚未开始的后续优化项](#13-尚未开始的后续优化项)
+13. [Controller 响应包装样板代码去重](#13-controller-响应包装样板代码去重)
+14. [尚未开始的后续优化项](#14-尚未开始的后续优化项)
 
 ---
 
@@ -440,10 +443,58 @@ snapshot history table otherwise"，内容跟这个方法实际做的事（纯�
 
 ---
 
-## 13. 尚未开始的后续优化项
+## 13. Controller 响应包装样板代码去重
 
-- **Controller 响应包装样板代码去重**：已提出方向（不合并端点，只抽取重复的"try/catch + 统一
-  响应体包装"逻辑），尚未开始实施，等用户确认。
+用户提出的问题是"Dashboard 后端一共开了 13 个端点，是不是搞复杂了"。分析下来：13 个端点是
+"4 种 scope（单 Company/单 Group/Company:All/Group:All）× 3 大块（KPI 卡片/Trend Chart/Currency
+Tab）+ 1 个单 Group 独有的 Net Profit Tab"的规整矩阵，不是冗余；Service 层也早就通过
+`buildKpiDto()`/`buildBatchKpiDto()`/`sumWeightedGroupProfit()` 这几个共享骨架把 4 种 scope 的
+共同逻辑收拢掉了。**不建议合并端点**——合并成"一个端点 + scope 参数"不会改善响应速度或请求量（该发
+几次还是几次），反而会把现在声明式的参数校验（`@RequestParam(required=...)`）变成方法体内手写的
+if/else，可读性变差，前端也要冒险重构一个已经上线验证过的大文件。
+
+真正能精简、且零风险的是 Controller 里的响应包装样板——13 个端点方法内部结构完全一样：
+
+```java
+Map<String, Object> body = new LinkedHashMap<>();
+try {
+    ... 解析参数 ...
+    XxxDTO result = dashboardService.xxx(...);
+    body.put("status", "success");
+    body.put("success", true);
+    body.put("message", "");
+    body.put("data", result);
+    return ResponseEntity.ok(body);
+} catch (BusinessException e) {
+    return error(e.getMessage());
+}
+```
+
+抽了一个 `ok(Object data)` 私有方法，把"包装成功响应"这 5 行收进去：
+
+```java
+private static ResponseEntity<Map<String, Object>> ok(Object data) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("status", "success");
+    body.put("success", true);
+    body.put("message", "");
+    body.put("data", data);
+    return ResponseEntity.ok(body);
+}
+```
+
+13 个端点方法的 `try` 块，从"手填 4 个字段 + `ResponseEntity.ok(body)`"压成一行
+`return ok(dashboardService.xxx(...));`——**路由路径、参数校验、响应体字段、JSON 结构全部不变**，
+纯粹是把重复的包装代码收拢。`DashboardController.java` 减少了约 70 行。
+
+**验证**：真的调用了 Controller 的 `getKpi()` 方法（成功和失败两种参数），确认响应体的字段和值
+（`status`/`success`/`message`/`data` 四个 key，成功时 `status=success`、失败时
+`status=error`+对应报错文案）跟改之前完全一致。`mvnw compile` BUILD SUCCESS。
+
+---
+
+## 14. 尚未开始的后续优化项
+
 - **`earningsFrom()` 上方的过时/不准确注释**：见第 12 节末尾，内容跟方法实际行为对不上，需要确认
   是修正内容还是直接删掉。
 - 本文档只覆盖这次"代码优化"阶段的改动；Dashboard 各功能本身的业务规则、算法、真机验证记录，

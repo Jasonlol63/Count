@@ -65,4 +65,29 @@ public interface DashboardService {
     List<DashboardCurrencyAmountDTO> getGroupKpiCurrencyBreakdown(
             Integer groupTenantId, List<Integer> companyTenantIds,
             LocalDate dateFrom, LocalDate dateTo, String baseCurrencyCode);
+
+    // "Group: All" rollup — each given Group independently computes its own Profit (member
+    // companies weighted by equity %) + Expenses (its own ledger); Profit/Expenses/NetProfit
+    // are summed across every Group. Earnings = Σ each Group's own NetProfit × its own direct
+    // ownership % — Groups never cascade through another Group, unlike Company Earnings. No
+    // previous-period comparison yet (same follow-up as getKpiForCompanies()).
+    // groupTenantIds/companyTenantIds (union of every given Group's own member companies):
+    // resolved by the caller (frontend), same convention as getKpiForGroup().
+    DashboardKpiDTO getKpiForGroups(List<Integer> groupTenantIds, List<Integer> companyTenantIds,
+                                     LocalDate dateFrom, LocalDate dateTo, String currencyCode);
+
+    // "Group: All" Trend Chart — same per-Group weighted rollup as getKpiForGroups(), one point
+    // per day. Earnings per day uses each Group's own direct ownership % for that day's month
+    // (no cascade), weighted against that Group's own NetProfit that day — not one flat
+    // percentage over the combined total.
+    List<DashboardTrendPointDTO> getTrendForGroups(List<Integer> groupTenantIds, List<Integer> companyTenantIds,
+                                                     LocalDate dateFrom, LocalDate dateTo, String currencyCode);
+
+    // "Group: All" Currency tab — same shape/semantics as getGroupKpiCurrencyBreakdown(), but
+    // originalAmount is each Group's own weighted Net Profit in that currency, summed across
+    // every given Group. earnings/earningsConverted = Σ each Group's own NetProfit in that
+    // currency × its own direct ownership % (no cascade) — same rule as getKpiForGroups().
+    List<DashboardCurrencyAmountDTO> getGroupsKpiCurrencyBreakdown(
+            List<Integer> groupTenantIds, List<Integer> companyTenantIds,
+            LocalDate dateFrom, LocalDate dateTo, String baseCurrencyCode);
 }
