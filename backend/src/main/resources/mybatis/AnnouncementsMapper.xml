@@ -27,6 +27,7 @@
 
     <select id="findAllAnnouncement" resultMap="AnnouncementMap">
         select * from announcements
+        ORDER BY created_at DESC
     </select>
 
     <select id="findAllMaintenance" resultMap="MaintenanceMap">
