@@ -68,6 +68,8 @@ CREATE TABLE `owner` (
     `password` varchar(255) NOT NULL COMMENT 'BCrypt hash',
     `secondary_password` varchar(255) DEFAULT NULL COMMENT 'BCrypt hash, 6-digit PIN',
     `status` enum('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+    `last_login` DATETIME DEFAULT NULL,
+    `last_logout` DATETIME DEFAULT NULL,
     `created_by` varchar(50) DEFAULT NULL,
     `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
     PRIMARY KEY (`id`),
@@ -246,6 +248,7 @@ CREATE TABLE `user` (
     `remember_token`         VARCHAR(64)           DEFAULT NULL,
     `remember_token_expires` DATETIME              DEFAULT NULL,
     `last_login`             DATETIME              DEFAULT NULL,
+    `last_logout`            DATETIME              DEFAULT NULL,
     `created_by`             VARCHAR(50)           DEFAULT NULL,
     `created_at`             DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
@@ -1130,6 +1133,7 @@ CREATE TABLE `transactions` (
     `approved_at`            TIMESTAMP NULL DEFAULT NULL,
 
     `bank_process_posted_id` INT UNSIGNED DEFAULT NULL COMMENT 'FK bank_process_accounting_posted.id; NULL = manual / non-BP txn',
+    `bank_process_id`        INT UNSIGNED DEFAULT NULL COMMENT 'FK bank_process.id; direct link for one-off transactions tied to the process itself (e.g. Bank Balance), independent of periodic postings (see bank_process_posted_id)',
 
     `rate_group_id`          VARCHAR(50) DEFAULT NULL COMMENT 'RATE only: shared by leg1+leg2; NULL for other types',
 
@@ -1140,6 +1144,7 @@ CREATE TABLE `transactions` (
     KEY `idx_txn_tenant_date` (`tenant_id`, `transaction_date`),
     KEY `idx_txn_tenant_account_date` (`tenant_id`, `account_id`, `transaction_date`),
     KEY `idx_txn_posted` (`bank_process_posted_id`),
+    KEY `idx_txn_bank_process` (`bank_process_id`),
     KEY `idx_txn_approval` (`tenant_id`, `approval_status`),
     KEY `idx_txn_currency` (`currency_id`),
     KEY `idx_txn_tenant_rate_group` (`tenant_id`, `rate_group_id`),
@@ -1154,6 +1159,9 @@ CREATE TABLE `transactions` (
         FOREIGN KEY (`currency_id`) REFERENCES `currency` (`id`) ON DELETE SET NULL,
     CONSTRAINT `fk_txn_bp_posted`
         FOREIGN KEY (`bank_process_posted_id`) REFERENCES `bank_process_accounting_posted` (`id`)
+            ON DELETE SET NULL,
+    CONSTRAINT `fk_txn_bank_process`
+        FOREIGN KEY (`bank_process_id`) REFERENCES `bank_process` (`id`)
             ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Tenant transaction lines; audit via login_id; BP Post via bank_process_posted_id';
