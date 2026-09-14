@@ -308,6 +308,8 @@ public class AdminServiceImpl implements AdminService {
         admin.setRoleId(resolveOwnerRoleId());
         admin.setStatus(mapOwnerStatus(owner));
         admin.setCreatedBy(owner.getCreatedBy());
+        admin.setLastLogin(owner.getLastLogin());
+        admin.setLastLogout(owner.getLastLogout());
         admin.setReadOnly(false);
         return admin;
     }

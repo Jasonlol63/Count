@@ -49,6 +49,8 @@ public class Admin {
 
     private LocalDateTime lastLogin;
 
+    private LocalDateTime lastLogout;
+
     private String rememberToken;
 
     private LocalDateTime rememberTokenExpires;

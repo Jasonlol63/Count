@@ -147,6 +147,7 @@ public class AuthServiceImpl implements AuthService {
             }
             Tenant sessionTenant = access.get(0).getTenant();
             assertTenantNotExpired(sessionTenant);
+            authDao.updateOwnerLastLogin(owner.getId());
             identity.setOwner(owner);
             identity.setTenant(sessionTenant);
             return buildLoginResult(identity, loginTenant, sessionTenant);
@@ -442,6 +443,15 @@ public class AuthServiceImpl implements AuthService {
         String jti = resolveLogoutJti(request);
         if (StringUtils.hasText(jti)) {
             authTokenStore.delete(jti);
+        }
+
+        SessionUser currentUser = SecurityUtils.currentUser();
+        if (currentUser != null && currentUser.user_id != null) {
+            if ("user".equals(currentUser.user_type)) {
+                authDao.updateAdminLastLogout(currentUser.user_id);
+            } else if ("owner".equals(currentUser.user_type)) {
+                authDao.updateOwnerLastLogout(currentUser.user_id);
+            }
         }
 
         AuthCookieHelper.clearAccessTokenCookie(response, jwtService);

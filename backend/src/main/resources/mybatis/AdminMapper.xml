@@ -13,6 +13,7 @@
             <result property="status" column="adminStatus"/>
             <result property="createdBy" column="adminCreatedBy"/>
             <result property="lastLogin" column="adminLastLogin"/>
+            <result property="lastLogout" column="adminLastLogout"/>
         </association>
 
         <association property="adminTenantAccess" javaType="com.eazycount.entity.AdminTenantAccess">
@@ -37,6 +38,7 @@
             u.status                AS adminStatus,
             u.created_by            AS adminCreatedBy,
             u.last_login            AS adminLastLogin,
+            u.last_logout           AS adminLastLogout,
 
             uta.id                  AS adminTenantAccessId,
             uta.user_id             AS adminTenantAccessUserId,
@@ -72,6 +74,7 @@
             u.status                AS adminStatus,
             u.created_by            AS adminCreatedBy,
             u.last_login            AS adminLastLogin,
+            u.last_logout           AS adminLastLogout,
 
             uta.id                  AS adminTenantAccessId,
             uta.user_id             AS adminTenantAccessUserId,
@@ -116,7 +119,8 @@
             u.created_by            AS createdBy,
             u.read_only             AS readOnly,
             u.permission_mode       AS permissionMode,
-            u.last_login            AS lastLogin
+            u.last_login            AS lastLogin,
+            u.last_logout           AS lastLogout
         FROM user u
         INNER JOIN user_role ur ON ur.id = u.role_id
         WHERE u.id = #{id}
@@ -142,6 +146,7 @@
             u.status                AS adminStatus,
             u.created_by            AS adminCreatedBy,
             u.last_login            AS adminLastLogin,
+            u.last_logout           AS adminLastLogout,
 
             uta.id                  AS adminTenantAccessId,
             uta.user_id             AS adminTenantAccessUserId,

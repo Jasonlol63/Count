@@ -32,6 +32,10 @@ public class Owner {
 
     private OwnerStatus status;
 
+    private LocalDateTime lastLogin;
+
+    private LocalDateTime lastLogout;
+
     private String createdBy;
 
     private LocalDateTime createdAt;

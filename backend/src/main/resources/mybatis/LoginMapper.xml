@@ -380,6 +380,12 @@
         WHERE id = #{adminId}
     </update>
 
+    <update id="updateAdminLastLogout">
+        UPDATE user
+        SET last_logout = NOW()
+        WHERE id = #{adminId}
+    </update>
+
     <update id="updateAdminPassword">
         UPDATE user
         SET password = #{password}
@@ -390,6 +396,18 @@
         UPDATE user
         SET secondary_password = #{secondaryPassword}
         WHERE id = #{adminId}
+    </update>
+
+    <update id="updateOwnerLastLogin">
+        UPDATE owner
+        SET last_login = NOW()
+        WHERE id = #{ownerId}
+    </update>
+
+    <update id="updateOwnerLastLogout">
+        UPDATE owner
+        SET last_logout = NOW()
+        WHERE id = #{ownerId}
     </update>
 
     <update id="updateOwnerPassword">

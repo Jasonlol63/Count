@@ -8,6 +8,8 @@
         <result property="email" column="email"/>
         <result property="password" column="password"/>
         <result property="secondaryPassword" column="secondary_password"/>
+        <result property="lastLogin" column="last_login"/>
+        <result property="lastLogout" column="last_logout"/>
         <result property="createdBy" column="created_by"/>
         <result property="createdAt" column="created_at"/>
     </resultMap>
