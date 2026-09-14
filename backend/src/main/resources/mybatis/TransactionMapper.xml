@@ -5,13 +5,24 @@
     <insert id="insert" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
         INSERT INTO transactions (
             tenant_id, transaction_type, account_id, from_account_id, currency_id, amount, transaction_date, description,
-            remark,created_by, updated_by,approval_status,approved_by,approved_at,bank_process_posted_id,rate_group_id)
+            remark,created_by, updated_by,approval_status,approved_by,approved_at,bank_process_posted_id,bank_process_id,rate_group_id)
         VALUES (
                 #{tenantId}, #{transactionType}, #{accountId},  #{fromAccountId},  #{currencyId}, #{amount},
                 #{transactionDate},#{description}, #{remark}, #{createdBy}, #{updatedBy}, #{approvalStatus},
-                #{approvedBy}, #{approvedAt}, #{bankProcessPostedId}, #{rateGroupId}
+                #{approvedBy}, #{approvedAt}, #{bankProcessPostedId}, #{bankProcessId}, #{rateGroupId}
                )
     </insert>
+
+    <!-- Bank Balance: the (at most one) Contra transaction directly linked to a bank_process record. -->
+    <select id="findLinkedBankBalanceTransaction" resultType="com.eazycount.entity.Transaction">
+        SELECT *
+        FROM transactions
+        WHERE tenant_id = #{tenantId}
+          AND bank_process_id = #{bankProcessId}
+          AND transaction_type = 'CONTRA'
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
 
     <!-- Delete-process guard: any transactions recorded under this process's data captures? -->
     <select id="countTransactionsByProcessId" resultType="int">

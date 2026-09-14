@@ -3,14 +3,20 @@ package com.eazycount.service.impl;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.BankCountryOptionDao;
 import com.eazycount.dao.BankProcessDao;
+import com.eazycount.dao.TransactionDao;
 import com.eazycount.dto.BankProcessDTO;
+import com.eazycount.dto.MaintenancePaymentDTO;
+import com.eazycount.dto.TransactionSubmitDTO;
 import com.eazycount.entity.BankCountry;
 import com.eazycount.entity.BankOption;
 import com.eazycount.entity.BankProcess;
 import com.eazycount.entity.BankProcessShare;
+import com.eazycount.entity.Transaction;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.BankProcessService;
+import com.eazycount.service.MaintenanceService;
+import com.eazycount.service.TransactionSubmitService;
 import com.eazycount.util.AccessControlUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -37,6 +43,15 @@ public class BankProcessServiceImpl implements BankProcessService {
 
     @Autowired
     private BankCountryOptionDao bankCountryOptionDao;
+
+    @Autowired
+    private TransactionDao transactionDao;
+
+    @Autowired
+    private TransactionSubmitService transactionSubmitService;
+
+    @Autowired
+    private MaintenanceService maintenanceService;
 
     @Override
     public List<BankProcessDTO> findAllBankProcess(Integer tenantId) {
@@ -78,6 +93,11 @@ public class BankProcessServiceImpl implements BankProcessService {
         BankProcess bankProcess = insertNewBankProcess(bankProcessDTO, sessionUser);
         List<BankProcessShare> shares = insertProfitSharing(bankProcess.getId(), bankProcessDTO.getShares());
 
+        BigDecimal bankBalance = normalizeBankBalanceAmount(bankProcessDTO.getBankBalance());
+        if (bankBalance != null) {
+            createBankBalanceContra(bankProcess, bankBalance);
+        }
+
         bankProcessDTO.setId(bankProcess.getId());
         bankProcessDTO.setCardOwner(bankProcess.getCardOwner());
         bankProcessDTO.setCardOwnerType(bankProcess.getCardOwnerType());
@@ -107,6 +127,13 @@ public class BankProcessServiceImpl implements BankProcessService {
         BankProcess updated = updateBankProcess(bankProcessDTO, sessionUser);
         deleteBankProcessShareBatch(updated.getId());
         List<BankProcessShare> shares = insertProfitSharing(updated.getId(), bankProcessDTO.getShares());
+
+        // Bank Balance: only ever create when this process doesn't already have one linked — once
+        // locked, the frontend field is read-only, but re-validate here too rather than trust it blindly.
+        BigDecimal bankBalance = normalizeBankBalanceAmount(bankProcessDTO.getBankBalance());
+        if (bankBalance != null && transactionDao.findLinkedBankBalanceTransaction(updated.getTenantId(), updated.getId()) == null) {
+            createBankBalanceContra(updated, bankBalance);
+        }
 
         bankProcessDTO.setId(updated.getId());
         bankProcessDTO.setCountryId(updated.getCountryId());
@@ -214,6 +241,80 @@ public class BankProcessServiceImpl implements BankProcessService {
         } catch (Exception e) {
             throw new BusinessException("Update bank process remark failed. Please try again!");
         }
+    }
+
+    @Override
+    @Transactional
+    public void deleteBankBalance(Integer id, Integer tenantId) {
+        SessionUser sessionUser = SecurityUtils.currentUser();
+        if (sessionUser == null) {
+            throw new BusinessException("Not logged in");
+        }
+        AccessControlUtils.requireWritable(sessionUser);
+        if (id == null || id <= 0) {
+            throw new BusinessException("Invalid Bank Process ID!");
+        }
+        if (tenantId == null) {
+            throw new BusinessException("Invalid Tenant Id!");
+        }
+
+        BankProcess existing = bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId);
+        if (existing == null) {
+            throw new BusinessException("Bank process not found!");
+        }
+        assertEditable(existing);
+
+        Transaction linked = transactionDao.findLinkedBankBalanceTransaction(tenantId, id);
+        if (linked == null) {
+            throw new BusinessException("No Bank Balance to delete!");
+        }
+
+        // Reuse the existing Payment Maintenance delete flow (archives to transactions_deleted, then
+        // hard-deletes) — CONTRA is already one of its supported types, so this keeps Bank Balance
+        // deletion consistent with how every other manual transaction is deleted in this app.
+        MaintenancePaymentDTO deleteRequest = new MaintenancePaymentDTO();
+        deleteRequest.setTenantId(tenantId);
+        deleteRequest.setTransactionIds(List.of(linked.getId()));
+        maintenanceService.deletePaymentMaintenanceRows(deleteRequest);
+    }
+
+    /* Bank Balance: builds and submits the one-off CONTRA settling Customer(-amount)/Supplier(+amount),
+     * reusing TransactionSubmitService so balance updates, currency handling, and audit fields stay
+     * identical to a manually-created Contra on the Transaction Payment page. */
+    private void createBankBalanceContra(BankProcess bankProcess, BigDecimal amount) {
+        if (bankProcess.getSupplierAccountId() == null || bankProcess.getCustomerAccountId() == null) {
+            throw new BusinessException("Bank Balance requires both Supplier and Customer accounts to be set!");
+        }
+        BankCountry country = bankCountryOptionDao.findCountryById(
+                bankProcess.getTenantId(), bankProcess.getCountryId());
+        if (country == null || country.getCode() == null || country.getCode().isBlank()) {
+            throw new BusinessException("Bank process currency not found!");
+        }
+
+        TransactionSubmitDTO request = new TransactionSubmitDTO();
+        request.setTenantId(bankProcess.getTenantId());
+        request.setTransactionType(Transaction.TransactionType.CONTRA.name());
+        request.setToAccountId(bankProcess.getCustomerAccountId());
+        request.setFromAccountId(bankProcess.getSupplierAccountId());
+        request.setCurrencyCode(country.getCode());
+        request.setAmount(amount);
+        request.setBankProcessId(bankProcess.getId());
+        transactionSubmitService.submit(request);
+    }
+
+    /* null/blank/0 → no Bank Balance to create (unchanged behavior); negative is rejected outright
+     * rather than silently ignored, since it almost certainly means the user mistyped the amount. */
+    private static BigDecimal normalizeBankBalanceAmount(BigDecimal raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (raw.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException("Bank Balance cannot be negative!");
+        }
+        if (raw.compareTo(BigDecimal.ZERO) == 0) {
+            return null;
+        }
+        return raw;
     }
 
     private BankProcess insertNewBankProcess(BankProcessDTO bankProcessDTO, SessionUser sessionUser) {

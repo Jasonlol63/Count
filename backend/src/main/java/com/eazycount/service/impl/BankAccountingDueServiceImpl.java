@@ -88,7 +88,14 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
             throw new BusinessException("Invalid Tenant Id!");
         }
 
-        LocalDate today = asOf != null ? asOf : LocalDate.now();
+        LocalDate systemToday = LocalDate.now();
+        if (asOf != null) {
+            LocalDate yearEnd = systemToday.withMonth(12).withDayOfMonth(31);
+            if (asOf.isBefore(systemToday) || asOf.isAfter(yearEnd)) {
+                throw new BusinessException("asOf must be between today and the end of the current year!");
+            }
+        }
+        LocalDate today = asOf != null ? asOf : systemToday;
         YearMonth currentMonth = YearMonth.from(today);
         LocalDate monthFirst = currentMonth.atDay(1);
         LocalDate monthEnd = currentMonth.atEndOfMonth();

@@ -18,4 +18,6 @@ public interface BankProcessService {
     BankProcess updateBankProcessStatus(Integer id, Integer tenantId, BankProcess.Status status);
 
     void updateBankProcessRemark(Integer id, Integer tenantId, String remark);
+
+    void deleteBankBalance(Integer id, Integer tenantId);
 }

@@ -53,6 +53,8 @@ public class Transaction {
 
     private Integer bankProcessPostedId;
 
+    private Integer bankProcessId;
+
     private String rateGroupId;
 
     private LocalDateTime createdAt;

@@ -31,6 +31,11 @@ public class TransactionSubmitDTO {
     private BigDecimal amount;
     private String remark;
 
+    /* Internal only — never set by the manual Transaction Payment UI. Set by BankProcessServiceImpl
+     * when submitting the one-off Bank Balance Contra, so the resulting row links back to the
+     * process via transactions.bank_process_id. */
+    private Integer bankProcessId;
+
     // ── RATE (ignored for other types) ────────────────────────────────────
     /* Leg1 To (payer, first currency). Leg1 From (receiver, first currency). */
     private Integer leg1ToAccountId;

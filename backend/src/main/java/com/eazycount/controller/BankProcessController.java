@@ -109,6 +109,19 @@ public class BankProcessController {
         }
     }
 
+    @PostMapping("/delete-bank-balance")
+    public ResponseEntity<Map<String, Object>> deleteBankBalance(@RequestBody BankProcess bankProcess) {
+        try {
+            bankProcessService.deleteBankBalance(bankProcess.getId(), bankProcess.getTenantId());
+            final Map<String, Object> body = new LinkedHashMap<>();
+            body.put("success", true);
+            body.put("message", "Bank Balance deleted successfully");
+            return ResponseEntity.ok(body);
+        } catch (BusinessException e) {
+            return error(e);
+        }
+    }
+
     @PostMapping("/resend")
     public ResponseEntity<Map<String, Object>> resend(@RequestBody AccountingDueDTO request) {
         try {

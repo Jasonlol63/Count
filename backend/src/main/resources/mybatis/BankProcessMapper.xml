@@ -48,6 +48,9 @@
         <!-- Root String status: reliable for list JSON / frontend (avoid nested enum null → UI ACTIVE). -->
         <result property="status" column="bp_status"/>
         <result property="frequency" column="bp_frequency"/>
+        <!-- Bank Balance: linked Contra transaction (see transactions.bank_process_id), if any. -->
+        <result property="bankBalance" column="bank_balance"/>
+        <result property="bankBalanceTransactionId" column="bank_balance_transaction_id"/>
 
         <association property="bankProcess" javaType="com.eazycount.entity.BankProcess">
             <id property="id" column="bp_id"/>
@@ -136,13 +139,23 @@
             ca.account_id           AS customer_account_code,
             ca.name                 AS customer_account_name,
             coa.account_id          AS company_account_code,
-            coa.name                AS company_account_name
+            coa.name                AS company_account_name,
+            bbt.amount              AS bank_balance,
+            bbt.id                  AS bank_balance_transaction_id
         FROM bank_process bp
                  LEFT JOIN bank_country bc ON bc.id = bp.country_id
                  LEFT JOIN bank_option bo ON bo.id = bp.bank_option_id
                  LEFT JOIN account sa ON sa.id = bp.supplier_account_id
                  LEFT JOIN account ca ON ca.id = bp.customer_account_id
                  LEFT JOIN account coa ON coa.id = bp.company_account_id
+                 <!-- At most one linked Contra should ever exist per process (enforced in service layer,
+                      not by a DB constraint); this correlated join defends the list query against
+                      row-multiplication if that invariant is ever violated, always picking the newest. -->
+                 LEFT JOIN transactions bbt ON bbt.id = (
+                     SELECT t2.id FROM transactions t2
+                     WHERE t2.bank_process_id = bp.id AND t2.transaction_type = 'CONTRA'
+                     ORDER BY t2.id DESC LIMIT 1
+                 )
         WHERE bp.tenant_id = #{tenantId}
         ORDER BY bp.day_start DESC, bp.id DESC
     </select>

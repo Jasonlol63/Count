@@ -19,4 +19,8 @@ public interface TransactionDao {
     // SET NULL, so without this check deleting a currency silently blanks out historical transactions'
     // currency context.
     int countTransactionsByCurrencyId(@Param("currencyId") Integer currencyId, @Param("tenantId") Integer tenantId);
+
+    // Bank Balance: the (at most one) Contra transaction directly linked to a bank_process record —
+    // used to lock/unlock the Bank Balance field and to resolve what the Delete action removes.
+    Transaction findLinkedBankBalanceTransaction(@Param("tenantId") Integer tenantId, @Param("bankProcessId") Integer bankProcessId);
 }

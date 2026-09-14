@@ -100,7 +100,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         return insertAndBuildResult(
                 session, tenantId, transactionType, accounts.toAccountId(), accounts.fromAccountId(),
                 accounts.currency(), amount, resolveTransactionDate(request),
-                trimToNull(request.getRemark()), description, null);
+                trimToNull(request.getRemark()), description, null, request.getBankProcessId());
     }
 
     private TransactionSubmitDTO submitProfit(
@@ -481,29 +481,25 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         return new FromToAccounts(toAccountId, fromAccountId, currency, toAccount, fromAccount);
     }
 
-    private record FromToAccounts(
-            Integer toAccountId,
-            Integer fromAccountId,
-            Currency currency,
-            UserListDTO toAccount,
-            UserListDTO fromAccount) {
+    private record FromToAccounts(Integer toAccountId, Integer fromAccountId, Currency currency, UserListDTO toAccount,
+                                  UserListDTO fromAccount) {
     }
 
-    private TransactionSubmitDTO insertAndBuildResult(
-            SessionUser session,
-            Integer tenantId,
-            Transaction.TransactionType transactionType,
-            Integer toAccountId,
-            Integer fromAccountId,
-            Currency currency,
-            BigDecimal amount,
-            LocalDate transactionDate,
-            String remark,
-            String description,
-            String rateGroupId) {
+    private TransactionSubmitDTO insertAndBuildResult(SessionUser session, Integer tenantId, Transaction.TransactionType transactionType,
+                                                      Integer toAccountId, Integer fromAccountId, Currency currency,
+                                                      BigDecimal amount, LocalDate transactionDate, String remark,
+                                                      String description, String rateGroupId) {
+        return insertAndBuildResult(session, tenantId, transactionType, toAccountId, fromAccountId,
+                currency, amount, transactionDate, remark, description, rateGroupId, null);
+    }
+
+    private TransactionSubmitDTO insertAndBuildResult(SessionUser session, Integer tenantId, Transaction.TransactionType transactionType,
+                                                      Integer toAccountId, Integer fromAccountId, Currency currency, BigDecimal amount,
+                                                      LocalDate transactionDate, String remark, String description,
+                                                      String rateGroupId, Integer bankProcessId) {
         Transaction txn = insertApproved(
                 session, tenantId, transactionType, toAccountId, fromAccountId,
-                currency.getId(), amount, transactionDate, remark, description, rateGroupId);
+                currency.getId(), amount, transactionDate, remark, description, rateGroupId, bankProcessId);
 
         TransactionSubmitDTO result = new TransactionSubmitDTO();
         result.setId(txn.getId());
@@ -520,18 +516,16 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         return result;
     }
 
-    private Transaction insertApproved(
-            SessionUser session,
-            Integer tenantId,
-            Transaction.TransactionType transactionType,
-            Integer toAccountId,
-            Integer fromAccountId,
-            Integer currencyId,
-            BigDecimal amount,
-            LocalDate transactionDate,
-            String remark,
-            String description,
-            String rateGroupId) {
+    private Transaction insertApproved(SessionUser session, Integer tenantId, Transaction.TransactionType transactionType,
+                                       Integer toAccountId, Integer fromAccountId, Integer currencyId, BigDecimal amount,
+                                       LocalDate transactionDate, String remark, String description, String rateGroupId) {
+        return insertApproved(session, tenantId, transactionType, toAccountId, fromAccountId,
+                currencyId, amount, transactionDate, remark, description, rateGroupId, null);
+    }
+
+    private Transaction insertApproved(SessionUser session, Integer tenantId, Transaction.TransactionType transactionType,
+                                       Integer toAccountId, Integer fromAccountId, Integer currencyId, BigDecimal amount,
+                                       LocalDate transactionDate, String remark, String description, String rateGroupId, Integer bankProcessId) {
         String createdBy = session.login_id;
         LocalDateTime approvedAt = LocalDateTime.now();
 
@@ -551,6 +545,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         txn.setApprovedBy(createdBy);
         txn.setApprovedAt(approvedAt);
         txn.setBankProcessPostedId(null);
+        txn.setBankProcessId(bankProcessId);
         txn.setRateGroupId(rateGroupId);
 
         transactionDao.insert(txn);

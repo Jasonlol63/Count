@@ -80,5 +80,15 @@ public class BankProcessDTO {
 
     private String remark;
 
+    /* Bank Balance one-off Contra settlement. On add/update requests: the amount to create a new
+     * Contra for (ignored by the service once a linked one already exists — see
+     * bankBalanceTransactionId). On list rows: the linked Contra's amount, or null if none. */
+    private BigDecimal bankBalance;
+
+    /* List rows only: id of the linked Contra transaction (transactions.bank_process_id), or null
+     * if this process has no Bank Balance settlement yet. Drives the locked/unlocked field state
+     * on the frontend. Not meaningful on add/update requests. */
+    private Integer bankBalanceTransactionId;
+
     private List<BankProcessShare> shares;
 }
