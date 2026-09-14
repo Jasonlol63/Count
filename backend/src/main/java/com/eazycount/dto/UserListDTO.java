@@ -36,6 +36,7 @@ public class UserListDTO {
     private Date alertSpecificDate;
     private String remark;
     private LocalDateTime lastLogin;
+    private LocalDateTime lastLogout;
 
     /** tenant.id list (company.id in frontend picker) */
     private List<Integer> tenantIds;

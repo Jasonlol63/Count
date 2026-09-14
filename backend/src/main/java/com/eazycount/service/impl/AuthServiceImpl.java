@@ -451,6 +451,8 @@ public class AuthServiceImpl implements AuthService {
                 authDao.updateAdminLastLogout(currentUser.user_id);
             } else if ("owner".equals(currentUser.user_type)) {
                 authDao.updateOwnerLastLogout(currentUser.user_id);
+            } else if ("member".equals((currentUser.user_type))) {
+                authDao.updateMemberLastLogout(currentUser.user_id);
             }
         }
 

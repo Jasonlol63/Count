@@ -64,4 +64,6 @@ public interface AuthDao {
     void updateMemberPassword(@Param("memberId") Integer memberId, @Param("password") String password);
 
     void updateMemberLastLogin(@Param("memberId") Integer memberId);
+
+    void updateMemberLastLogout(@Param("memberId") Integer memberId);
 }

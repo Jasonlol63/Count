@@ -91,6 +91,7 @@ CREATE TABLE `account` (
     `alert_amount`        DECIMAL(25, 8) DEFAULT NULL COMMENT 'Alert amount threshold',
     `remark`              TEXT           DEFAULT NULL COMMENT 'Account remark',
     `last_login`          DATETIME       DEFAULT NULL,
+    `last_logout`         DATETIME       DEFAULT NULL,
     `created_at` datetime NOT NULL DEFAULT current_timestamp(),
     PRIMARY KEY (`id`),
     KEY `idx_account_account_id` (`account_id`),

@@ -17,6 +17,8 @@
         <result property="alertAmount" column="accountAlertAmount" jdbcType="DECIMAL"/>
         <result property="alertSpecificDate" column="accountAlertSpecificDate" jdbcType="DATE"/>
         <result property="remark" column="accountRemark" jdbcType="LONGVARCHAR"/>
+        <result property="lastLogin" column="accountLogin" jdbcType="DATE"/>
+        <result property="lastLogout" column="accountLogout" jdbcType="DATE"/>
     </resultMap>
 
     <resultMap id="AccountLinkMap" type="com.eazycount.entity.UserLink">
@@ -42,6 +44,8 @@
         a.alert_amount          AS accountAlertAmount,
         a.alert_specific_date   AS accountAlertSpecificDate,
         a.remark                AS accountRemark,
+        a.last_login            AS accountLogin,
+        a.last_logout           AS accountLogout,
         ata.id                  AS tenantAccessId,
         ata.tenant_id           AS scopeTenantId
         FROM account a
@@ -64,6 +68,8 @@
         a.alert_amount          AS accountAlertAmount,
         a.alert_specific_date   AS accountAlertSpecificDate,
         a.remark                AS accountRemark,
+        a.last_login            AS accountLogin,
+        a.last_logout           AS accountLogout,
         ata.id                  AS tenantAccessId,
         ata.tenant_id           AS scopeTenantId
         FROM account a

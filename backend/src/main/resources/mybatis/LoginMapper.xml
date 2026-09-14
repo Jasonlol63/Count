@@ -434,4 +434,10 @@
         WHERE id = #{memberId}
     </update>
 
+    <update id="updateMemberLastLogout">
+        UPDATE account
+        SET last_logout = NOW()
+        WHERE id = #{memberId}
+    </update>
+
 </mapper>

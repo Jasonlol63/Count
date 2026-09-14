@@ -48,6 +48,8 @@ public class User {
 
     private LocalDateTime lastLogin;
 
+    private LocalDateTime lastLogout;
+
     private LocalDateTime createdAt;
 
     @Getter
