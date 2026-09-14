@@ -54,16 +54,19 @@
     <insert id="archivePaymentMaintenanceToDeleted">
         INSERT INTO transactions_deleted (
             transaction_id, tenant_id, transaction_type, account_id, from_account_id, currency_id, amount,
-            transaction_date, description, remark, created_by, created_at, deleted_by, deleted_at,
+            transaction_date, description, remark, approval_status, approved_by, approved_at,
+            created_by, created_at, deleted_by, deleted_at,
             bank_process_posted_id, rate_group_id
         )
         SELECT
             t.id, t.tenant_id, t.transaction_type, t.account_id, t.from_account_id, t.currency_id, t.amount,
-            t.transaction_date, t.description, t.remark, t.created_by, t.created_at,  #{deletedBy}, NOW(),
+            t.transaction_date, t.description, t.remark, t.approval_status, t.approved_by, t.approved_at,
+            t.created_by, t.created_at,  #{deletedBy}, NOW(),
             t.bank_process_posted_id, t.rate_group_id
         FROM transactions t
         WHERE t.tenant_id = #{tenantId}
           AND t.bank_process_posted_id IS NULL
+          AND t.approval_status = 'APPROVED'
           AND t.transaction_type IN (<include refid="paymentMaintenanceTransactionTypes"/>)
           AND t.id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">
@@ -75,11 +78,13 @@
     <insert id="archiveBankProcessMaintenanceToDeleted">
         INSERT INTO transactions_deleted (
             transaction_id, tenant_id, transaction_type, account_id, from_account_id, currency_id, amount,
-            transaction_date, description, remark, created_by, created_at, deleted_by, deleted_at,
+            transaction_date, description, remark, approval_status, approved_by, approved_at,
+            created_by, created_at, deleted_by, deleted_at,
             bank_process_posted_id, rate_group_id )
         SELECT
             t.id, t.tenant_id, t.transaction_type, t.account_id, t.from_account_id, t.currency_id, t.amount,
-            t.transaction_date, t.description, t.remark, t.created_by, t.created_at, #{deletedBy}, NOW(),
+            t.transaction_date, t.description, t.remark, t.approval_status, t.approved_by, t.approved_at,
+            t.created_by, t.created_at, #{deletedBy}, NOW(),
             t.bank_process_posted_id, t.rate_group_id
         FROM transactions t
         INNER JOIN bank_process_accounting_posted bpap ON bpap.id = t.bank_process_posted_id
@@ -191,6 +196,9 @@
             UPPER(c.code) AS currencyCode,
             td.description AS description,
             td.remark AS remark,
+            td.approval_status AS approvalStatus,
+            td.approved_by AS approvedBy,
+            td.approved_at AS approvedAt,
             td.created_by AS createdBy,
             TRUE AS deleted,
             td.deleted_by AS deletedBy,
@@ -288,6 +296,9 @@
             UPPER(c.code) AS currencyCode,
             td.description AS description,
             td.remark AS remark,
+            td.approval_status AS approvalStatus,
+            td.approved_by AS approvedBy,
+            td.approved_at AS approvedAt,
             td.created_by AS createdBy,
             TRUE AS deleted,
             td.deleted_by AS deletedBy,
@@ -486,12 +497,14 @@
     <insert id="archiveCaptureTransactionsToDeleted">
         INSERT INTO transactions_deleted (
             transaction_id, tenant_id, transaction_type, account_id, from_account_id, currency_id, amount,
-            transaction_date, description, remark, created_by, created_at, deleted_by, deleted_at,
+            transaction_date, description, remark, approval_status, approved_by, approved_at,
+            created_by, created_at, deleted_by, deleted_at,
             bank_process_posted_id, rate_group_id
         )
         SELECT
             t.id, t.tenant_id, t.transaction_type, t.account_id, t.from_account_id, t.currency_id, t.amount,
-            t.transaction_date, t.description, t.remark, t.created_by, t.created_at, #{deletedBy}, NOW(),
+            t.transaction_date, t.description, t.remark, t.approval_status, t.approved_by, t.approved_at,
+            t.created_by, t.created_at, #{deletedBy}, NOW(),
             t.bank_process_posted_id, t.rate_group_id
         FROM transactions t
         WHERE t.tenant_id = #{tenantId}

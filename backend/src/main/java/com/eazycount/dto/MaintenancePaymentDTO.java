@@ -31,6 +31,9 @@ public class MaintenancePaymentDTO {
     private String currencyCode;
     private String description;
     private String remark;
+    private String approvalStatus;
+    private String approvedBy;
+    private LocalDateTime approvedAt;
     private String createdBy;
 
     private Boolean deleted;

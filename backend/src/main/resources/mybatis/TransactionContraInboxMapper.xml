@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.TransactionContraInboxDao">
+
+    <!-- Pending manual transactions awaiting Owner/Admin/Manager approval. -->
+    <select id="findPendingRows" resultType="com.eazycount.dto.TransactionContraInboxDTO">
+        SELECT
+            t.id AS id,
+            t.transaction_type AS transactionType,
+            t.created_at AS createdAt,
+            t.transaction_date AS transactionDate,
+            to_a.account_id AS toAccountCode,
+            from_a.account_id AS fromAccountCode,
+            t.amount AS amount,
+            UPPER(c.code) AS currencyCode,
+            t.description AS description,
+            t.remark AS remark,
+            t.created_by AS createdBy
+        FROM transactions t
+        INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
+        INNER JOIN account to_a ON to_a.id = t.account_id
+        LEFT JOIN account from_a ON from_a.id = t.from_account_id
+        WHERE t.tenant_id = #{tenantId}
+          AND t.approval_status = 'PENDING'
+        ORDER BY t.transaction_date ASC, t.created_at ASC
+    </select>
+
+    <!-- Approve in place: same row/id stays in `transactions`, just flips to APPROVED. -->
+    <update id="approvePendingTransaction">
+        UPDATE transactions
+        SET approval_status = 'APPROVED',
+            approved_by = #{approvedBy},
+            approved_at = NOW()
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND approval_status = 'PENDING'
+    </update>
+
+    <!-- Reject step 1: snapshot the PENDING row into transactions_deleted as REJECTED before the caller
+         hard-deletes it from `transactions` (see ContraInboxServiceImpl.reject). approval_status/approved_by/
+         approved_at are NOT copied from the source row (which is PENDING with null approver) — they are
+         set explicitly to REJECTED / the rejecter / now(), matching deleted_by/deleted_at below. -->
+    <insert id="archiveRejectedToDeleted">
+        INSERT INTO transactions_deleted (
+            transaction_id, tenant_id, transaction_type, account_id, from_account_id, currency_id, amount,
+            transaction_date, description, remark, approval_status, approved_by, approved_at,
+            created_by, created_at, deleted_by, deleted_at,
+            bank_process_posted_id, rate_group_id
+        )
+        SELECT
+            t.id, t.tenant_id, t.transaction_type, t.account_id, t.from_account_id, t.currency_id, t.amount,
+            t.transaction_date, t.description, t.remark, 'REJECTED', #{rejectedBy}, NOW(),
+            t.created_by, t.created_at, #{rejectedBy}, NOW(),
+            t.bank_process_posted_id, t.rate_group_id
+        FROM transactions t
+        WHERE t.tenant_id = #{tenantId}
+          AND t.id = #{id}
+          AND t.approval_status = 'PENDING'
+    </insert>
+
+</mapper>

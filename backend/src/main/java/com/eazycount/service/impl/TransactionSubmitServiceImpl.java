@@ -198,12 +198,12 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         String leg2Description = exchPrefix + " | FROM " + accountDisplayName(leg2.fromAccount())
                 + " TO " + accountDisplayName(leg2.toAccount());
 
-        Transaction leg1Txn = insertApproved(
+        Transaction leg1Txn = insertTransactionRow(
                 session, tenantId, Transaction.TransactionType.RATE,
                 leg1.toAccountId(), leg1.fromAccountId(), leg1.currency().getId(),
                 amountFrom, transactionDate, remark, leg1Description, rateGroupId);
         // leg2 flat 毛额，不受 Rate-Mul/Fee/Platform Fee 影响；下面的扣减都记在leg2.fromAccountId()（from account）上。
-        Transaction leg2Txn = insertApproved(
+        Transaction leg2Txn = insertTransactionRow(
                 session, tenantId, Transaction.TransactionType.RATE,
                 leg2.toAccountId(), leg2.fromAccountId(), leg2.currency().getId(),
                 grossTo, transactionDate, remark, leg2Description, rateGroupId);
@@ -217,7 +217,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
             if (middleman.ratePortion() != null) {
                 String rateMarkup = formatMiddlemanMarkupDescription(
                         false, middleman.parsedRate(), leg1Ccy, amountText, leg2Ccy, leg1ToName);
-                Transaction rateTxn = insertApproved(
+                Transaction rateTxn = insertTransactionRow(
                         session, tenantId, Transaction.TransactionType.RATE,
                         leg2.fromAccountId, middleman.accountId(), leg2.currency().getId(),
                         middleman.ratePortion(), transactionDate, remark,
@@ -227,7 +227,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
             if (middleman.feePortion() != null) {
                 String feeMarkup = formatMiddlemanMarkupDescription(
                         true, null, leg1Ccy, amountText, leg2Ccy, leg1ToName);
-                Transaction feeTxn = insertApproved(
+                Transaction feeTxn = insertTransactionRow(
                         session, tenantId, Transaction.TransactionType.RATE,
                         leg2.fromAccountId, middleman.accountId(), leg2.currency().getId(),
                         middleman.feePortion(), transactionDate, remark,
@@ -236,7 +236,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
             }
             if (middleman.platformFeeInput() != null) {
                 String platformFeeDescription = formatPlatformFeeDescription(leg2Ccy, middleman.platformFeeInput());
-                Transaction platformFeeTxn = insertApproved(
+                Transaction platformFeeTxn = insertTransactionRow(
                         session, tenantId, Transaction.TransactionType.RATE,
                         leg2.fromAccountId, null, leg2.currency().getId(),
                         middleman.platformFeeInput(), transactionDate, remark,
@@ -278,6 +278,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
 
         TransactionSubmitDTO result = new TransactionSubmitDTO();
         result.setId(leg1Txn.getId());
+        result.setApprovalStatus(leg1Txn.getApprovalStatus().name());
         result.setTransactionType(Transaction.TransactionType.RATE.name());
         result.setTenantId(tenantId);
         result.setToAccountId(leg1.toAccountId());
@@ -497,12 +498,13 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
                                                       Integer toAccountId, Integer fromAccountId, Currency currency, BigDecimal amount,
                                                       LocalDate transactionDate, String remark, String description,
                                                       String rateGroupId, Integer bankProcessId) {
-        Transaction txn = insertApproved(
+        Transaction txn = insertTransactionRow(
                 session, tenantId, transactionType, toAccountId, fromAccountId,
                 currency.getId(), amount, transactionDate, remark, description, rateGroupId, bankProcessId);
 
         TransactionSubmitDTO result = new TransactionSubmitDTO();
         result.setId(txn.getId());
+        result.setApprovalStatus(txn.getApprovalStatus().name());
         result.setTransactionType(transactionType.name());
         result.setTenantId(tenantId);
         result.setToAccountId(toAccountId);
@@ -516,18 +518,17 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         return result;
     }
 
-    private Transaction insertApproved(SessionUser session, Integer tenantId, Transaction.TransactionType transactionType,
+    private Transaction insertTransactionRow(SessionUser session, Integer tenantId, Transaction.TransactionType transactionType,
                                        Integer toAccountId, Integer fromAccountId, Integer currencyId, BigDecimal amount,
                                        LocalDate transactionDate, String remark, String description, String rateGroupId) {
-        return insertApproved(session, tenantId, transactionType, toAccountId, fromAccountId,
+        return insertTransactionRow(session, tenantId, transactionType, toAccountId, fromAccountId,
                 currencyId, amount, transactionDate, remark, description, rateGroupId, null);
     }
 
-    private Transaction insertApproved(SessionUser session, Integer tenantId, Transaction.TransactionType transactionType,
+    private Transaction insertTransactionRow(SessionUser session, Integer tenantId, Transaction.TransactionType transactionType,
                                        Integer toAccountId, Integer fromAccountId, Integer currencyId, BigDecimal amount,
                                        LocalDate transactionDate, String remark, String description, String rateGroupId, Integer bankProcessId) {
         String createdBy = session.login_id;
-        LocalDateTime approvedAt = LocalDateTime.now();
 
         Transaction txn = new Transaction();
         txn.setTenantId(tenantId);
@@ -541,15 +542,35 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         txn.setRemark(remark);
         txn.setCreatedBy(createdBy);
         txn.setUpdatedBy(null);
-        txn.setApprovalStatus(Transaction.ApprovalStatus.APPROVED);
-        txn.setApprovedBy(createdBy);
-        txn.setApprovedAt(approvedAt);
+
+        if (isAutoApproved(session, transactionDate)) {
+            txn.setApprovalStatus(Transaction.ApprovalStatus.APPROVED);
+            txn.setApprovedBy(createdBy);
+            txn.setApprovedAt(LocalDateTime.now());
+        } else {
+            txn.setApprovalStatus(Transaction.ApprovalStatus.PENDING);
+            txn.setApprovedBy(null);
+            txn.setApprovedAt(null);
+        }
         txn.setBankProcessPostedId(null);
         txn.setBankProcessId(bankProcessId);
         txn.setRateGroupId(rateGroupId);
 
         transactionDao.insert(txn);
         return txn;
+    }
+
+    /*
+     * Contra Inbox rule: Owner/Admin/Manager always auto-approve. Every other role (Supervisor and
+     * below, and Partnership regardless of its read_only flag) only auto-approves a transaction dated
+     * today or later; a backdated transactionDate goes to PENDING and needs an Owner/Admin/Manager to
+     * approve/reject it via the Contra Inbox (see AccessControlUtils.requireContraInboxApprover).
+     */
+    private static boolean isAutoApproved(SessionUser session, LocalDate transactionDate) {
+        if (AccessControlUtils.isManualTransactionApprovalExempt(session.role)) {
+            return true;
+        }
+        return !transactionDate.isBefore(LocalDate.now());
     }
 
     private static LocalDate resolveTransactionDate(TransactionSubmitDTO request) {

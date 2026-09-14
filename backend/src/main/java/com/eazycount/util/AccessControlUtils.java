@@ -28,6 +28,15 @@ public final class AccessControlUtils {
     /* Domain page "No Expiry Date" (Tenant.PERMANENT_EXPIRATION_DATE) — only Admin and above may set it. */
     private static final Set<String> PERMANENT_EXPIRATION_ROLES = Set.of("OWNER", "PARTNERSHIP", "ADMIN");
 
+    /*
+     * Contra Inbox: roles whose manual transactions (PAYMENT/CLAIM/CLEAR/CONTRA/RATE/ADJUSTMENT/PROFIT)
+     * are always auto-approved, regardless of transaction date. Every other role (including Partnership,
+     * and independent of that role's read_only flag) only auto-approves a same-day-or-future transaction
+     * date; a backdated one goes to PENDING and needs one of these roles to approve/reject it.
+     */
+    private static final Set<String> MANUAL_TRANSACTION_APPROVAL_EXEMPT_ROLES =
+            Set.of("OWNER", "ADMIN", "MANAGER");
+
     private AccessControlUtils() {
     }
 
@@ -95,6 +104,19 @@ public final class AccessControlUtils {
         }
         if (!PERMANENT_EXPIRATION_ROLES.contains(normalizeRole(session.role))) {
             throw new BusinessException("No permission to set No Expiry Date");
+        }
+    }
+
+    /* Contra Inbox: true if this role's manual transactions always auto-approve (see MANUAL_TRANSACTION_APPROVAL_EXEMPT_ROLES). */
+    public static boolean isManualTransactionApprovalExempt(String role) {
+        return MANUAL_TRANSACTION_APPROVAL_EXEMPT_ROLES.contains(normalizeRole(role));
+    }
+
+    /* Contra Inbox: only Owner/Admin/Manager may approve or reject a pending manual transaction. */
+    public static void requireContraInboxApprover(SessionUser session) {
+        requireWritable(session);
+        if (!isManualTransactionApprovalExempt(session.role)) {
+            throw new BusinessException("No permission to approve or reject Contra Inbox transactions");
         }
     }
 }

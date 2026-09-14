@@ -68,6 +68,9 @@ public class TransactionSubmitDTO {
     // ── Result-only ──────────────────────────────────────────────────────────
     private Integer id;
 
+    /* APPROVED or PENDING (Contra Inbox) — see AccessControlUtils.isManualTransactionApprovalExempt. */
+    private String approvalStatus;
+
     private String amountDisplay;
     private String exchangeRateDisplay;
 
