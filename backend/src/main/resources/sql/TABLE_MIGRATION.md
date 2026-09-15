@@ -3,7 +3,7 @@
 > **目标 schema**：`schema.sql`（本目录）  
 > **对照来源**：旧 PHP 库（`count168.org` / `easycount_schema.sql`、`games_schema.sql`；以及 `backend/src/main/resources/schema.sql` 残缺摘录）  
 > **运行库示例**：`testcount`  
-> **最后更新**：2026-09-02
+> **最后更新**：2026-09-15
 
 本文说明旧表在新租户模型（`tenant`）下如何 **迁移 / 拆分 / 合并 / 优化 / 弃用**。  
 **只谈表结构与设计意图**；业务 API 是否已切到 Spring 另见 `docs/frontend-springboot-migration.md` 第32节（Data Capture）。
@@ -44,7 +44,7 @@
 | `password_reset_tac` | **弃用**；密码重置改走 Redis TAC | 弃用（原表已从 schema.sql 移除） |
 | `password_reset_tac_owner` | **弃用**；同上 | 弃用（原表已从 schema.sql 移除） |
 
-> **注**：`testcount` 库当前实际表名仍是 `tenant_auto_renew_request` / `tenant_auto_renew_request_transaction`（早期建库时的命名，`AutoRenewMapper.xml`、`migrate_auto_renew_delete.sql` 也用这个名字），已存在的库不重命名。`schema.sql` 里"从零建库"用的新表名是 `tenant_auto_renew` / `tenant_auto_renew_transaction`（不含 `request` 字样）——**两者目前不一致，全新建库时以 schema.sql 为准，但 mapper/增量脚本尚未同步改名**，谁先动手改代码那边请一并同步。`tenant_auto_renew_transaction` 当初随 Transactions 域一起延后处理，2026-09-02 已补做（1 行，见 [`MIGRATION_LOG.md` §20.1](../SqlEtcForMigrate/logs/MIGRATION_LOG.md#201-tenant_auto_renew_transaction3-当时明确说等-transactions-域迁完再补后来没人回去补)）。
+> **注（2026-09-15 已解决）**：`tenant_auto_renew` / `tenant_auto_renew_transaction` 命名已全库统一（不含 `request` 字样）——`testcount` 实际表、`schema.sql`、`AutoRenewMapper.xml`、`migrate_auto_renew_delete.sql` 现在一致使用新名。旧名 `tenant_auto_renew_request` / `tenant_auto_renew_request_transaction` 仅为历史记录，不再出现在任何脚本/代码里。
 
 ### 2.2 Domain / 公告 / 币别 / Ownership
 
@@ -58,7 +58,7 @@
 | `account_currency_display_order` | **弃用**；顺序并入 `account_currency.sort_order` | 合并优化 |
 | `company_ownership` / `group_ownership` | `tenant_ownership` | 合并迁移 |
 | `company_ownership_history` / `group_ownership_history` | `tenant_ownership_history` | 合并迁移 |
-| （自动续期申请） | `tenant_auto_renew` + `tenant_auto_renew_transaction` | 新模型表（表名不含 `request` 字样；`testcount` 中因历史原因仍叫 `tenant_auto_renew_request`/`_request_transaction`，不影响，见下方注记） |
+| （自动续期申请） | `tenant_auto_renew` + `tenant_auto_renew_transaction` | 新模型表（表名不含 `request` 字样；命名已全库统一，见下方注记） |
 | （费用分成 JSON） | `tenant_fee_share_allocation` | 规范化 |
 | `account_link` | `account_link` | 保留 |
 
@@ -247,6 +247,8 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 | `process_description` | 新增 `UNIQUE(tenant_id, name)` | 防止同租户下重复描述 |
 | `v_company_tenant` / `v_group_tenant`（新视图） | 按 `tenant_type` 拆分 `tenant` 的只读视图 | 供报表/查询按公司或集团单独取数 |
 | `bank_process` | 新增 `due_generation_floor`（可空，`migrate_add_due_generation_floor.sql`） | Accounting Due 生成默认从 `created_at` 所在月往前回补；迁移/补录写入的 `created_at` 不代表真实合同起始日，会把中间月份重新算成待处理 due。此字段可覆盖回补起点（不改 `created_at` 本身语义），仅对仍在合同期内的记录一次性设置；已过期的纯记录合同不受影响 |
+| `exchange_rate`（新表，2026-09-15 补录进 schema.sql） | 全局（非 tenant-scoped）每日 FX 快照，全部以 USD 为轴心币 | 供 Dashboard 多币别 Amount/Original Amount/Rate 拆分（Currency & Earning tab）；由每日排程任务写入，迁移脚本：`migrate_add_exchange_rate_table.sql` |
+| `platform_settings`（新表，2026-09-15 补录进 schema.sql） | 单例表（固定 `id=1`），全局平台级配置 | 首个字段 `telegram_support_link`：登录页悬浮按钮的 Telegram 支持链接；非 tenant-scoped，无 `company_code`/`tenant_id`；迁移脚本：`migrate_add_platform_settings_table.sql` |
 
 ---
 
@@ -280,6 +282,8 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 - `tenant_ownership` / `tenant_ownership_history` / `tenant_auto_renew` / `tenant_auto_renew_transaction`  
 - `data_capture_line_deleted`（Capture Maintenance 软删归档；按整个 capture 归档，不支持单行删）  
 - `v_company_tenant` / `v_group_tenant`（`tenant` 按 `tenant_type` 拆分的只读视图）  
+- `exchange_rate`（全局每日 FX 快照，非 tenant-scoped）  
+- `platform_settings`（全局平台级配置单例表，非 tenant-scoped）  
 
 （部分在旧库有「功能等价」表，但名称与形状已变，见 §2。）
 
@@ -298,12 +302,14 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 | `rate_tables_optimized_reference.sql` | RATE 优化参考说明 |
 | `migrate_account_id_unique_per_tenant.sql` | account_id 唯一性按 tenant |
 | `migrate_enums_to_uppercase.sql` | 枚举大写 |
-| `migrate_auto_renew_delete.sql` | 增量加 auto renew 关联流水表；**注意**：用的是旧名 `tenant_auto_renew_request_transaction`，与 `schema.sql` 里全新建库用的 `tenant_auto_renew_transaction` 不一致（见 §2.1 注） |
 | `migrate_role_hierarchy_and_admin_permission_fix.sql` | 修正 `user_role.hierarchy_level`（PARTNERSHIP 从 8 改为 2，紧排在 OWNER 之后）；移除 `CUSTOMER_SERVICE` 的 `ADMIN`（员工列表）侧边栏权限（如存在） |
 | `migrate_add_user_permission_override.sql` | 增量加 `user.permission_mode` 列 + `user_permission_override` 表——账号级侧边栏权限自定义（加/减角色默认之外的入口），与 `account_acl_mode`/`process_acl_mode` 同一套设计语言 |
 | `migrate_admin_read_only_default_false.sql` | `user.read_only` 默认值从 1 改成 0（只有 Partnership/Audit 前端有开关能手动设成 1，其余角色不该被默认锁死无法写入），并回填现有非 Partnership/Audit 账号 |
 | `migrate_process_code_allow_duplicate.sql` | `process.code` 去掉 `UNIQUE(tenant_id, category, code)`，改成允许同一 tenant 下 code 重复（真实业务场景：一个业务码拆成几个报表区块，各自不同的解析规则/公式，靠不同的 description 区分）；真正不能重复的是 `(tenant, category, code, description)`，靠触发器（`trg_pdl_bi/bu_unique_code_desc`、`trg_process_bu_unique_code_desc`）在数据库层强制，不只是 Service 层校验（避免并发竞态绕过）。配套改了 `ProcessServiceImpl`/`ProcessDao`：新建改用 description 感知的冲突检查；`DataCaptureSummaryServiceImpl` 里"只有 code 没有 processId"这条兜底路径，从 `LIMIT 1` 随便挑一条改成查出多条就直接报错（避免静默算错账） |
 | `migrate_add_due_generation_floor.sql` | 增量加 `bank_process.due_generation_floor` 列，并对指定 id 一次性设为当日——修正迁移写入的 `created_at` 导致 Accounting Due Inbox 把当月之前的月份重新算成待处理的问题（详见 §3.8） |
+| `migrate_add_exchange_rate_table.sql` | 增量加全局 `exchange_rate` 表（每日 FX 快照，Dashboard 多币别拆分用） |
+| `migrate_add_platform_settings_table.sql` | 增量加全局单例 `platform_settings` 表（Telegram support link 等平台级配置） |
+| `migrate_auto_renew_delete.sql` | 增量加 `tenant_auto_renew_transaction` 关联流水表（供 Auto Renew delete/revert 精确定位）；已随命名统一改用新表名，`schema.sql` 全新建库直接含此表 |
 | 其他 `migrate_*` / `add_*` / `seed_*` | 各子域增量与种子数据 |
 
 应用示例：
@@ -315,15 +321,16 @@ Get-Content backend\src\main\resources\sql\migrate_datacapture_line.sql -Raw |
 
 ---
 
-## 7. Schema 完成度（截至 2026-08-27）
+## 7. Schema 完成度（截至 2026-09-15）
 
 | 状态 | 内容 |
 |------|------|
 | ✅ 核心业务表 | Login、权限、Domain、Ownership、Currency、Process（含 Copy From）、Bank Process、Transactions/RATE（含 Platform Fee）、Data Capture（含 formula / line / line_deleted / draft）DDL 已就绪 |
+| ✅ 全局表 | `exchange_rate`（每日 FX 快照）、`platform_settings`（平台级配置单例）已补录进 `schema.sql` |
 | ✅ 故意不建 | `submit_queue`、`summary_state`、RATE 旧明细/分录、`password_reset_tac*`、backup 表等（§4） |
-| ⚪ 可选未建 | `auto_login_credentials`、`deleted_logs`、`fx_daily_rates`（旧库 8/27 备份新出现，待定） |
+| ⚪ 可选未建 | `auto_login_credentials`、`deleted_logs`、`fx_daily_rates`（旧库 8/27 备份新出现，待定；注意与 §5 已建的 `exchange_rate` 是两张不同的表，`fx_daily_rates` 至今仍未迁入） |
 | ⚠️ 非 schema 缺口 | 部分业务仍走 PHP 旧表（如 Summary Submit 仍可能写 `data_capture_details`）。属 **API 迁移**，不是缺 DDL |
-| ⚠️ 命名不一致（待修） | `tenant_auto_renew*`：`schema.sql` 用不含 `request` 的新名，`testcount` 实际库 + `AutoRenewMapper.xml` + `migrate_auto_renew_delete.sql` 仍用旧名 `tenant_auto_renew_request*`（见 §2.1 注） |
+| ✅ 命名已统一 | `tenant_auto_renew` / `tenant_auto_renew_transaction`：`schema.sql`、`testcount` 实际库、`AutoRenewMapper.xml`、`migrate_auto_renew_delete.sql` 现已全部使用新名（见 §2.1 注） |
 
 ---
 

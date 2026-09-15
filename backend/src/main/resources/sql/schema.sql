@@ -7,6 +7,8 @@
 -- references it), and re-enabling too early would fail on a populated dev DB.
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS `platform_settings`;
+DROP TABLE IF EXISTS `exchange_rate`;
 DROP TABLE IF EXISTS `submitted_processes`;
 DROP TABLE IF EXISTS `data_capture_line`;
 DROP TABLE IF EXISTS `data_capture_description`;
@@ -1246,5 +1248,39 @@ CREATE TABLE `transactions_deleted` (
     INDEX `idx_bp_posted` (`tenant_id`, `bank_process_posted_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Archived soft-deleted transactions (Payment + Bank Process Maintenance)';
+
+-- =============================================================================
+-- Global (non-tenant-scoped) tables
+-- =============================================================================
+
+-- Daily FX snapshot for the dashboard's multi-currency Amount/Original Amount/Rate breakdown
+-- (Currency & Earning tabs). All rates pivoted against USD; converting A -> B is done in the
+-- service layer as amount * rate_to_usd(A) / rate_to_usd(B) -- no NxN matrix.
+CREATE TABLE `exchange_rate` (
+    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `currency_code` VARCHAR(10) NOT NULL COMMENT 'ISO currency code or stablecoin symbol, e.g. MYR, USD, USDT',
+    `rate_to_usd` DECIMAL(18,8) NOT NULL COMMENT '1 unit of currency_code expressed in USD; USD row itself = 1',
+    `rate_date` DATE NOT NULL COMMENT 'Day this snapshot represents',
+    `source` VARCHAR(20) NOT NULL DEFAULT 'frankfurter' COMMENT 'frankfurter | stablecoin | manual',
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_exchange_rate_code_date` (`currency_code`, `rate_date`),
+    KEY `idx_exchange_rate_date` (`rate_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Daily FX snapshot, all rates pivoted against USD';
+
+-- Singleton (id=1) row for global platform-level config edited at runtime, e.g. the Telegram
+-- support link shown as a floating button on the (unauthenticated) login page. Not tenant-scoped
+-- (no company_code/tenant_id) -- deliberately different from announcements/maintenance_marquee.
+CREATE TABLE `platform_settings` (
+    `id`                    TINYINT UNSIGNED NOT NULL COMMENT 'Always 1 -- singleton row',
+    `telegram_support_link` VARCHAR(500) NULL COMMENT 'Telegram support URL for the login-page button; NULL/empty = button hidden',
+    `updated_by`            VARCHAR(50)  NULL COMMENT 'Last editor login_id (admin=user.login_id; owner=owner_code)',
+    `updated_by_type`       ENUM('USER', 'OWNER') NULL COMMENT 'Last editor identity table',
+    `updated_at`            TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Singleton row (id=1) for global platform-level settings, e.g. Telegram support link';
+
+INSERT INTO `platform_settings` (`id`) VALUES (1);
 
 SET FOREIGN_KEY_CHECKS = 1;
