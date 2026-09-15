@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eazycount.dao.AuditLogDao">
+    <resultMap id="AuditLogMap" type="com.eazycount.entity.AuditLog">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="operator_id" property="operatorId" jdbcType="VARCHAR"/>
+        <result column="operator_name" property="operatorName" jdbcType="VARCHAR"/>
+        <result column="operator_role" property="operatorRole" jdbcType="VARCHAR"/>
+        <result column="tenant_id" property="tenantId" jdbcType="INTEGER"/>
+        <result column="tenant_code" property="tenantCode" jdbcType="VARCHAR"/>
+        <result column="module" property="module" jdbcType="VARCHAR"/>
+        <result column="action" property="action" jdbcType="VARCHAR"/>
+        <result column="entity_id" property="entityId" jdbcType="VARCHAR"/>
+        <result column="source_table" property="sourceTable" jdbcType="VARCHAR"/>
+        <result column="summary" property="summary" jdbcType="VARCHAR"/>
+        <result column="before_data" property="beforeData" jdbcType="LONGVARCHAR"/>
+        <result column="after_data" property="afterData" jdbcType="LONGVARCHAR"/>
+        <result column="restorable" property="restorable" jdbcType="BOOLEAN"/>
+        <result column="restored" property="restored" jdbcType="BOOLEAN"/>
+        <result column="restored_by" property="restoredBy" jdbcType="VARCHAR"/>
+        <result column="restored_at" property="restoredAt" jdbcType="TIMESTAMP"/>
+        <result column="related_log_id" property="relatedLogId" jdbcType="BIGINT"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <!-- Shared by search/countSearch/summary — keep filter logic in exactly one place. -->
+    <sql id="whereClause">
+        <where>
+            <if test="q.dateFrom != null">
+                AND created_at &gt;= #{q.dateFrom}
+            </if>
+            <if test="q.dateTo != null">
+                AND created_at &lt; DATE_ADD(#{q.dateTo}, INTERVAL 1 DAY)
+            </if>
+            <if test="q.tenantCode != null and q.tenantCode != ''">
+                AND tenant_code = #{q.tenantCode}
+            </if>
+            <if test="q.module != null and q.module != ''">
+                AND module = #{q.module}
+            </if>
+            <if test="q.action != null">
+                AND action = #{q.action}
+            </if>
+            <if test="q.keyword != null and q.keyword != ''">
+                AND (operator_name LIKE CONCAT('%', #{q.keyword}, '%')
+                     OR entity_id LIKE CONCAT('%', #{q.keyword}, '%'))
+            </if>
+        </where>
+    </sql>
+
+    <insert id="insert" parameterType="com.eazycount.entity.AuditLog" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO audit_log (
+            operator_id, operator_name, operator_role, tenant_id, tenant_code,
+            module, action, entity_id, source_table, summary,
+            before_data, after_data, restorable, restored, related_log_id
+        ) VALUES (
+            #{operatorId}, #{operatorName}, #{operatorRole}, #{tenantId}, #{tenantCode},
+            #{module}, #{action}, #{entityId}, #{sourceTable}, #{summary},
+            #{beforeData}, #{afterData}, #{restorable}, #{restored}, #{relatedLogId}
+        )
+    </insert>
+
+    <select id="search" resultMap="AuditLogMap">
+        SELECT * FROM audit_log
+        <include refid="whereClause"/>
+        ORDER BY created_at DESC
+        LIMIT #{q.offset}, #{q.limit}
+    </select>
+
+    <select id="countSearch" resultType="long">
+        SELECT COUNT(*) FROM audit_log
+        <include refid="whereClause"/>
+    </select>
+
+    <select id="summary" resultType="com.eazycount.dto.AuditLogDTO">
+        <!-- IFNULL: SUM() over zero matching rows is NULL, but the DTO's fields are primitive long. -->
+        SELECT
+            IFNULL(SUM(CASE WHEN action = 'CREATE' THEN 1 ELSE 0 END), 0) AS create_count,
+            IFNULL(SUM(CASE WHEN action = 'UPDATE' THEN 1 ELSE 0 END), 0) AS update_count,
+            IFNULL(SUM(CASE WHEN action = 'DELETE' THEN 1 ELSE 0 END), 0) AS delete_count,
+            IFNULL(SUM(CASE WHEN restorable = 1 THEN 1 ELSE 0 END), 0) AS restorable_count,
+            IFNULL(SUM(CASE WHEN restored = 1 THEN 1 ELSE 0 END), 0) AS restored_count
+        FROM audit_log
+        <include refid="whereClause"/>
+    </select>
+</mapper>

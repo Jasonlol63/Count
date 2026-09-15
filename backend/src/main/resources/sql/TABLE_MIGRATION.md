@@ -249,6 +249,7 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 | `bank_process` | 新增 `due_generation_floor`（可空，`migrate_add_due_generation_floor.sql`） | Accounting Due 生成默认从 `created_at` 所在月往前回补；迁移/补录写入的 `created_at` 不代表真实合同起始日，会把中间月份重新算成待处理 due。此字段可覆盖回补起点（不改 `created_at` 本身语义），仅对仍在合同期内的记录一次性设置；已过期的纯记录合同不受影响 |
 | `exchange_rate`（新表，2026-09-15 补录进 schema.sql） | 全局（非 tenant-scoped）每日 FX 快照，全部以 USD 为轴心币 | 供 Dashboard 多币别 Amount/Original Amount/Rate 拆分（Currency & Earning tab）；由每日排程任务写入，迁移脚本：`migrate_add_exchange_rate_table.sql` |
 | `platform_settings`（新表，2026-09-15 补录进 schema.sql） | 单例表（固定 `id=1`），全局平台级配置 | 首个字段 `telegram_support_link`：登录页悬浮按钮的 Telegram 支持链接；非 tenant-scoped，无 `company_code`/`tenant_id`；迁移脚本：`migrate_add_platform_settings_table.sql` |
+| `audit_log`（新表，2026-09-15 补录进 schema.sql） | IT 控制台的 CRUD 审计日志，一条写操作一行 | `before_data`/`after_data` 是 `TEXT`（JSON 格式文本，**不是** MySQL 原生 `JSON` 类型，理由见 docs/it-role-audit-log.md）；字段名对齐 `source_table` 的数据库列名，方便人工核对/补数据；`restorable`/`restored`/`related_log_id` 支撑 Payment/BankProcess/CaptureTransaction 的 Restore 流程（从共用的 `transactions_deleted` 表恢复），多数模块（如 ACCOUNT）只记录不支持 restore；非 tenant-scoped（IT 跨公司查询），迁移脚本：`migrate_add_audit_log_table.sql` |
 
 ---
 
@@ -284,6 +285,7 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 - `v_company_tenant` / `v_group_tenant`（`tenant` 按 `tenant_type` 拆分的只读视图）  
 - `exchange_rate`（全局每日 FX 快照，非 tenant-scoped）  
 - `platform_settings`（全局平台级配置单例表，非 tenant-scoped）  
+- `audit_log`（IT 控制台 CRUD 审计日志，非 tenant-scoped，跨公司查询）  
 
 （部分在旧库有「功能等价」表，但名称与形状已变，见 §2。）
 
@@ -309,6 +311,7 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 | `migrate_add_due_generation_floor.sql` | 增量加 `bank_process.due_generation_floor` 列，并对指定 id 一次性设为当日——修正迁移写入的 `created_at` 导致 Accounting Due Inbox 把当月之前的月份重新算成待处理的问题（详见 §3.8） |
 | `migrate_add_exchange_rate_table.sql` | 增量加全局 `exchange_rate` 表（每日 FX 快照，Dashboard 多币别拆分用） |
 | `migrate_add_platform_settings_table.sql` | 增量加全局单例 `platform_settings` 表（Telegram support link 等平台级配置） |
+| `migrate_add_audit_log_table.sql` | 增量加全局 `audit_log` 表（IT 控制台 CRUD 审计日志；`before_data`/`after_data` 用 `TEXT` 不用原生 `JSON` 类型） |
 | `migrate_auto_renew_delete.sql` | 增量加 `tenant_auto_renew_transaction` 关联流水表（供 Auto Renew delete/revert 精确定位）；已随命名统一改用新表名，`schema.sql` 全新建库直接含此表 |
 | 其他 `migrate_*` / `add_*` / `seed_*` | 各子域增量与种子数据 |
 
@@ -326,7 +329,7 @@ Get-Content backend\src\main\resources\sql\migrate_datacapture_line.sql -Raw |
 | 状态 | 内容 |
 |------|------|
 | ✅ 核心业务表 | Login、权限、Domain、Ownership、Currency、Process（含 Copy From）、Bank Process、Transactions/RATE（含 Platform Fee）、Data Capture（含 formula / line / line_deleted / draft）DDL 已就绪 |
-| ✅ 全局表 | `exchange_rate`（每日 FX 快照）、`platform_settings`（平台级配置单例）已补录进 `schema.sql` |
+| ✅ 全局表 | `exchange_rate`（每日 FX 快照）、`platform_settings`（平台级配置单例）、`audit_log`（IT 控制台审计日志）已补录进 `schema.sql` |
 | ✅ 故意不建 | `submit_queue`、`summary_state`、RATE 旧明细/分录、`password_reset_tac*`、backup 表等（§4） |
 | ⚪ 可选未建 | `auto_login_credentials`、`deleted_logs`、`fx_daily_rates`（旧库 8/27 备份新出现，待定；注意与 §5 已建的 `exchange_rate` 是两张不同的表，`fx_daily_rates` 至今仍未迁入） |
 | ⚠️ 非 schema 缺口 | 部分业务仍走 PHP 旧表（如 Summary Submit 仍可能写 `data_capture_details`）。属 **API 迁移**，不是缺 DDL |

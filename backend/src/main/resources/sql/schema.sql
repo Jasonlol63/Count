@@ -1283,4 +1283,33 @@ CREATE TABLE `platform_settings` (
 
 INSERT INTO `platform_settings` (`id`) VALUES (1);
 
+-- CRUD audit trail for the IT console -- one row per write operation, not per field
+-- (before/after stored as JSON-formatted TEXT, not the native JSON column type; see
+-- migrate_add_audit_log_table.sql and docs/it-role-audit-log.md for the design notes).
+CREATE TABLE `audit_log` (
+    `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `operator_id`    VARCHAR(50)   NULL     COMMENT 'Admin/Owner id as string; NULL for IT operators (no DB row)',
+    `operator_name`  VARCHAR(100)  NOT NULL,
+    `operator_role`  VARCHAR(30)   NOT NULL COMMENT 'e.g. ADMIN, MANAGER, IT',
+    `tenant_id`      INT           NULL,
+    `tenant_code`    VARCHAR(20)   NULL,
+    `module`         VARCHAR(50)   NOT NULL COMMENT 'e.g. PAYMENT_MAINTENANCE, ACCOUNT',
+    `action`         ENUM('CREATE','UPDATE','DELETE','RESTORE') NOT NULL,
+    `entity_id`      VARCHAR(50)   NOT NULL COMMENT 'Business-facing id, e.g. PMT-88213',
+    `source_table`   VARCHAR(50)   NOT NULL COMMENT 'Real DB table name, for manual recovery reference',
+    `summary`        VARCHAR(255)  NULL,
+    `before_data`    TEXT          NULL     COMMENT 'JSON-formatted text, NOT the JSON column type; DB column names',
+    `after_data`     TEXT          NULL,
+    `restorable`     TINYINT(1)    NOT NULL DEFAULT 0,
+    `restored`       TINYINT(1)    NOT NULL DEFAULT 0,
+    `restored_by`    VARCHAR(100)  NULL,
+    `restored_at`    TIMESTAMP     NULL,
+    `related_log_id` BIGINT UNSIGNED NULL   COMMENT 'RESTORE rows point back at the DELETE row they restored',
+    `created_at`     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_tenant_time` (`tenant_id`, `created_at`),
+    KEY `idx_module_action` (`module`, `action`),
+    KEY `idx_related_log` (`related_log_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CRUD audit trail for the IT console -- one row per write operation';
+
 SET FOREIGN_KEY_CHECKS = 1;
