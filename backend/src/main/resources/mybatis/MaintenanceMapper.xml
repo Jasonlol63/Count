@@ -252,13 +252,21 @@
             NULL AS deletedAt,
             bp.id AS bankProcessId,
             bpap.period_type AS periodType,
-            t.transaction_date AS transactionDate
+            t.transaction_date AS transactionDate,
+            CASE
+                WHEN t.account_id = bp.supplier_account_id THEN 'BUY_PRICE'
+                WHEN t.account_id = bp.customer_account_id THEN 'SELL_PRICE'
+                WHEN t.account_id = bp.company_account_id THEN 'PROFIT'
+                WHEN bps.account_id IS NOT NULL THEN 'PROFIT_SHARING'
+                ELSE NULL
+            END AS chargeCategory
         FROM transactions t
         INNER JOIN currency c ON c.id = t.currency_id AND c.tenant_id = t.tenant_id
         INNER JOIN account to_a ON to_a.id = t.account_id
         LEFT JOIN account from_a ON from_a.id = t.from_account_id
         INNER JOIN bank_process_accounting_posted bpap ON bpap.id = t.bank_process_posted_id
         INNER JOIN bank_process bp ON bp.id = bpap.bank_process_id
+        LEFT JOIN bank_process_share bps ON bps.bank_process_id = bp.id AND bps.account_id = t.account_id
         WHERE t.tenant_id = #{tenantId}
           AND t.bank_process_posted_id IS NOT NULL
           AND t.approval_status = 'APPROVED'
@@ -305,13 +313,21 @@
             td.deleted_at AS deletedAt,
             bp.id AS bankProcessId,
             bpap.period_type AS periodType,
-            td.transaction_date AS transactionDate
+            td.transaction_date AS transactionDate,
+            CASE
+                WHEN td.account_id = bp.supplier_account_id THEN 'BUY_PRICE'
+                WHEN td.account_id = bp.customer_account_id THEN 'SELL_PRICE'
+                WHEN td.account_id = bp.company_account_id THEN 'PROFIT'
+                WHEN bps.account_id IS NOT NULL THEN 'PROFIT_SHARING'
+                ELSE NULL
+            END AS chargeCategory
         FROM transactions_deleted td
         INNER JOIN currency c ON c.id = td.currency_id AND c.tenant_id = td.tenant_id
         INNER JOIN account to_a ON to_a.id = td.account_id
         LEFT JOIN account from_a ON from_a.id = td.from_account_id
         LEFT JOIN bank_process_accounting_posted bpap ON bpap.id = td.bank_process_posted_id
         LEFT JOIN bank_process bp ON bp.id = bpap.bank_process_id
+        LEFT JOIN bank_process_share bps ON bps.bank_process_id = bp.id AND bps.account_id = td.account_id
         WHERE td.tenant_id = #{tenantId}
           AND td.bank_process_posted_id IS NOT NULL
           AND td.transaction_type IN (<include refid="bankProcessMaintenanceTransactionTypes"/>)

@@ -44,4 +44,7 @@ public class MaintenanceBankProcessDTO {
     private String periodType;
 
     private LocalDate transactionDate;
+
+    /** Which bank_process leg this row belongs to: BUY_PRICE, SELL_PRICE, PROFIT, PROFIT_SHARING (or null if unmatched). */
+    private String chargeCategory;
 }
