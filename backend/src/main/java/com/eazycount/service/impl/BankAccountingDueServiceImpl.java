@@ -457,7 +457,6 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
         LocalDate creationFloor = creationMonthFloor(bp, dayStart);
         YearMonth creationMonth = YearMonth.from(creationFloor);
         YearMonth startMonth = YearMonth.from(dayStart);
-        YearMonth endMonth = YearMonth.from(dayEnd);
         // Created in July with dayStart in June → skip June anchor, start from July.
         YearMonth month = startMonth.isBefore(creationMonth) ? creationMonth : startMonth;
         LocalDate posted = month.equals(startMonth) ? dayStart : monthlyAnchor(month, dayStart);
@@ -467,15 +466,16 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
 
         List<AccountingDueDTO> dues = new ArrayList<>();
         while (true) {
-            LocalDate periodPosted = (!extendPastDayEnd && posted.isAfter(dayEnd)) ? dayEnd : posted;
-            if (periodPosted.isAfter(today)) {
+            if (posted.isAfter(today)) {
                 break;
             }
-            if (!periodPosted.isBefore(creationFloor)) {
-                dues.add(buildDue(dto, bp, periodPosted, periodPosted, periodPosted.plusMonths(1),
+            if (!posted.isBefore(creationFloor)) {
+                dues.add(buildDue(dto, bp, posted, posted, posted.plusMonths(1),
                         BkProcessAccountingPosted.PeriodType.MONTHLY));
             }
-            if (!extendPastDayEnd && !month.isBefore(endMonth)) {
+            // Stop once this period's own billing window already reaches/covers dayEnd —
+            // the next anchor would only produce a due entirely past the contract's end.
+            if (!extendPastDayEnd && !posted.plusMonths(1).isBefore(dayEnd)) {
                 break;
             }
             month = month.plusMonths(1);

@@ -27,7 +27,7 @@ public class TransactionContraInboxController {
             transactionContraInboxService.approve(txnContraInboxDTO);
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", true);
-            body.put("message", "Contra Approved successfully");
+            body.put("message", "Contra Approved Successfully");
             return ResponseEntity.ok(body);
         } catch (BusinessException e) {
             return error(e);
@@ -40,7 +40,7 @@ public class TransactionContraInboxController {
             transactionContraInboxService.reject(txnContraInboxDTO);
             final Map<String, Object> body = new LinkedHashMap<>();
             body.put("success", true);
-            body.put("message", "Contra Rejected successfully");
+            body.put("message", "Contra Rejected Successfully");
             return ResponseEntity.ok(body);
         } catch (BusinessException e) {
             return error(e);
