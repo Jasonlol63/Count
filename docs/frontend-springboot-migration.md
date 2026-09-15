@@ -6300,7 +6300,7 @@ flowchart LR
 
 #### 7.2 列表逻辑（`AutoRenewServiceImpl.getAutoRenewList`）
 
-1. `syncWindowRequests(30)` — 扫描 30 天内到期 ACTIVE tenant，写入 `tenant_auto_renew_request`（`INSERT IGNORE`）
+1. `syncWindowRequests(30)` — 扫描 30 天内到期 ACTIVE tenant，写入 `tenant_auto_renew`（`INSERT IGNORE`）
 2. 按 status / tenant_type / 日期查列表
 3. 加载 C168 下 ACTIVE 账户 → `accounts`（供审批选 from/to）
 4. 每行计算：
@@ -6502,7 +6502,7 @@ flowchart LR
 #### 11.3 Domain ↔ Auto Renew 联动
 
 - Auto Renew 列表附带 `fee_settings`（`domain_list_fee_price`）
-- 租户到期触发 `tenant_auto_renew_request`
+- 租户到期触发 `tenant_auto_renew`
 
 #### 11.4 Admin ACL 写入 vs 业务读取
 

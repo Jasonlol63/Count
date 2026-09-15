@@ -35,6 +35,7 @@ public class SecurityConfig {
             "/auth/send-reset-tac",
             "/auth/reset-password",
             "/api/announcement/getMaintenanceInLogin",
+            "/api/settings/getTelegramLink",
     };
 
     @Bean
