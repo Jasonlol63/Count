@@ -281,11 +281,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     @Override
-    @Audited(
-            module = "PAYMENT_MAINTENANCE",
-            action = AuditLog.Action.DELETE,
-            entityIdExpr = "#result",
-            sourceTable = "transactions")
+    @Audited(module = "PAYMENT_MAINTENANCE", action = AuditLog.Action.DELETE, entityIdExpr = "#result", sourceTable = "transactions")
     @Transactional
     public List<Integer> deletePaymentMaintenanceRows(
             MaintenancePaymentDTO request) {
@@ -355,11 +351,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     @Override
-    @Audited(
-            module = "BANK_PROCESS_MAINTENANCE",
-            action = AuditLog.Action.DELETE,
-            entityIdExpr = "#result",
-            sourceTable = "transactions")
+    @Audited(module = "BANK_PROCESS_MAINTENANCE", action = AuditLog.Action.DELETE, entityIdExpr = "#result", sourceTable = "transactions")
     @Transactional
     public List<Integer> deleteBankProcessMaintenanceRows(
             MaintenanceBankProcessDTO request) {
