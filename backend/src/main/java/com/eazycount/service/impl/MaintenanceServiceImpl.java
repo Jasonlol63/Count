@@ -1,5 +1,7 @@
 package com.eazycount.service.impl;
 
+import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.BankProcessResendDao;
 import com.eazycount.dao.DataCaptureSummaryDao;
@@ -10,6 +12,7 @@ import com.eazycount.dto.MaintenanceCaptureDTO;
 import com.eazycount.dto.MaintenanceFormulaDTO;
 import com.eazycount.dto.MaintenancePaymentDTO;
 import com.eazycount.dto.MaintenanceTransactionDTO;
+import com.eazycount.entity.AuditLog;
 import com.eazycount.entity.Transaction;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
@@ -23,9 +26,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -276,8 +281,13 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     @Override
+    @Audited(
+            module = "PAYMENT_MAINTENANCE",
+            action = AuditLog.Action.DELETE,
+            entityIdExpr = "#result",
+            sourceTable = "transactions")
     @Transactional
-    public void deletePaymentMaintenanceRows(
+    public List<Integer> deletePaymentMaintenanceRows(
             MaintenancePaymentDTO request) {
         SessionUser session = requireWritableSession();
         int tenantId = requireTenantId(request != null ? request.getTenantId() : null);
@@ -287,6 +297,17 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (batch.ids().isEmpty()) {
             throw new BusinessException("No matching payment maintenance records to delete");
         }
+
+        // Snapshot before archiving — this is the only place that still has the pre-delete rows;
+        // @Audited's aspect can't see them from outside the method. Field names match the
+        // `transactions` DB columns (not this entity's Java property names) so the audit log's
+        // before_data can be used directly for manual DB recovery — see docs/it-role-audit-log.md.
+        List<Transaction> rowsBeingDeleted = maintenanceDao.findByIdsAndTenantId(tenantId, batch.ids());
+        Map<Integer, Object> beforeSnapshots = new LinkedHashMap<>();
+        for (Transaction row : rowsBeingDeleted) {
+            beforeSnapshots.put(row.getId(), transactionSnapshot(row));
+        }
+        AuditContext.captureBeforeBatch(beforeSnapshots);
 
         String deletedBy = session.login_id.trim();
         int archived = maintenanceDao.archivePaymentMaintenanceToDeleted(
@@ -303,11 +324,44 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (removed <= 0) {
             throw new BusinessException("Failed to delete payment maintenance records");
         }
+
+        return batch.ids();
+    }
+
+    /** {@code transactions} column names, not {@link Transaction}'s Java field names — see docs/it-role-audit-log.md. */
+    private static Map<String, Object> transactionSnapshot(Transaction t) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("id", t.getId());
+        snapshot.put("tenant_id", t.getTenantId());
+        snapshot.put("transaction_type", t.getTransactionType());
+        snapshot.put("account_id", t.getAccountId());
+        snapshot.put("from_account_id", t.getFromAccountId());
+        snapshot.put("currency_id", t.getCurrencyId());
+        snapshot.put("amount", t.getAmount());
+        snapshot.put("transaction_date", t.getTransactionDate());
+        snapshot.put("description", t.getDescription());
+        snapshot.put("remark", t.getRemark());
+        snapshot.put("created_by", t.getCreatedBy());
+        snapshot.put("updated_by", t.getUpdatedBy());
+        snapshot.put("approval_status", t.getApprovalStatus());
+        snapshot.put("approved_by", t.getApprovedBy());
+        snapshot.put("approved_at", t.getApprovedAt());
+        snapshot.put("bank_process_posted_id", t.getBankProcessPostedId());
+        snapshot.put("bank_process_id", t.getBankProcessId());
+        snapshot.put("rate_group_id", t.getRateGroupId());
+        snapshot.put("created_at", t.getCreatedAt());
+        snapshot.put("updated_at", t.getUpdatedAt());
+        return snapshot;
     }
 
     @Override
+    @Audited(
+            module = "BANK_PROCESS_MAINTENANCE",
+            action = AuditLog.Action.DELETE,
+            entityIdExpr = "#result",
+            sourceTable = "transactions")
     @Transactional
-    public void deleteBankProcessMaintenanceRows(
+    public List<Integer> deleteBankProcessMaintenanceRows(
             MaintenanceBankProcessDTO request) {
         SessionUser session = requireWritableSession();
         int tenantId = requireTenantId(request != null ? request.getTenantId() : null);
@@ -317,6 +371,16 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (batch.ids().isEmpty()) {
             throw new BusinessException("No matching bank process maintenance records to delete");
         }
+
+        // Snapshot before archiving — same reasoning as deletePaymentMaintenanceRows: only this
+        // method still has the pre-delete rows, and field names match the `transactions` DB
+        // columns (not this entity's Java property names) for manual-recovery use.
+        List<Transaction> rowsBeingDeleted = maintenanceDao.findByIdsAndTenantId(tenantId, batch.ids());
+        Map<Integer, Object> beforeSnapshots = new LinkedHashMap<>();
+        for (Transaction row : rowsBeingDeleted) {
+            beforeSnapshots.put(row.getId(), transactionSnapshot(row));
+        }
+        AuditContext.captureBeforeBatch(beforeSnapshots);
 
         String deletedBy = session.login_id.trim();
         int archived = maintenanceDao.archiveBankProcessMaintenanceToDeleted(
@@ -334,6 +398,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (removed <= 0) {
             throw new BusinessException("Failed to delete bank process maintenance records");
         }
+
+        return batch.ids();
     }
 
     private BankProcessDeletableBatch resolveBankProcessDeletableBatch(

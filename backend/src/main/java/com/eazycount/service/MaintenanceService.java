@@ -28,9 +28,13 @@ public interface MaintenanceService {
 
     List<MaintenanceBankProcessDTO> findBankProcessMaintenanceRows(MaintenanceBankProcessDTO request);
 
-    // Soft-delete Payment Maintenance lines: archive to transactions_deleted
-    void deletePaymentMaintenanceRows(MaintenancePaymentDTO request);
+    // Soft-delete Payment Maintenance lines: archive to transactions_deleted.
+    // Returns the ids actually deleted (a subset of request.transactionIds — resolveDeletableBatch
+    // filters out ones that don't exist/aren't deletable), used by @Audited's entityIdExpr so the
+    // audit log reflects what really happened, not what was merely requested.
+    List<Integer> deletePaymentMaintenanceRows(MaintenancePaymentDTO request);
 
-    // Soft-delete Bank Process Maintenance lines: archive to transactions_deleted
-    void deleteBankProcessMaintenanceRows(MaintenanceBankProcessDTO request);
+    // Soft-delete Bank Process Maintenance lines: archive to transactions_deleted.
+    // Returns the ids actually deleted, same reasoning as deletePaymentMaintenanceRows above.
+    List<Integer> deleteBankProcessMaintenanceRows(MaintenanceBankProcessDTO request);
 }
