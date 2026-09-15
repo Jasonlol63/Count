@@ -48,6 +48,13 @@ public final class AccessControlUtils {
         return "OWNER".equals(normalizeRole(role));
     }
 
+    /* IT accounts come from ItOperatorRegistry (it-operators.yml), not the admin/user tables —
+     * deliberately kept out of ADMIN_PAGE_MANAGER_ROLES / the hierarchy above, never intermixed
+     * with the Admin role system. See docs/it-role-audit-log.md. */
+    public static boolean isItOperator(String role) {
+        return "IT".equals(normalizeRole(role));
+    }
+
     /* 未登录或账号 read_only=1 时抛出异常；所有写操作方法的第一行都应调用此方法。*/
     public static void requireWritable(SessionUser session) {
         if (session == null) {
@@ -55,6 +62,16 @@ public final class AccessControlUtils {
         }
         if (session.read_only == 1) {
             throw new BusinessException("Read-only access cannot perform this action");
+        }
+    }
+
+    /* IT 控制台专属接口（audit-log 查询）第一行调用——非 IT 账号一律拒绝，不分层级。*/
+    public static void requireItOperator(SessionUser session) {
+        if (session == null) {
+            throw new BusinessException("Not logged in");
+        }
+        if (!isItOperator(session.role)) {
+            throw new BusinessException("IT access only");
         }
     }
 

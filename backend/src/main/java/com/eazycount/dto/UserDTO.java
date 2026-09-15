@@ -4,6 +4,7 @@ import com.eazycount.entity.Admin;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Tenant;
 import com.eazycount.entity.User;
+import com.eazycount.security.ItOperatorIdentity;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -18,5 +19,6 @@ public class UserDTO {
     private Admin admin;
     private User user;
     private Owner owner;
+    private ItOperatorIdentity itOperator;
     private Tenant tenant;
 }

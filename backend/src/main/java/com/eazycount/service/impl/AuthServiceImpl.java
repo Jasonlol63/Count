@@ -18,6 +18,9 @@ import com.eazycount.jwt.JwtService;
 import com.eazycount.mail.PasswordResetMailService;
 import com.eazycount.security.AuthCookieHelper;
 import com.eazycount.security.AuthTokenStore;
+import com.eazycount.security.ItOperatorIdentity;
+import com.eazycount.security.ItOperatorProperties;
+import com.eazycount.security.ItOperatorRegistry;
 import com.eazycount.security.LoginUserPrincipal;
 import com.eazycount.security.PasswordResetTacStore;
 import com.eazycount.security.SecurityUtils;
@@ -69,6 +72,8 @@ public class AuthServiceImpl implements AuthService {
     private PasswordResetTacStore passwordResetTacStore;
     @Autowired
     private PasswordResetMailService passwordResetMailService;
+    @Autowired
+    private ItOperatorRegistry itOperatorRegistry;
 
     private static final String RESET_SCOPE_ADMIN = "admin";
     private static final SecureRandom TAC_RANDOM = new SecureRandom();
@@ -111,6 +116,20 @@ public class AuthServiceImpl implements AuthService {
             identity.setUser(member);
             identity.setTenant(sessionTenant);
             return buildLoginResult(identity, loginTenant, sessionTenant);
+        }
+
+        // IT operators are checked before the Admin table — a separate registry (it-operators.yml),
+        // not a DB row. Same "admin" login tab; no fall-through if the username matches here but the
+        // password doesn't, so a mistyped password never leaks into the Admin lookup below.
+        ItOperatorProperties.Operator itOperator = itOperatorRegistry.findByUsername(name);
+        if (itOperator != null) {
+            if (!itOperatorRegistry.verifyPassword(itOperator, password, passwordEncoder)) {
+                throw new BusinessException("Username or password is incorrect");
+            }
+            assertTenantNotExpired(loginTenant);
+            identity.setItOperator(new ItOperatorIdentity(itOperator.getUsername(), itOperator.getDisplayName()));
+            identity.setTenant(loginTenant);
+            return buildLoginResult(identity, loginTenant, loginTenant);
         }
 
         Admin admin = authDao.findAdminByLoginId(name);
@@ -551,6 +570,13 @@ public class AuthServiceImpl implements AuthService {
             result.setRedirect(SecondaryPasswordUtils.isConfigured(identity.getOwner().getSecondaryPassword())
                     ? "/owner-secondary-password"
                     : "/dashboard");
+            return result;
+        }
+        if (identity.getItOperator() != null) {
+            result.setUserType("it");
+            // TEMP landing page until the unrestricted-dashboard-access work ships —
+            // see the IT-role design discussion. No secondary-password step for IT.
+            result.setRedirect("/audit-log");
             return result;
         }
 

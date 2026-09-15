@@ -1,7 +1,12 @@
 spring:
   application:
     name: Count
-  
+
+  # IT operator accounts live outside the repo/jar — see backend/it-operators.yml.
+  # "optional:" so the app still boots (with zero IT accounts) when the file is absent.
+  config:
+    import: "optional:file:./it-operators.yml"
+
   sql:
     init:
       mode: never

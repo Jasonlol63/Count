@@ -125,6 +125,9 @@ public class SessionUser implements Serializable {
         if (dto.getOwner() != null) {
             return fromOwner(dto.getOwner(), effectiveTenant, modules, permissionService);
         }
+        if (dto.getItOperator() != null) {
+            return fromItOperator(dto.getItOperator(), effectiveTenant);
+        }
 
         throw new IllegalArgumentException("UserDTO has no identity");
     }
@@ -246,6 +249,35 @@ public class SessionUser implements Serializable {
                 "C168".equalsIgnoreCase(companyCode),
                 hasGame,
                 hasBank,
+                0
+        );
+    }
+
+    /**
+     * IT accounts come from {@link ItOperatorRegistry}, not a DB row — no permission-service
+     * lookup here (deliberately: IT is a separate track from the Admin role/permission system).
+     */
+    private static SessionUser fromItOperator(ItOperatorIdentity operator, Tenant tenant) {
+        final String companyCode = tenantCode(tenant);
+
+        return new SessionUser(
+                "it",
+                null,
+                tenant != null ? tenant.getId() : null,
+                blankToNull(companyCode),
+                tenantScope(tenant),
+                companyCode,
+                false,
+                false,
+                tenantExpiration(tenant),
+                Objects.toString(operator.getDisplayName(), operator.getUsername()),
+                normalizeUpper(Objects.toString(operator.getUsername(), "")),
+                "",
+                "it",
+                Collections.emptyList(),
+                "C168".equalsIgnoreCase(companyCode),
+                false,
+                false,
                 0
         );
     }
