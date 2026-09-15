@@ -9,9 +9,10 @@ import com.eazycount.dto.TransactionSearchRequest;
 import com.eazycount.dto.TransactionSearchResult;
 import com.eazycount.dto.UserListDTO;
 import com.eazycount.entity.Currency;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.TransactionSearchService;
+import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.NormalizeUtils;
 import com.eazycount.util.TransactionDateParse;
 import com.eazycount.util.TransactionMoneyFormat;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +24,6 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /* Win/Loss 和 Cr/Dr 分开算，最后在searchList合并，避免两边逻辑互相污染。*/
 @Service
@@ -40,13 +40,8 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
 
     @Override
     public TransactionSearchResult searchList(TransactionSearchRequest request) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
-        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
+        AccessControlUtils.requireValidTenantId(request != null ? request.getTenantId() : null);
 
         LocalDate dateFrom = TransactionDateParse.parseRequired(request.getDateFrom(), "dateFrom");
         LocalDate dateTo = TransactionDateParse.parseRequired(request.getDateTo(), "dateTo");
@@ -54,8 +49,8 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
             throw new BusinessException("dateTo must be on or after dateFrom");
         }
 
-        List<String> currencyCodes = normalizeUpperList(request.getCurrencyCodes());
-        List<String> categories = normalizeUpperList(request.getCategories());
+        List<String> currencyCodes = NormalizeUtils.normalizeUpperList(request.getCurrencyCodes());
+        List<String> categories = NormalizeUtils.normalizeUpperList(request.getCategories());
         Integer tenantId = request.getTenantId();
 
         SearchSlice winLoss = buildWinLossSearchSlice(tenantId, dateFrom, dateTo, currencyCodes, categories);
@@ -128,7 +123,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
             return;
         }
         String key = row.getAccountDbId() + "|"
-                + trimToEmpty(row.getCurrencyCode()).toUpperCase(Locale.ROOT);
+                + NormalizeUtils.trimToEmpty(row.getCurrencyCode()).toUpperCase(Locale.ROOT);
         TransactionSearchAggregateRow existing = merged.get(key);
         if (existing == null) {
             TransactionSearchAggregateRow copy = new TransactionSearchAggregateRow();
@@ -213,10 +208,10 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
 
             TransactionSearchResult.Row row = new TransactionSearchResult.Row();
             row.setAccountId(agg.accountDbId);
-            row.setAccountCode(trimToEmpty(agg.accountCode));
-            row.setAccountName(trimToEmpty(agg.accountName));
+            row.setAccountCode(NormalizeUtils.trimToEmpty(agg.accountCode));
+            row.setAccountName(NormalizeUtils.trimToEmpty(agg.accountName));
             row.setRole(normalizeRole(agg.role));
-            row.setCurrencyCode(trimToEmpty(agg.currencyCode).toUpperCase(Locale.ROOT));
+            row.setCurrencyCode(NormalizeUtils.trimToEmpty(agg.currencyCode).toUpperCase(Locale.ROOT));
             row.setBf(TransactionMoneyFormat.formatMoney(agg.bf));
             row.setWinLoss(TransactionMoneyFormat.formatMoney(agg.winLoss));
             row.setCrDr(TransactionMoneyFormat.formatMoney(agg.crDr));
@@ -354,7 +349,7 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
     }
 
     private static String mergeKey(TransactionSearchAggregateRow agg) {
-        return agg.getAccountDbId() + "|" + trimToEmpty(agg.getCurrencyCode()).toUpperCase(Locale.ROOT);
+        return agg.getAccountDbId() + "|" + NormalizeUtils.trimToEmpty(agg.getCurrencyCode()).toUpperCase(Locale.ROOT);
     }
 
     private static MergedAccount baseMerged(TransactionSearchAggregateRow agg) {
@@ -388,26 +383,11 @@ public class TransactionSearchServiceImpl implements TransactionSearchService {
         return new ArrayList<>(codes);
     }
 
-    private static List<String> normalizeUpperList(List<String> raw) {
-        if (raw == null || raw.isEmpty()) {
-            return List.of();
-        }
-        return raw.stream()
-                .filter(s -> s != null && !s.isBlank())
-                .map(s -> s.trim().toUpperCase(Locale.ROOT))
-                .distinct()
-                .collect(Collectors.toList());
-    }
-
     private static String normalizeRole(String role) {
         if (role == null || role.isBlank()) {
             return "";
         }
         return role.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private static String trimToEmpty(String value) {
-        return value != null ? value.trim() : "";
     }
 
     /* One source's aggregates before merge (isWinLossSource=true → Win/Loss path). */

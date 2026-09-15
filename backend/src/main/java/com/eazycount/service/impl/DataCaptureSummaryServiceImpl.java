@@ -15,10 +15,10 @@ import com.eazycount.entity.DataCaptureFormula;
 import com.eazycount.entity.DataCaptureLine;
 import com.eazycount.entity.Process;
 import com.eazycount.entity.Transaction;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.DataCaptureSummaryService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.NormalizeUtils;
 import com.eazycount.util.SummaryAmountFormat;
 import com.eazycount.util.TransactionMoneyFormat;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,7 +57,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
     @Override
     @Transactional
     public DataCaptureSummaryDTO saveAddFormula(DataCaptureSummaryDTO request) {
-        SessionUser session = requireLogin();
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
         if (request == null) {
             throw new BusinessException("Request body is required");
@@ -66,10 +66,10 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         Integer tenantId = request.getTenantId();
         Integer accountId = request.getAccountId();
         Integer currencyId = request.getCurrencyId();
-        String idProduct = trimToNull(request.getIdProduct());
-        String formula = trimToNull(request.getFormula());
+        String idProduct = NormalizeUtils.trimToNull(request.getIdProduct());
+        String formula = NormalizeUtils.trimToNull(request.getFormula());
 
-        requireTenantId(tenantId);
+        AccessControlUtils.requireValidTenantId(tenantId);
         if (idProduct == null) {
             throw new BusinessException("Product Id is required");
         }
@@ -97,14 +97,14 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         }
 
         String loginId = session.login_id != null ? session.login_id : "";
-        String sourcePercent = trimToNull(request.getSourcePercent());
+        String sourcePercent = NormalizeUtils.trimToNull(request.getSourcePercent());
         if (sourcePercent == null) {
             sourcePercent = "0";
         }
         boolean enableSourcePercent = request.getEnableSourcePercent() == null
                 || Boolean.TRUE.equals(request.getEnableSourcePercent());
         boolean enableInputMethod = Boolean.TRUE.equals(request.getEnableInputMethod())
-                || trimToNull(request.getInputMethod()) != null;
+                || NormalizeUtils.trimToNull(request.getInputMethod()) != null;
 
         // Prefer MAIN when product has no main-row data; otherwise add SUB under that product.
         DataCaptureFormula mainWithAccount =
@@ -131,7 +131,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
             }
         }
 
-        String code = trimToNull(processCode);
+        String code = NormalizeUtils.trimToNull(processCode);
         if (code != null) {
             code = code.toUpperCase(Locale.ROOT);
             if (BANK_PROCESS_CODES.contains(code)) {
@@ -182,11 +182,11 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         row.setRowIndex(request.getRowIndex());
         row.setAccountId(accountId);
         row.setCurrencyId(currencyId);
-        row.setDescription(trimToEmpty(request.getDescription()));
-        row.setSourceColumns(trimToNull(request.getSourceColumns()));
-        row.setColumnsDisplay(trimToNull(request.getColumnsDisplay()));
+        row.setDescription(NormalizeUtils.trimToEmpty(request.getDescription()));
+        row.setSourceColumns(NormalizeUtils.trimToNull(request.getSourceColumns()));
+        row.setColumnsDisplay(NormalizeUtils.trimToNull(request.getColumnsDisplay()));
         row.setFormula(formula);
-        row.setInputMethod(trimToNull(request.getInputMethod()));
+        row.setInputMethod(NormalizeUtils.trimToNull(request.getInputMethod()));
         row.setSourcePercent(sourcePercent);
         row.setEnableSourcePercent(enableSourcePercent);
         row.setEnableInputMethod(enableInputMethod);
@@ -223,11 +223,11 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         row.setRowIndex(request.getRowIndex());
         row.setAccountId(accountId);
         row.setCurrencyId(currencyId);
-        row.setDescription(trimToEmpty(request.getDescription()));
-        row.setSourceColumns(trimToNull(request.getSourceColumns()));
-        row.setColumnsDisplay(trimToNull(request.getColumnsDisplay()));
+        row.setDescription(NormalizeUtils.trimToEmpty(request.getDescription()));
+        row.setSourceColumns(NormalizeUtils.trimToNull(request.getSourceColumns()));
+        row.setColumnsDisplay(NormalizeUtils.trimToNull(request.getColumnsDisplay()));
         row.setFormula(formula);
-        row.setInputMethod(trimToNull(request.getInputMethod()));
+        row.setInputMethod(NormalizeUtils.trimToNull(request.getInputMethod()));
         row.setSourcePercent(sourcePercent);
         row.setEnableSourcePercent(enableSourcePercent);
         row.setEnableInputMethod(enableInputMethod);
@@ -241,14 +241,14 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
     @Override
     @Transactional
     public DataCaptureSummaryDTO updateFormula(DataCaptureSummaryDTO request) {
-        SessionUser session = requireLogin();
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
         if (request == null) {
             throw new BusinessException("Request body is required");
         }
 
         Integer tenantId = request.getTenantId();
-        requireTenantId(tenantId);
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         Integer accountId = request.getAccountId();
         Integer currencyId = request.getCurrencyId();
@@ -277,17 +277,17 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
             throw new BusinessException("Formula not found");
         }
 
-        String formula = trimToNull(request.getFormula());
+        String formula = NormalizeUtils.trimToNull(request.getFormula());
         if (formula == null) {
-            formula = trimToNull(existing.getFormula());
+            formula = NormalizeUtils.trimToNull(existing.getFormula());
         }
         if (formula == null) {
             throw new BusinessException("formula is required");
         }
 
-        String sourcePercent = trimToNull(request.getSourcePercent());
+        String sourcePercent = NormalizeUtils.trimToNull(request.getSourcePercent());
         if (sourcePercent == null) {
-            sourcePercent = trimToNull(existing.getSourcePercent());
+            sourcePercent = NormalizeUtils.trimToNull(existing.getSourcePercent());
         }
         if (sourcePercent == null) {
             sourcePercent = "0";
@@ -301,16 +301,16 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
                 : Boolean.TRUE.equals(existing.getEnableInputMethod());
 
         String description = request.getDescription() != null
-                ? trimToEmpty(request.getDescription())
-                : trimToEmpty(existing.getDescription());
+                ? NormalizeUtils.trimToEmpty(request.getDescription())
+                : NormalizeUtils.trimToEmpty(existing.getDescription());
         String sourceColumns = request.getSourceColumns() != null
-                ? trimToNull(request.getSourceColumns())
+                ? NormalizeUtils.trimToNull(request.getSourceColumns())
                 : existing.getSourceColumns();
         String columnsDisplay = request.getColumnsDisplay() != null
-                ? trimToNull(request.getColumnsDisplay())
+                ? NormalizeUtils.trimToNull(request.getColumnsDisplay())
                 : existing.getColumnsDisplay();
         String inputMethod = request.getInputMethod() != null
-                ? trimToNull(request.getInputMethod())
+                ? NormalizeUtils.trimToNull(request.getInputMethod())
                 : existing.getInputMethod();
         Integer rowIndex = request.getRowIndex() != null ? request.getRowIndex() : existing.getRowIndex();
 
@@ -348,13 +348,13 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
     @Override
     @Transactional
     public DataCaptureSummaryDTO deleteFormulas(DataCaptureSummaryDTO request) {
-        AccessControlUtils.requireWritable(requireLogin());
+        AccessControlUtils.requireWritable(AccessControlUtils.requireLoggedIn());
         if (request == null) {
             throw new BusinessException("Request body is required");
         }
 
         Integer tenantId = request.getTenantId();
-        requireTenantId(tenantId);
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         List<DataCaptureSummaryDTO> items = request.getItems();
         if (items == null || items.isEmpty()) {
@@ -388,14 +388,14 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
     @Override
     @Transactional
     public DataCaptureSummarySubmitDTO submit(DataCaptureSummarySubmitDTO request) {
-        SessionUser session = requireLogin();
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
         if (request == null) {
             throw new BusinessException("Request body is required");
         }
 
         Integer tenantId = request.getTenantId();
-        requireTenantId(tenantId);
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         LocalDate captureDate = request.getCaptureDate();
         if (captureDate == null) {
@@ -441,10 +441,10 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         header.setCaptureDate(captureDate);
         header.setProcessId(processId);
         header.setCurrencyId(headerCurrencyId);
-        header.setRemark(trimToNull(request.getRemark()));
-        header.setRemoveWord(trimToNull(request.getRemoveWord()));
-        header.setReplaceWordFrom(trimToNull(request.getReplaceWordFrom()));
-        header.setReplaceWordTo(trimToNull(request.getReplaceWordTo()));
+        header.setRemark(NormalizeUtils.trimToNull(request.getRemark()));
+        header.setRemoveWord(NormalizeUtils.trimToNull(request.getRemoveWord()));
+        header.setReplaceWordFrom(NormalizeUtils.trimToNull(request.getReplaceWordFrom()));
+        header.setReplaceWordTo(NormalizeUtils.trimToNull(request.getReplaceWordTo()));
         header.setCreatedBy(session.login_id);
         dataCaptureSummaryDao.insertCapture(header);
         Integer captureId = header.getId();
@@ -479,7 +479,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         if (line == null) {
             throw new BusinessException("line is required");
         }
-        if (trimToNull(line.getIdProduct()) == null) {
+        if (NormalizeUtils.trimToNull(line.getIdProduct()) == null) {
             throw new BusinessException("Product Id is required for every line");
         }
         Integer accountId = line.getAccountId();
@@ -506,23 +506,23 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         entity.setTenantId(tenantId);
         entity.setCaptureId(captureId);
         entity.setProductType(parseProductType(dto.getProductType()));
-        entity.setIdProduct(trimToNull(dto.getIdProduct()));
-        entity.setIdProductMain(trimToNull(dto.getIdProductMain()));
-        entity.setIdProductSub(trimToNull(dto.getIdProductSub()));
-        entity.setDescriptionMain(trimToNull(dto.getDescriptionMain()));
-        entity.setDescriptionSub(trimToNull(dto.getDescriptionSub()));
+        entity.setIdProduct(NormalizeUtils.trimToNull(dto.getIdProduct()));
+        entity.setIdProductMain(NormalizeUtils.trimToNull(dto.getIdProductMain()));
+        entity.setIdProductSub(NormalizeUtils.trimToNull(dto.getIdProductSub()));
+        entity.setDescriptionMain(NormalizeUtils.trimToNull(dto.getDescriptionMain()));
+        entity.setDescriptionSub(NormalizeUtils.trimToNull(dto.getDescriptionSub()));
         entity.setFormulaVariant(dto.getFormulaVariant() != null ? dto.getFormulaVariant() : 1);
         entity.setDisplayOrder(dto.getDisplayOrder() != null ? dto.getDisplayOrder() : order);
         entity.setAccountId(dto.getAccountId());
         entity.setCurrencyId(dto.getCurrencyId() != null ? dto.getCurrencyId() : headerCurrencyId);
-        entity.setSourceColumns(trimToNull(dto.getSourceColumns()));
-        entity.setSourceValue(trimToNull(dto.getSourceValue()));
+        entity.setSourceColumns(NormalizeUtils.trimToNull(dto.getSourceColumns()));
+        entity.setSourceValue(NormalizeUtils.trimToNull(dto.getSourceValue()));
         entity.setSourcePercent(dto.getSourcePercent() != null ? dto.getSourcePercent() : "0");
         entity.setEnableSourcePercent(dto.getEnableSourcePercent() == null || dto.getEnableSourcePercent());
-        entity.setFormula(trimToNull(dto.getFormula()));
+        entity.setFormula(NormalizeUtils.trimToNull(dto.getFormula()));
         entity.setProcessedAmount(computed.finalAmount);
         entity.setRate(computed.rate);
-        entity.setRateExpression(trimToNull(dto.getRateValue()));
+        entity.setRateExpression(NormalizeUtils.trimToNull(dto.getRateValue()));
         entity.setTransactionId(transactionId);
         return entity;
     }
@@ -539,7 +539,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         txn.setCurrencyId(dto.getCurrencyId() != null ? dto.getCurrencyId() : headerCurrencyId);
         txn.setAmount(computed.finalAmount.abs());
         txn.setTransactionDate(captureDate);
-        String formulaText = trimToNull(dto.getFormula());
+        String formulaText = NormalizeUtils.trimToNull(dto.getFormula());
         if (formulaText == null) {
             formulaText = TransactionMoneyFormat.formatMoney(computed.finalAmount);
         }
@@ -555,15 +555,15 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
     /* MAIN line -> descriptionMain, SUB line -> descriptionSub; never fall back to the other type's text. */
     private static String resolveLineRemark(DataCaptureLineDTO dto) {
         boolean isSub = parseProductType(dto.getProductType()) == DataCaptureLine.ProductType.SUB;
-        return trimToNull(isSub ? dto.getDescriptionSub() : dto.getDescriptionMain());
+        return NormalizeUtils.trimToNull(isSub ? dto.getDescriptionSub() : dto.getDescriptionMain());
     }
 
     private static DataCaptureLine.ProductType parseProductType(String value) {
-        return "SUB".equalsIgnoreCase(trimToNull(value)) ? DataCaptureLine.ProductType.SUB : DataCaptureLine.ProductType.MAIN;
+        return "SUB".equalsIgnoreCase(NormalizeUtils.trimToNull(value)) ? DataCaptureLine.ProductType.SUB : DataCaptureLine.ProductType.MAIN;
     }
 
     private static BigDecimal parseAmount(String value) {
-        String trimmed = trimToNull(value);
+        String trimmed = NormalizeUtils.trimToNull(value);
         if (trimmed == null) {
             throw new BusinessException("processedAmount is required for every line");
         }
@@ -585,16 +585,16 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         }
 
         Integer accountId = item.getAccountId();
-        String idProduct = trimToNull(item.getIdProduct());
+        String idProduct = NormalizeUtils.trimToNull(item.getIdProduct());
         if (accountId == null || accountId <= 0 || idProduct == null) {
             return null;
         }
 
-        String productTypeRaw = trimToNull(item.getProductType());
+        String productTypeRaw = NormalizeUtils.trimToNull(item.getProductType());
         String productType = productTypeRaw != null && productTypeRaw.equalsIgnoreCase("SUB")
                 ? "SUB"
                 : "MAIN";
-        String parentIdProduct = trimToNull(item.getParentIdProduct());
+        String parentIdProduct = NormalizeUtils.trimToNull(item.getParentIdProduct());
         if ("SUB".equals(productType) && parentIdProduct == null) {
             parentIdProduct = idProduct;
         }
@@ -611,7 +611,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
             }
         }
 
-        String code = trimToNull(processCode);
+        String code = NormalizeUtils.trimToNull(processCode);
         if (code != null) {
             code = code.toUpperCase(Locale.ROOT);
             if (BANK_PROCESS_CODES.contains(code)) {
@@ -652,16 +652,16 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
             }
         }
 
-        String idProduct = trimToNull(request.getIdProduct());
+        String idProduct = NormalizeUtils.trimToNull(request.getIdProduct());
         if (idProduct == null) {
             throw new BusinessException("Product Id is required when formula id is missing");
         }
 
-        String productTypeRaw = trimToNull(request.getProductType());
+        String productTypeRaw = NormalizeUtils.trimToNull(request.getProductType());
         String productType = productTypeRaw != null && productTypeRaw.equalsIgnoreCase("SUB")
                 ? "SUB"
                 : "MAIN";
-        String parentIdProduct = trimToNull(request.getParentIdProduct());
+        String parentIdProduct = NormalizeUtils.trimToNull(request.getParentIdProduct());
         if ("SUB".equals(productType) && parentIdProduct == null) {
             parentIdProduct = idProduct;
         }
@@ -696,29 +696,4 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         return response;
     }
 
-    private static SessionUser requireLogin() {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
-        return sessionUser;
-    }
-
-    private static void requireTenantId(Integer tenantId) {
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException("Tenant Id is required");
-        }
-    }
-
-    private static String trimToNull(String value) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
-    }
-
-    private static String trimToEmpty(String value) {
-        return value == null ? "" : value.trim();
-    }
 }

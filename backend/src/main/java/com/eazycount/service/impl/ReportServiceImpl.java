@@ -4,9 +4,10 @@ import com.eazycount.common.BusinessException;
 import com.eazycount.dao.ReportDao;
 import com.eazycount.dto.CustomerReportDTO;
 import com.eazycount.dto.DomainReportDTO;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.ReportService;
+import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.NormalizeUtils;
 import com.eazycount.util.TransactionDateParse;
 import com.eazycount.util.TransactionMoneyFormat;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +18,6 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.stream.Collectors;
 
 @Service
 public class ReportServiceImpl implements ReportService {
@@ -27,13 +27,8 @@ public class ReportServiceImpl implements ReportService {
 
     @Override
     public List<CustomerReportDTO> findCustomerReportRows(CustomerReportDTO request) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("User is not logged in");
-        }
-        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
+        AccessControlUtils.requireValidTenantId(request != null ? request.getTenantId() : null);
 
         LocalDate dateFrom = TransactionDateParse.parseRequired(request.getDateFrom(), "dateFrom");
         LocalDate dateTo = TransactionDateParse.parseRequired(request.getDateTo(), "dateTo");
@@ -46,7 +41,7 @@ public class ReportServiceImpl implements ReportService {
                 ? request.getAccountId()
                 : null;
         // currencyCodes empty/null means "every currency the account is assigned to" (account_currency) — no filter.
-        List<String> currencyCodes = normalizeUpperList(request.getCurrencyCodes());
+        List<String> currencyCodes = NormalizeUtils.normalizeUpperList(request.getCurrencyCodes());
         boolean showAll = Boolean.TRUE.equals(request.getShowAll());
 
         List<CustomerReportDTO> rawRows = reportDao.findCustomerReportRows(
@@ -93,13 +88,8 @@ public class ReportServiceImpl implements ReportService {
 
     @Override
     public List<DomainReportDTO> findDomainReportRows(DomainReportDTO request) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("User is not logged in");
-        }
-        if (request == null || request.getTenantId() == null || request.getTenantId() <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
+        AccessControlUtils.requireValidTenantId(request != null ? request.getTenantId() : null);
 
         LocalDate dateFrom = TransactionDateParse.parseRequired(request.getDateFrom(), "dateFrom");
         LocalDate dateTo = TransactionDateParse.parseRequired(request.getDateTo(), "dateTo");
@@ -160,14 +150,4 @@ public class ReportServiceImpl implements ReportService {
         return rows;
     }
 
-    private static List<String> normalizeUpperList(List<String> raw) {
-        if (raw == null || raw.isEmpty()) {
-            return List.of();
-        }
-        return raw.stream()
-                .filter(s -> s != null && !s.isBlank())
-                .map(s -> s.trim().toUpperCase(Locale.ROOT))
-                .distinct()
-                .collect(Collectors.toList());
-    }
 }

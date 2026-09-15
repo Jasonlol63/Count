@@ -4,10 +4,9 @@ import com.eazycount.common.BusinessException;
 import com.eazycount.dao.BankCountryOptionDao;
 import com.eazycount.entity.BankCountry;
 import com.eazycount.entity.BankOption;
-import com.eazycount.security.SecurityUtils;
-import com.eazycount.security.SessionUser;
 import com.eazycount.service.BankCountryOptionService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,30 +21,23 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
 
     @Override
     public List<BankCountry> findAllCountry(Integer tenantId) {
-        requireLogin();
+        AccessControlUtils.requireLoggedIn();
 
-        if (tenantId == null) {
-            throw new BusinessException("Invalid Tenant ID!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         return bankCountryOptionDao.findAllCountry(tenantId);
     }
 
     @Override
     public List<BankOption> findAllBankInCountry(Integer tenantId, Integer countryId) {
-        requireLogin();
+        AccessControlUtils.requireLoggedIn();
 
-        if (tenantId == null) {
-            throw new BusinessException("Invalid Tenant ID!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
         if (countryId == null) {
             throw new BusinessException("Country ID is required!");
         }
 
-        BankCountry country = bankCountryOptionDao.findCountryById(tenantId, countryId);
-        if (country == null) {
-            throw new BusinessException("Country not found!");
-        }
+        AssertUtils.requireFound(bankCountryOptionDao.findCountryById(tenantId, countryId), "Country not found!");
 
         return bankCountryOptionDao.findAllBankInCountry(tenantId, countryId);
     }
@@ -53,14 +45,8 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
     @Transactional
     @Override
     public void insertNewCountry(BankCountry bankCountry) {
-        requireLogin();
-        AccessControlUtils.requireWritable(SecurityUtils.currentUser());
-        if (bankCountry == null) {
-            throw new BusinessException("Bank Country is required!");
-        }
-        if (bankCountry.getTenantId() == null) {
-            throw new BusinessException("Invalid Tenant ID!");
-        }
+        AccessControlUtils.requireWritable(AccessControlUtils.requireLoggedIn());
+        AccessControlUtils.requireValidTenantId(bankCountry != null ? bankCountry.getTenantId() : null);
 
         String code = bankCountry.getCode() != null ? bankCountry.getCode().trim().toUpperCase() : "";
         if (code.isBlank()) {
@@ -84,15 +70,9 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
     @Transactional
     @Override
     public void insertNewBankOption(BankOption bankOption) {
-        requireLogin();
-        AccessControlUtils.requireWritable(SecurityUtils.currentUser());
+        AccessControlUtils.requireWritable(AccessControlUtils.requireLoggedIn());
 
-        if (bankOption == null) {
-            throw new BusinessException("Bank Option is required!");
-        }
-        if (bankOption.getTenantId() == null) {
-            throw new BusinessException("Invalid Tenant ID!");
-        }
+        AccessControlUtils.requireValidTenantId(bankOption != null ? bankOption.getTenantId() : null);
         if (bankOption.getCountryId() == null) {
             throw new BusinessException("Country ID is required!");
         }
@@ -102,10 +82,8 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
             throw new BusinessException("Bank Option name is required!");
         }
 
-        BankCountry country = bankCountryOptionDao.findCountryById(bankOption.getTenantId(), bankOption.getCountryId());
-        if (country == null) {
-            throw new BusinessException("Country not found!");
-        }
+        AssertUtils.requireFound(
+                bankCountryOptionDao.findCountryById(bankOption.getTenantId(), bankOption.getCountryId()), "Country not found!");
 
         BankOption match = bankCountryOptionDao.findBankOptionByName(
                 bankOption.getTenantId(), bankOption.getCountryId(), name);
@@ -125,20 +103,14 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
     @Transactional
     @Override
     public void deleteCountryByIdAndTenantId(Integer id, Integer tenantId) {
-        requireLogin();
-        AccessControlUtils.requireWritable(SecurityUtils.currentUser());
+        AccessControlUtils.requireWritable(AccessControlUtils.requireLoggedIn());
 
         if (id == null) {
             throw new BusinessException("Country ID is required!");
         }
-        if (tenantId == null) {
-            throw new BusinessException("Tenant ID is required!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
-        BankCountry find = bankCountryOptionDao.findCountryById(tenantId, id);
-        if (find == null) {
-            throw new BusinessException("Country not found!");
-        }
+        AssertUtils.requireFound(bankCountryOptionDao.findCountryById(tenantId, id), "Country not found!");
 
         try {
             bankCountryOptionDao.deleteCountryByIdAndTenantId(id, tenantId);
@@ -150,23 +122,17 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
     @Transactional
     @Override
     public void deleteBankOptionByIdAndTenantId(Integer id, Integer tenantId, Integer countryId) {
-        requireLogin();
-        AccessControlUtils.requireWritable(SecurityUtils.currentUser());
+        AccessControlUtils.requireWritable(AccessControlUtils.requireLoggedIn());
 
         if (id == null) {
             throw new BusinessException("Bank Option ID is required!");
         }
-        if (tenantId == null) {
-            throw new BusinessException("Tenant ID is required!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
         if (countryId == null) {
             throw new BusinessException("Country ID is required!");
         }
 
-        BankOption find = bankCountryOptionDao.findBankOptionById(tenantId, countryId, id);
-        if (find == null) {
-            throw new BusinessException("Bank option not found!");
-        }
+        AssertUtils.requireFound(bankCountryOptionDao.findBankOptionById(tenantId, countryId, id), "Bank option not found!");
 
         try {
             bankCountryOptionDao.deleteBankOptionByIdAndTenantId(id, tenantId, countryId);
@@ -175,10 +141,4 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
         }
     }
 
-    private static void requireLogin() {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
-    }
 }

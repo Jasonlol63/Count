@@ -8,10 +8,10 @@ import com.eazycount.dto.DataCaptureGameDTO;
 import com.eazycount.entity.DataCaptureDraft;
 import com.eazycount.entity.DataCaptureDraftCell;
 import com.eazycount.entity.Process;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.DataCaptureService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,13 +39,13 @@ public class DataCaptureServiceImpl implements DataCaptureService {
 
     @Override
     public List<DataCaptureGameDTO> findAllProcessSubmittedByIdAndDate(DataCaptureGameDTO request) {
-        requireLogin();
+        AccessControlUtils.requireLoggedIn();
         if (request == null) {
             throw new BusinessException("Request body is required");
         }
 
         Integer tenantId = request.getTenantId();
-        requireTenantId(tenantId);
+        AccessControlUtils.requireValidTenantId(tenantId);
         LocalDate captureDate = requireCaptureDate(request.getCaptureDate());
 
         return dataCaptureDao.findAllProcessSubmittedByIdAndDate(tenantId, captureDate);
@@ -53,14 +53,14 @@ public class DataCaptureServiceImpl implements DataCaptureService {
 
     @Override
     public DataCaptureGameDTO loadGameCaptureForm(DataCaptureGameDTO request) {
-        requireLogin();
+        AccessControlUtils.requireLoggedIn();
         if (request == null) {
             throw new BusinessException("Request body is required");
         }
 
         Integer tenantId = request.getTenantId();
         LocalDate captureDate = request.getCaptureDate();
-        requireTenantId(tenantId);
+        AccessControlUtils.requireValidTenantId(tenantId);
         LocalDate date = requireCaptureDate(captureDate);
 
         int dayOfWeek = toProcessDayOfWeek(date);
@@ -83,7 +83,7 @@ public class DataCaptureServiceImpl implements DataCaptureService {
     @Override
     @Transactional
     public DataCaptureBankDTO saveBankDraft(DataCaptureBankDTO request) {
-        SessionUser session = requireLogin();
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
         if (request == null) {
             throw new BusinessException("Request body is required");
@@ -91,7 +91,7 @@ public class DataCaptureServiceImpl implements DataCaptureService {
 
         Integer tenantId = request.getTenantId();
         Integer currencyId = request.getCurrencyId();
-        requireTenantId(tenantId);
+        AccessControlUtils.requireValidTenantId(tenantId);
         requireCurrencyId(currencyId);
 
         String processCode = normalizeBankProcessCode(request.getProcessCode());
@@ -144,14 +144,14 @@ public class DataCaptureServiceImpl implements DataCaptureService {
 
     @Override
     public DataCaptureBankDTO getBankDraft(DataCaptureBankDTO request) {
-        requireLogin();
+        AccessControlUtils.requireLoggedIn();
         if (request == null) {
             throw new BusinessException("Request body is required");
         }
 
         Integer tenantId = request.getTenantId();
         Integer currencyId = request.getCurrencyId();
-        requireTenantId(tenantId);
+        AccessControlUtils.requireValidTenantId(tenantId);
         requireCurrencyId(currencyId);
 
         String processCode = normalizeBankProcessCode(request.getProcessCode());
@@ -200,7 +200,7 @@ public class DataCaptureServiceImpl implements DataCaptureService {
     @Override
     @Transactional
     public DataCaptureBankDTO saveGameDraft(DataCaptureBankDTO request) {
-        SessionUser session = requireLogin();
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
         if (request == null) {
             throw new BusinessException("Request body is required");
@@ -208,7 +208,7 @@ public class DataCaptureServiceImpl implements DataCaptureService {
 
         Integer tenantId = request.getTenantId();
         Integer currencyId = request.getCurrencyId();
-        requireTenantId(tenantId);
+        AccessControlUtils.requireValidTenantId(tenantId);
         requireCurrencyId(currencyId);
 
         Process process = resolveDraftEligibleGameProcess(tenantId, request.getProcessId());
@@ -256,7 +256,7 @@ public class DataCaptureServiceImpl implements DataCaptureService {
 
     @Override
     public DataCaptureBankDTO getGameDraft(DataCaptureBankDTO request) {
-        requireLogin();
+        AccessControlUtils.requireLoggedIn();
         if (request == null) {
             throw new BusinessException("Request body is required");
         }
@@ -264,7 +264,7 @@ public class DataCaptureServiceImpl implements DataCaptureService {
         Integer tenantId = request.getTenantId();
         Integer currencyId = request.getCurrencyId();
         Integer processId = request.getProcessId();
-        requireTenantId(tenantId);
+        AccessControlUtils.requireValidTenantId(tenantId);
         requireCurrencyId(currencyId);
         if (processId == null || processId <= 0) {
             throw new BusinessException("processId is required");
@@ -364,11 +364,7 @@ public class DataCaptureServiceImpl implements DataCaptureService {
     }
 
     private DataCaptureGameDTO loadProcessDetail(Integer tenantId, Integer processId) {
-        DataCaptureGameDTO detail = dataCaptureDao.findGameProcessDetail(tenantId, processId);
-        if (detail == null) {
-            throw new BusinessException("Process not found");
-        }
-        return detail;
+        return AssertUtils.requireFound(dataCaptureDao.findGameProcessDetail(tenantId, processId), "Process not found");
     }
 
     private static DataCaptureBankDTO emptyDraftResponse(
@@ -515,24 +511,8 @@ public class DataCaptureServiceImpl implements DataCaptureService {
         return code;
     }
 
-    private static SessionUser requireLogin() {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
-        return sessionUser;
-    }
-
-    private static void requireTenantId(Integer tenantId) {
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException("tenantId is required");
-        }
-    }
-
     private static void requireCurrencyId(Integer currencyId) {
-        if (currencyId == null || currencyId <= 0) {
-            throw new BusinessException("currencyId is required");
-        }
+        AssertUtils.requirePositive(currencyId, "currencyId");
     }
 
     private static LocalDate requireCaptureDate(LocalDate captureDate) {

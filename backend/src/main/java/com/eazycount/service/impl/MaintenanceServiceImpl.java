@@ -18,6 +18,7 @@ import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.MaintenanceService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.NormalizeUtils;
 import com.eazycount.util.TransactionDateParse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -87,7 +88,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     @Override
     public List<MaintenanceTransactionDTO> findMaintenanceTransactionsRows(MaintenanceTransactionDTO mt) {
-        requireLoggedIn();
+        AccessControlUtils.requireLoggedIn();
         ProcessCategoryListQuery query = parseTransactionListQuery(mt);
 
         List<MaintenanceTransactionDTO> rows = maintenanceDao.findTransactionLineMaintenanceRows(
@@ -103,7 +104,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     @Override
     public List<MaintenanceCaptureDTO> findMaintenanceCaptureRows(MaintenanceCaptureDTO mc) {
-        requireLoggedIn();
+        AccessControlUtils.requireLoggedIn();
         ProcessCategoryListQuery query = parseCaptureListQuery(mc);
 
         List<MaintenanceCaptureDTO> live = maintenanceDao.findCaptureLineMaintenanceRows(
@@ -134,7 +135,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Transactional
     public void deleteMaintenanceCaptureRows(MaintenanceCaptureDTO mc) {
         SessionUser session = requireWritableSession();
-        int tenantId = requireTenantId(mc != null ? mc.getTenantId() : null);
+        Integer tenantId = mc != null ? mc.getTenantId() : null;
+        AccessControlUtils.requireValidTenantId(tenantId);
         List<Integer> captureIds = requireIds(mc != null ? mc.getCaptureIds() : null);
 
         String deletedBy = session.login_id.trim();
@@ -165,7 +167,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     @Override
     public List<MaintenanceFormulaDTO> findMaintenanceFormulaRows(MaintenanceFormulaDTO mf) {
-        requireLoggedIn();
+        AccessControlUtils.requireLoggedIn();
         FormulaListQuery query = parseFormulaListQuery(mf);
 
         return maintenanceDao.findFormulaMaintenanceRows(
@@ -181,7 +183,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Transactional
     public void updateFormulaMaintenance(MaintenanceFormulaDTO ft) {
         SessionUser session = requireWritableSession();
-        int tenantId = requireTenantId(ft != null ? ft.getTenantId() : null);
+        Integer tenantId = ft != null ? ft.getTenantId() : null;
+        AccessControlUtils.requireValidTenantId(tenantId);
         int id = requireFormulaId(ft);
 
         Integer accountId = ft.getAccountId();
@@ -212,7 +215,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Transactional
     public void deleteFormulaMaintenance(MaintenanceFormulaDTO ft) {
         requireWritableSession();
-        int tenantId = requireTenantId(ft != null ? ft.getTenantId() : null);
+        Integer tenantId = ft != null ? ft.getTenantId() : null;
+        AccessControlUtils.requireValidTenantId(tenantId);
         List<Integer> ids = requireIds(ft != null ? ft.getFormulaIds() : null);
 
         int removed = maintenanceDao.deleteFormulaMaintenanceRows(tenantId, ids);
@@ -224,7 +228,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Override
     public List<MaintenancePaymentDTO> findPaymentMaintenanceRows(
             MaintenancePaymentDTO request) {
-        requireLoggedIn();
+        AccessControlUtils.requireLoggedIn();
         ListQuery query = parseListQuery(request);
 
         List<MaintenancePaymentDTO> live =
@@ -254,7 +258,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Override
     public List<MaintenanceBankProcessDTO> findBankProcessMaintenanceRows(
             MaintenanceBankProcessDTO request) {
-        requireLoggedIn();
+        AccessControlUtils.requireLoggedIn();
         ListQuery query = parseBankProcessListQuery(request);
 
         List<MaintenanceBankProcessDTO> live =
@@ -286,7 +290,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     public List<Integer> deletePaymentMaintenanceRows(
             MaintenancePaymentDTO request) {
         SessionUser session = requireWritableSession();
-        int tenantId = requireTenantId(request != null ? request.getTenantId() : null);
+        Integer tenantId = request != null ? request.getTenantId() : null;
+        AccessControlUtils.requireValidTenantId(tenantId);
         List<Integer> requestedIds = requireIds(request != null ? request.getTransactionIds() : null);
 
         DeletableBatch batch = resolveDeletableBatch(tenantId, requestedIds);
@@ -356,7 +361,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     public List<Integer> deleteBankProcessMaintenanceRows(
             MaintenanceBankProcessDTO request) {
         SessionUser session = requireWritableSession();
-        int tenantId = requireTenantId(request != null ? request.getTenantId() : null);
+        Integer tenantId = request != null ? request.getTenantId() : null;
+        AccessControlUtils.requireValidTenantId(tenantId);
         List<Integer> requestedIds = requireIds(request != null ? request.getTransactionIds() : null);
 
         BankProcessDeletableBatch batch = resolveBankProcessDeletableBatch(tenantId, requestedIds);
@@ -505,7 +511,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             if (row == null || row.getId() == null || !idSet.contains(row.getId())) {
                 continue;
             }
-            String rateGroupId = trimToNull(row.getRateGroupId());
+            String rateGroupId = NormalizeUtils.trimToNull(row.getRateGroupId());
             if (rateGroupId != null) {
                 rateGroupIds.add(rateGroupId);
             }
@@ -515,7 +521,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     private static DateRangeTenantQuery parseDateRangeTenantQuery(
             Integer tenantId, String dateFromRaw, String dateToRaw) {
-        int validTenantId = requireTenantId(tenantId);
+        AccessControlUtils.requireValidTenantId(tenantId);
+        int validTenantId = tenantId;
         LocalDate dateFrom = TransactionDateParse.parseRequired(dateFromRaw, "dateFrom");
         LocalDate dateTo = TransactionDateParse.parseRequired(dateToRaw, "dateTo");
         if (dateTo.isBefore(dateFrom)) {
@@ -534,7 +541,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 base.dateFrom(),
                 base.dateTo(),
                 normalizeType(request.getTransactionType()),
-                normalizeUpperList(request.getCurrencyCodes()),
+                NormalizeUtils.normalizeUpperList(request.getCurrencyCodes()),
                 normalizeQ(request.getQ()));
     }
 
@@ -549,7 +556,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 base.dateFrom(),
                 base.dateTo(),
                 null,
-                normalizeUpperList(request.getCurrencyCodes()),
+                NormalizeUtils.normalizeUpperList(request.getCurrencyCodes()),
                 normalizeQ(request.getQ()));
     }
 
@@ -582,7 +589,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     private static FormulaListQuery parseFormulaListQuery(MaintenanceFormulaDTO request) {
-        int tenantId = requireTenantId(request != null ? request.getTenantId() : null);
+        Integer tenantId = request != null ? request.getTenantId() : null;
+        AccessControlUtils.requireValidTenantId(tenantId);
         return new FormulaListQuery(
                 tenantId,
                 normalizeQ(request.getProcess()),
@@ -591,7 +599,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     private static String normalizeMaintenanceCategory(String raw) {
-        String category = trimToNull(raw);
+        String category = NormalizeUtils.trimToNull(raw);
         if (category == null) {
             throw new BusinessException("category is required");
         }
@@ -603,12 +611,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         };
     }
 
-    private static void requireLoggedIn() {
-        if (SecurityUtils.currentUser() == null) {
-            throw new BusinessException("Not logged in");
-        }
-    }
-
     private static SessionUser requireWritableSession() {
         SessionUser session = SecurityUtils.currentUser();
         AccessControlUtils.requireWritable(session);
@@ -618,15 +620,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return session;
     }
 
-    private static int requireTenantId(Integer tenantId) {
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
-        return tenantId;
-    }
-
     private static List<Integer> requireIds(List<Integer> raw) {
-        List<Integer> ids = normalizeIds(raw);
+        List<Integer> ids = NormalizeUtils.normalizeIds(raw);
         if (ids.isEmpty()) {
             throw new BusinessException("Please select at least one record");
         }
@@ -642,7 +637,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     // data_capture_formula.source_percent is NOT NULL DEFAULT '0'; a blank edit falls back to that default.
     private static String normalizeSourcePercent(String raw) {
-        String trimmed = trimToNull(raw);
+        String trimmed = NormalizeUtils.trimToNull(raw);
         return trimmed != null ? trimmed : "0";
     }
 
@@ -674,27 +669,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     private record BankProcessDeletableBatch(List<Integer> ids, List<Integer> bankProcessIds) {}
 
-    private static String trimToNull(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String trimmed = raw.trim();
-        return trimmed.isEmpty() ? null : trimmed;
-    }
-
-    private static List<Integer> normalizeIds(List<Integer> raw) {
-        if (raw == null || raw.isEmpty()) {
-            return List.of();
-        }
-        Set<Integer> unique = new LinkedHashSet<>();
-        for (Integer id : raw) {
-            if (id != null && id > 0) {
-                unique.add(id);
-            }
-        }
-        return new ArrayList<>(unique);
-    }
-
     private static String normalizeType(String raw) {
         if (raw == null) {
             return null;
@@ -717,20 +691,4 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return q.isEmpty() ? null : q;
     }
 
-    private static List<String> normalizeUpperList(List<String> raw) {
-        if (raw == null || raw.isEmpty()) {
-            return List.of();
-        }
-        List<String> out = new ArrayList<>();
-        for (String item : raw) {
-            if (item == null) {
-                continue;
-            }
-            String v = item.trim().toUpperCase(Locale.ROOT);
-            if (!v.isEmpty()) {
-                out.add(v);
-            }
-        }
-        return out;
-    }
 }

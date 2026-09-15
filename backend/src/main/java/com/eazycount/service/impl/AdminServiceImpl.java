@@ -20,6 +20,7 @@ import com.eazycount.security.SessionUser;
 import com.eazycount.service.AdminService;
 import com.eazycount.service.DomainService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -58,9 +59,7 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     public List<AdminDTO> findAdminsByTenantId(Integer tenantId) {
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException("Invalid Tenant Id!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
         List<AdminDTO> list = new ArrayList<>(adminDao.findAdminsByTenantId(tenantId));
         prependOwnerShadowRowIfViewerIsOwner(list, tenantId);
         return list;
@@ -68,9 +67,7 @@ public class AdminServiceImpl implements AdminService {
 
     private void prependOwnerShadowRowIfViewerIsOwner(List<AdminDTO> list, int tenantId) {
         SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_type == null
-                || !"owner".equalsIgnoreCase(session.user_type.trim())
-                || session.user_id == null) {
+        if (session == null || session.user_type == null || !"owner".equalsIgnoreCase(session.user_type.trim()) || session.user_id == null) {
             return;
         }
 
@@ -96,11 +93,10 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     public AdminDTO getAdminDetailByUserId(Integer userId, Integer scopeTenantId) {
-        requireLoggedIn();
+        AccessControlUtils.requireLoggedIn();
 
-        if (userId == null || userId <= 0 || scopeTenantId == null || scopeTenantId <= 0) {
-            throw new BusinessException("Invalid request");
-        }
+        AssertUtils.requirePositive(userId, "userId");
+        AccessControlUtils.requireValidTenantId(scopeTenantId);
 
         Tenant tenant = tenantDao.findTenantById(scopeTenantId);
         if (tenant != null && tenant.getOwnerId() != null && tenant.getOwnerId().equals(userId)) {
@@ -111,10 +107,7 @@ public class AdminServiceImpl implements AdminService {
             }
         }
 
-        Admin admin = adminDao.findAdminById(userId);
-        if (admin == null) {
-            throw new BusinessException("User not found!");
-        }
+        Admin admin = AssertUtils.requireFound(adminDao.findAdminById(userId), "User not found!");
 
         AdminTenantAccess scopedAccess =
                 adminDao.findTenantAccessByUserIdAndTenantId(userId, scopeTenantId);
@@ -238,17 +231,14 @@ public class AdminServiceImpl implements AdminService {
     @Override
     @Transactional
     public AdminDTO updateOwnerProfile(AdminDTO dto) {
-        requireLoggedIn();
+        AccessControlUtils.requireLoggedIn();
         if (dto == null || dto.getId() == null || dto.getId() <= 0) {
             throw new BusinessException("Invalid request");
         }
 
         requireOwnerSessionForProfile(dto.getId());
 
-        Owner existing = domainDao.findOwnerById(dto.getId());
-        if (existing == null) {
-            throw new BusinessException("Owner not found!");
-        }
+        Owner existing = AssertUtils.requireFound(domainDao.findOwnerById(dto.getId()), "Owner not found!");
 
         Owner patch = new Owner();
         patch.setId(existing.getId());
@@ -264,10 +254,7 @@ public class AdminServiceImpl implements AdminService {
 
         domainService.updateOwnerDetails(patch);
 
-        Owner updated = domainDao.findOwnerById(dto.getId());
-        if (updated == null) {
-            throw new BusinessException("Owner not found!");
-        }
+        Owner updated = AssertUtils.requireFound(domainDao.findOwnerById(dto.getId()), "Owner not found!");
         return buildOwnerShadowListRow(updated);
     }
 
@@ -359,12 +346,11 @@ public class AdminServiceImpl implements AdminService {
     @Override
     @Transactional
     public AdminDTO createAdmin(AdminDTO dto) {
-        requireLoggedIn();
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         if (dto == null) {
             throw new BusinessException("Invalid Admin");
         }
 
-        SessionUser session = SecurityUtils.currentUser();
         AdminRole actorRole = resolveActorRole(session);
         AdminRole targetRole = resolveRole(dto.getRole());
         AccessControlUtils.assertCanManageAdminTarget(
@@ -378,7 +364,7 @@ public class AdminServiceImpl implements AdminService {
     @Override
     @Transactional
     public AdminDTO updateAdmin(AdminDTO dto) {
-        requireLoggedIn();
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         if (dto == null) {
             throw new BusinessException("Invalid Admin");
         }
@@ -386,13 +372,10 @@ public class AdminServiceImpl implements AdminService {
         if (userId == null) {
             throw new BusinessException("Invalid Admin");
         }
-        if (dto.getScopeTenantId() == null || dto.getScopeTenantId() <= 0) {
-            throw new BusinessException("Invalid Tenant Id!");
-        }
+        AccessControlUtils.requireValidTenantId(dto.getScopeTenantId());
 
         Admin existing = loadExistingAdmin(dto);
 
-        SessionUser session = SecurityUtils.currentUser();
         boolean isSelf = session.user_id != null && session.user_id.equals(userId);
         boolean roleChanging = dto.getRole() != null && !dto.getRole().isBlank()
                 && !normalizeStaffRoleCode(dto.getRole()).equals(normalizeStaffRoleCode(existing.getRoleCode()));
@@ -507,9 +490,7 @@ public class AdminServiceImpl implements AdminService {
         List<Integer> tenantIds = dto.getTenantIds();
 
         if (!isCreate && (tenantIds == null || tenantIds.isEmpty())) {
-            if (scopeTenantId == null) {
-                throw new BusinessException("Invalid Tenant Id!");
-            }
+            AccessControlUtils.requireValidTenantId(scopeTenantId);
             return syncScopedTenantAccess(admin.getId(), scopeTenantId, dto);
         }
 
@@ -697,15 +678,9 @@ public class AdminServiceImpl implements AdminService {
 
     private Admin loadExistingAdmin(AdminDTO dto) {
         int userId = resolveUserId(dto);
-        Admin existing = adminDao.findAdminById(userId);
-        if (existing == null) {
-            throw new BusinessException("User not found!");
-        }
+        Admin existing = AssertUtils.requireFound(adminDao.findAdminById(userId), "User not found!");
 
-        AdminDTO scoped = adminDao.findAdminByUserIdAndTenantId(userId, dto.getScopeTenantId());
-        if (scoped == null) {
-            throw new BusinessException("User not found!");
-        }
+        AssertUtils.requireFound(adminDao.findAdminByUserIdAndTenantId(userId, dto.getScopeTenantId()), "User not found!");
         return existing;
     }
 
@@ -762,12 +737,6 @@ public class AdminServiceImpl implements AdminService {
             return AdminTenantAccess.AclMode.ALL;
         }
         return itemsRaw.isEmpty() ? AdminTenantAccess.AclMode.NONE : AdminTenantAccess.AclMode.CUSTOM;
-    }
-
-    private void requireLoggedIn() {
-        if (SecurityUtils.currentUser() == null) {
-            throw new BusinessException("Not logged in");
-        }
     }
 
     private void normalizeAdminFields(Admin admin) {
@@ -827,12 +796,10 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     public AdminDTO updateStatusById(Integer userId, Integer scopeTenantId) {
-        requireLoggedIn();
-        SessionUser session = SecurityUtils.currentUser();
+        SessionUser session = AccessControlUtils.requireLoggedIn();
 
-        if (userId == null || userId <= 0 || scopeTenantId == null || scopeTenantId <= 0) {
-            throw new BusinessException("Invalid request");
-        }
+        AssertUtils.requirePositive(userId, "userId");
+        AccessControlUtils.requireValidTenantId(scopeTenantId);
         assertNotTenantOwner(userId, scopeTenantId);
         if (session.user_id != null && session.user_id.equals(userId)) {
             throw new BusinessException("You cannot toggle your own status");
@@ -860,22 +827,16 @@ public class AdminServiceImpl implements AdminService {
             throw new BusinessException("Update Admin Status Failed!");
         }
 
-        AdminDTO result = adminDao.findAdminByUserIdAndTenantId(userId, scopeTenantId);
-        if (result == null) {
-            throw new BusinessException("User not found!");
-        }
-        return result;
+        return AssertUtils.requireFound(adminDao.findAdminByUserIdAndTenantId(userId, scopeTenantId), "User not found!");
     }
 
     @Override
     @Transactional
     public void deleteAdminByIdAndStatus(Integer userId, Integer scopeTenantId) {
-        requireLoggedIn();
-        SessionUser session = SecurityUtils.currentUser();
+        SessionUser session = AccessControlUtils.requireLoggedIn();
 
-        if (userId == null || userId <= 0 || scopeTenantId == null || scopeTenantId <= 0) {
-            throw new BusinessException("Invalid request");
-        }
+        AssertUtils.requirePositive(userId, "userId");
+        AccessControlUtils.requireValidTenantId(scopeTenantId);
         assertNotTenantOwner(userId, scopeTenantId);
         if (session.user_id != null && session.user_id.equals(userId)) {
             throw new BusinessException("You cannot delete your own account");

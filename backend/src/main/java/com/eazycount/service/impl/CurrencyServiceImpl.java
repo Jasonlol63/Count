@@ -7,10 +7,11 @@ import com.eazycount.dto.UserCurrencyDTO;
 import com.eazycount.dto.UserLinkedDTO;
 import com.eazycount.entity.Currency;
 import com.eazycount.entity.UserCurrency;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.CurrencyService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
+import com.eazycount.util.NormalizeUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,17 +30,13 @@ public class CurrencyServiceImpl implements CurrencyService {
 
     @Override
     public List<Currency> findCurrencyByTenantId(Integer tenantId) {
-        if(tenantId == null){
-            throw new BusinessException("Invalid tenantId!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
         return currencyDao.findCurrencyByTenantId(tenantId);
     }
 
     @Override
     public List<UserCurrencyDTO> findAvailableCurrencies(Integer tenantId, Integer accountId) {
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException("Invalid tenantId!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         List<Currency> currencies = currencyDao.findCurrencyByTenantId(tenantId);
         Set<Integer> linkedIds = resolveLinkedCurrencyIds(accountId, tenantId);
@@ -77,10 +74,7 @@ public class CurrencyServiceImpl implements CurrencyService {
     @Transactional
     @Override
     public Currency addNewCurrency(Currency currency) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
         if (currency == null || currency.getTenantId() == null) {
             throw new BusinessException("Invalid tenant id");
@@ -115,20 +109,14 @@ public class CurrencyServiceImpl implements CurrencyService {
     @Transactional
     @Override
     public void deleteCurrencyByIdAndTenantId (Integer id, Integer tenantId) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
 
-        if (id == null || id <= 0 || tenantId == null || tenantId <= 0) {
-            throw new BusinessException("Invalid request");
-        }
+        AssertUtils.requirePositive(id, "id");
+        AccessControlUtils.requireValidTenantId(tenantId);
 
-        Currency currency = currencyDao.findByIdAndTenantId(id, tenantId);
-        if (currency == null) {
-            throw new BusinessException("Currency not found or access denied");
-        }
+        Currency currency = AssertUtils.requireFound(
+                currencyDao.findByIdAndTenantId(id, tenantId), "Currency not found or access denied");
         List<UserLinkedDTO> accountsInUse = currencyDao.findLinkedAccountsByCurrencyIdAndTenantId(id, tenantId);
         if (accountsInUse != null && !accountsInUse.isEmpty()) {
             String labels = accountsInUse.stream()
@@ -158,22 +146,15 @@ public class CurrencyServiceImpl implements CurrencyService {
 
     @Override
     public List<Integer> findCurrencyIdsByAccountIdAndTenantId(Integer accountId, Integer tenantId) {
-        if(accountId == null){
-            throw new BusinessException("Invalid accountId");
-        }
-        if(tenantId == null){
-            throw new BusinessException("Invalid tenantId");
-        }
+        AssertUtils.requirePositive(accountId, "accountId");
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         return currencyDao.findCurrencyIdsByAccountIdAndTenantId(accountId, tenantId);
     }
 
     @Override
     public void insertAccountCurrency(int accountId, int tenantId, List<Integer> currencyIds) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
+        AccessControlUtils.requireLoggedIn();
 
         List<Integer> ids = currencyIds == null ? List.of() :
                 currencyIds.stream().filter(id -> id != null && id > 0).distinct().toList();
@@ -201,12 +182,8 @@ public class CurrencyServiceImpl implements CurrencyService {
 
     @Override
     public void deleteByAccountIdAndTenantId(Integer accountId, Integer tenantId) {
-        if(accountId == null){
-            throw new BusinessException("Invalid accountId");
-        }
-        if(tenantId == null){
-            throw new BusinessException("Invalid tenantId");
-        }
+        AssertUtils.requirePositive(accountId, "accountId");
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         try{
             currencyDao.deleteByAccountIdAndTenantId(accountId, tenantId);
@@ -218,17 +195,11 @@ public class CurrencyServiceImpl implements CurrencyService {
     // List, Update Linked Account Currency
     @Override
     public UserLinkedDTO findLinkedAccountsByCurrencyIdAndTenantId(Integer currencyId, Integer tenantId) {
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException("Invalid tenantId!");
-        }
-        if (currencyId == null || currencyId <= 0) {
-            throw new BusinessException("Invalid currencyId!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
+        AssertUtils.requirePositive(currencyId, "currencyId");
 
-        Currency currency = currencyDao.findByIdAndTenantId(currencyId, tenantId);
-        if (currency == null || currency.getId() == null) {
-            throw new BusinessException("Currency not found or access denied");
-        }
+        Currency currency = AssertUtils.requireFound(
+                currencyDao.findByIdAndTenantId(currencyId, tenantId), "Currency not found or access denied");
 
         List<UserLinkedDTO> linkAcc = currencyDao.findLinkedAccountsByCurrencyIdAndTenantId(currencyId, tenantId);
         List<Integer> linkedIds = linkAcc.stream()
@@ -245,24 +216,19 @@ public class CurrencyServiceImpl implements CurrencyService {
     @Override
     @Transactional
     public void bulkUpdateAccountCurrency(UserLinkedDTO request) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
 
         Integer tenantId = request.getTenantId();
         Integer currencyId = request.getCurrencyId();
-        if (tenantId == null || tenantId <= 0 || currencyId == null || currencyId <= 0) {
-            throw new BusinessException("Invalid request");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
+        AssertUtils.requirePositive(currencyId, "currencyId");
 
-        if (currencyDao.findByIdAndTenantId(currencyId, tenantId) == null) {
-            throw new BusinessException("Currency not found or access denied");
-        }
+        AssertUtils.requireFound(
+                currencyDao.findByIdAndTenantId(currencyId, tenantId), "Currency not found or access denied");
 
-        List<Integer> toLink = normalizeIds(request.getLinkedAccountIds());
-        List<Integer> toUnlink = normalizeIds(request.getUnlinkedAccountIds());
+        List<Integer> toLink = NormalizeUtils.normalizeIds(request.getLinkedAccountIds());
+        List<Integer> toUnlink = NormalizeUtils.normalizeIds(request.getUnlinkedAccountIds());
 
         List<Integer> allAccountIds = new ArrayList<>();
         allAccountIds.addAll(toLink);
@@ -302,11 +268,4 @@ public class CurrencyServiceImpl implements CurrencyService {
         }
     }
 
-    private List<Integer> normalizeIds(List<Integer> raw) {
-        if (raw == null) return List.of();
-        return raw.stream()
-                .filter(id -> id != null && id > 0)
-                .distinct()
-                .toList();
-    }
 }

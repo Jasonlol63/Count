@@ -26,14 +26,16 @@ public class TransactionContraInboxServiceImpl implements TransactionContraInbox
     @Override
     public List<TransactionContraInboxDTO> listPending(Integer tenantId) {
         requireApproverSession();
-        return transactionContraInboxDao.findPendingRows(requireTenantId(tenantId));
+        AccessControlUtils.requireValidTenantId(tenantId);
+        return transactionContraInboxDao.findPendingRows(tenantId);
     }
 
     @Override
     @Transactional
     public void approve(TransactionContraInboxDTO request) {
         SessionUser session = requireApproverSession();
-        int tenantId = requireTenantId(request != null ? request.getTenantId() : null);
+        Integer tenantId = request != null ? request.getTenantId() : null;
+        AccessControlUtils.requireValidTenantId(tenantId);
         int id = requireId(request != null ? request.getId() : null);
 
         int updated = transactionContraInboxDao.approvePendingTransaction(tenantId, id, session.login_id.trim());
@@ -46,7 +48,8 @@ public class TransactionContraInboxServiceImpl implements TransactionContraInbox
     @Transactional
     public void reject(TransactionContraInboxDTO request) {
         SessionUser session = requireApproverSession();
-        int tenantId = requireTenantId(request != null ? request.getTenantId() : null);
+        Integer tenantId = request != null ? request.getTenantId() : null;
+        AccessControlUtils.requireValidTenantId(tenantId);
         int id = requireId(request != null ? request.getId() : null);
         String rejectedBy = session.login_id.trim();
 
@@ -68,13 +71,6 @@ public class TransactionContraInboxServiceImpl implements TransactionContraInbox
             throw new BusinessException("Invalid session login id");
         }
         return session;
-    }
-
-    private static int requireTenantId(Integer tenantId) {
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
-        return tenantId;
     }
 
     private static int requireId(Integer id) {

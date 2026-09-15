@@ -4,7 +4,6 @@ import com.eazycount.common.BusinessException;
 import com.eazycount.dao.AnnouncementDao;
 import com.eazycount.entity.Announcements;
 import com.eazycount.entity.Maintenance;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AnnouncementService;
 import com.eazycount.util.AccessControlUtils;
@@ -39,11 +38,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     @Override
     @Transactional
     public void addMaintenance(Maintenance maintenance) {
-        final SessionUser current = SecurityUtils.currentUser();
+        final SessionUser current = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(current);
-        if (current.user_id == null) {
-            throw new BusinessException("User not logged in");
-        }
 
         if (maintenance.getCreatedBy() == null || maintenance.getCreatedBy().isBlank()) {
             maintenance.setCreatedBy(current.login_id);
@@ -80,11 +76,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     @Override
     @Transactional
     public void addAnnouncement(Announcements announcements) {
-        final SessionUser current = SecurityUtils.currentUser();
+        final SessionUser current = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(current);
-        if (current.user_id == null) {
-            throw new BusinessException("User not logged in");
-        }
 
         if (announcements.getCreatedBy() == null || announcements.getCreatedBy().isBlank()) {
             announcements.setCreatedBy(current.login_id);
@@ -122,11 +115,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     @Override
     @Transactional
     public void updateAnnouncement(Announcements announcements) {
-        final SessionUser current = SecurityUtils.currentUser();
+        final SessionUser current = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(current);
-        if (current.user_id == null) {
-            throw new BusinessException("User not logged in");
-        }
 
         // 2. 校验要更新的公告 id（来自前端 @RequestBody，不是登录用户 id）
         if (announcements.getId() == null || announcements.getId() == 0) {
@@ -144,11 +134,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     @Override
     @Transactional
     public void updateMaintenance(Maintenance maintenance) {
-        final SessionUser current = SecurityUtils.currentUser();
+        final SessionUser current = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(current);
-        if (current.user_id == null) {
-            throw new BusinessException("User not logged in");
-        }
 
         if (maintenance.getId() == null || maintenance.getId() == 0) {
             throw new BusinessException("Id not found. Please try again!");
@@ -166,11 +153,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     @Override
     @Transactional
     public void deleteAnnouncement(Announcements announcements) {
-        final SessionUser current = SecurityUtils.currentUser();
+        final SessionUser current = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(current);
-        if (current.user_id == null) {
-            throw new BusinessException("User not logged in");
-        }
 
         if (announcements.getId() == null || announcements.getId() == 0) {
             throw new BusinessException("Id not found. Please try again!");
@@ -185,11 +169,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     @Override
     @Transactional
     public void deleteMaintenance(Maintenance maintenance) {
-        final SessionUser current = SecurityUtils.currentUser();
+        final SessionUser current = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(current);
-        if (current.user_id == null) {
-            throw new BusinessException("User not logged in");
-        }
 
         if (maintenance.getId() == null || maintenance.getId() == 0) {
             throw new BusinessException("Id not found. Please try again!");

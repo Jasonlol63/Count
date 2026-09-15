@@ -16,12 +16,12 @@ import com.eazycount.entity.Tenant;
 import com.eazycount.entity.Owner;
 import com.eazycount.entity.Transaction;
 import com.eazycount.entity.User;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AutoRenewService;
 import com.eazycount.service.DomainFeeChargeService;
 import com.eazycount.service.DomainService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -208,14 +208,12 @@ public class AutoRenewServiceImpl implements AutoRenewService {
 
     @Override
     public void rejectRequest(Integer requestId) {
-        SessionUser session = requireSession();
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
-        requireValidRequestId(requestId);
+        AssertUtils.requirePositive(requestId, "request id");
 
-        AutoRenewDTO request = autoRenewDao.selectRequestById(requestId);
-        if (request == null) {
-            throw new BusinessException("Auto renew request not found");
-        }
+        AutoRenewDTO request = AssertUtils.requireFound(
+                autoRenewDao.selectRequestById(requestId), "Auto renew request not found");
 
         if (!"pending".equalsIgnoreCase(request.getStatus())) {
             throw new BusinessException("Auto renew request is not pending");
@@ -228,19 +226,17 @@ public class AutoRenewServiceImpl implements AutoRenewService {
     @Override
     @Transactional
     public AutoRenewDTO approveRequest(Integer requestId, String periodRaw, boolean chargeOnApprove) {
-        SessionUser session = requireSession();
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
-        requireValidRequestId(requestId);
+        AssertUtils.requirePositive(requestId, "request id");
 
         String period = periodRaw != null ? periodRaw.trim() : "";
         if (!ALLOWED_PERIODS.contains(period)) {
             throw new BusinessException("Invalid renewal period");
         }
 
-        AutoRenewDTO request = autoRenewDao.selectRequestById(requestId);
-        if (request == null) {
-            throw new BusinessException("Auto renew request not found");
-        }
+        AutoRenewDTO request = AssertUtils.requireFound(
+                autoRenewDao.selectRequestById(requestId), "Auto renew request not found");
         if (!"pending".equalsIgnoreCase(request.getStatus())) {
             throw new BusinessException("Auto renew request is not pending");
         }
@@ -293,13 +289,11 @@ public class AutoRenewServiceImpl implements AutoRenewService {
     @Override
     @Transactional
     public void deleteRequest(Integer requestId) {
-        AccessControlUtils.requireWritable(requireSession());
-        requireValidRequestId(requestId);
+        AccessControlUtils.requireWritable(AccessControlUtils.requireLoggedIn());
+        AssertUtils.requirePositive(requestId, "request id");
 
-        AutoRenewDTO request = autoRenewDao.selectRequestById(requestId);
-        if (request == null) {
-            throw new BusinessException("Auto renew request not found");
-        }
+        AutoRenewDTO request = AssertUtils.requireFound(
+                autoRenewDao.selectRequestById(requestId), "Auto renew request not found");
 
         String status = request.getStatus();
         if ("approved".equalsIgnoreCase(status)) {
@@ -343,20 +337,6 @@ public class AutoRenewServiceImpl implements AutoRenewService {
             return "warning";
         }
         return "normal";
-    }
-
-    private SessionUser requireSession() {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
-        return session;
-    }
-
-    private void requireValidRequestId(Integer requestId) {
-        if (requestId == null || requestId <= 0) {
-            throw new BusinessException("Invalid request id");
-        }
     }
 
     private LocalDate parseLocalDate(String dateStr) {

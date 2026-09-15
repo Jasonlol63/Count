@@ -15,6 +15,8 @@ import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.DashboardService;
 import com.eazycount.service.ExchangeRateService;
+import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -56,7 +58,7 @@ public class DashboardServiceImpl implements DashboardService {
     @Override
     public List<DashboardCurrencyAmountDTO> getKpiCurrencyBreakdown(Integer tenantId, LocalDate dateFrom,
                                                                      LocalDate dateTo, String baseCurrencyCode) {
-        requireTenantId(tenantId);
+        AccessControlUtils.requireValidTenantId(tenantId);
         requireDateRange(dateFrom, dateTo);
         String base = requireBaseCurrency(baseCurrencyCode);
 
@@ -212,7 +214,7 @@ public class DashboardServiceImpl implements DashboardService {
 
     @Override
     public DashboardKpiDTO getKpi(Integer tenantId, LocalDate dateFrom, LocalDate dateTo, String currencyCode) {
-        requireTenantId(tenantId);
+        AccessControlUtils.requireValidTenantId(tenantId);
         requireDateRange(dateFrom, dateTo);
         String currency = requireCurrency(currencyCode);
 
@@ -598,7 +600,7 @@ public class DashboardServiceImpl implements DashboardService {
     @Override
     public List<DashboardTrendPointDTO> getTrend(Integer tenantId, LocalDate dateFrom, LocalDate dateTo,
                                                   String currencyCode) {
-        requireTenantId(tenantId);
+        AccessControlUtils.requireValidTenantId(tenantId);
         requireDateRange(dateFrom, dateTo);
         String currency = requireCurrency(currencyCode);
 
@@ -1555,12 +1557,6 @@ public class DashboardServiceImpl implements DashboardService {
         ProfitExpensesEarnings apply(LocalDate dateFrom, LocalDate dateTo, boolean needEarnings);
     }
 
-    private static void requireTenantId(Integer tenantId) {
-        if (tenantId == null) {
-            throw new BusinessException("tenant_id is required");
-        }
-    }
-
     private static void requireGroupTenantId(Integer groupTenantId) {
         if (groupTenantId == null) {
             throw new BusinessException("group_tenant_id is required");
@@ -1607,11 +1603,7 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     private Tenant requireTenant(Integer tenantId) {
-        Tenant tenant = tenantDao.findTenantById(tenantId);
-        if (tenant == null) {
-            throw new BusinessException("Tenant not found");
-        }
-        return tenant;
+        return AssertUtils.requireFound(tenantDao.findTenantById(tenantId), "Tenant not found");
     }
 
     private Tenant requireGroupTenant(Integer groupTenantId) {

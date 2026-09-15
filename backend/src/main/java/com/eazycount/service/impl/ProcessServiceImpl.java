@@ -11,10 +11,10 @@ import com.eazycount.dto.AdminDTO;
 import com.eazycount.dto.ProcessDTO;
 import com.eazycount.entity.*;
 import com.eazycount.entity.Process;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.ProcessService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -49,14 +49,8 @@ public class ProcessServiceImpl implements ProcessService {
 
     @Override
     public List<ProcessDTO> findProcessByTenantId(Integer tenantId) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
-
-        if (tenantId == null) {
-            throw new BusinessException("tenant_id is required!");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         List<ProcessDTO> rows = processDao.findProcessByTenantId(tenantId);
         return filterByProcessAcl(rows, sessionUser, tenantId);
@@ -94,10 +88,7 @@ public class ProcessServiceImpl implements ProcessService {
     @Override
     @Transactional
     public ProcessDTO addNewProcess(ProcessDTO processDTO) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
         if (processDTO == null) {
             throw new BusinessException("Request body is required!");
@@ -113,9 +104,7 @@ public class ProcessServiceImpl implements ProcessService {
                 : (processDTO.getCategory() != null ? processDTO.getCategory() : Process.Category.GAME);
 
         Integer currencyId = copySource != null ? copySource.getCurrencyId() : processDTO.getCurrencyId();
-        if (currencyDao.findByIdAndTenantId(currencyId, processDTO.getTenantId()) == null) {
-            throw new BusinessException("Currency not found!");
-        }
+        AssertUtils.requireFound(currencyDao.findByIdAndTenantId(currencyId, processDTO.getTenantId()), "Currency not found!");
 
         // `code` is allowed to repeat within a tenant (e.g. one vendor code split into several report
         // sections, each with its own parsing rule) -- what must not repeat is (code, description).
@@ -159,11 +148,9 @@ public class ProcessServiceImpl implements ProcessService {
                     if (descriptionId == null || descriptionId <= 0 || !seenDesc.add(descriptionId)) {
                         continue;
                     }
-                    ProcessDescription desc = processDescDao.findDescriptionByIdAndTenantId(
-                            descriptionId, processDTO.getTenantId());
-                    if (desc == null) {
-                        throw new BusinessException("Description not found: " + descriptionId);
-                    }
+                    AssertUtils.requireFound(
+                            processDescDao.findDescriptionByIdAndTenantId(descriptionId, processDTO.getTenantId()),
+                            "Description not found: " + descriptionId);
                     links.add(new ProcessDescriptionLink(null, process.getId(), descriptionId, null));
                 }
                 if (!links.isEmpty()) {
@@ -203,17 +190,9 @@ public class ProcessServiceImpl implements ProcessService {
     @Override
     @Transactional
     public ProcessDTO updateProcess(ProcessDTO processDTO) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
-        if (processDTO == null) {
-            throw new BusinessException("Request body is required!");
-        }
-        if (processDTO.getTenantId() == null) {
-            throw new BusinessException("Tenant ID not found!");
-        }
+        AccessControlUtils.requireValidTenantId(processDTO != null ? processDTO.getTenantId() : null);
         if (processDTO.getId() == null) {
             throw new BusinessException("Process ID not found!");
         }
@@ -255,11 +234,9 @@ public class ProcessServiceImpl implements ProcessService {
                 if (descriptionId == null || descriptionId <= 0 || !seenDesc.add(descriptionId)) {
                     continue;
                 }
-                ProcessDescription desc = processDescDao.findDescriptionByIdAndTenantId(
-                        descriptionId, processDTO.getTenantId());
-                if (desc == null) {
-                    throw new BusinessException("Description not found: " + descriptionId);
-                }
+                AssertUtils.requireFound(
+                        processDescDao.findDescriptionByIdAndTenantId(descriptionId, processDTO.getTenantId()),
+                        "Description not found: " + descriptionId);
                 links.add(new ProcessDescriptionLink(null, processId, descriptionId, null));
             }
             if (!links.isEmpty()) {
@@ -296,22 +273,15 @@ public class ProcessServiceImpl implements ProcessService {
     @Override
     @Transactional
     public void deleteProcessById(Integer id, Integer tenantId) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
         if (id == null) {
             throw new BusinessException("id is required!");
         }
-        if (tenantId == null) {
-            throw new BusinessException("tenant_id is required!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
-        Process process = processDao.findProcessByIdAndTenantId(id, tenantId);
-        if (process == null) {
-            throw new BusinessException("Process not found!");
-        }
+        Process process = AssertUtils.requireFound(
+                processDao.findProcessByIdAndTenantId(id, tenantId), "Process not found!");
         if (process.getStatus() != Process.Status.INACTIVE) {
             throw new BusinessException("Process is not inactive, cannot be deleted!");
         }
@@ -330,17 +300,12 @@ public class ProcessServiceImpl implements ProcessService {
 
     @Override
     public Process updateProcessStatus(Integer id, Integer tenantId) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
         if (id == null) {
             throw new BusinessException("id is required!");
         }
-        if (tenantId == null) {
-            throw new BusinessException("tenant_id is required!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         Process process = processDao.findProcessById(id);
         if (process == null || !tenantId.equals(process.getTenantId())) {
@@ -356,11 +321,7 @@ public class ProcessServiceImpl implements ProcessService {
 
         processDao.updateProcessStatus(id, tenantId, newStatus);
 
-        Process result = processDao.findProcessById(id);
-        if (result == null) {
-            throw new BusinessException("Process not found!");
-        }
-        return result;
+        return AssertUtils.requireFound(processDao.findProcessById(id), "Process not found!");
     }
 
     // Save Draft is GAME-only (opt-in switch); BANK draft eligibility is decided by a fixed process-code
@@ -380,11 +341,8 @@ public class ProcessServiceImpl implements ProcessService {
         if (copyFromProcessId == null) {
             return null;
         }
-        Process source = processDao.findProcessByIdAndTenantId(copyFromProcessId, tenantId);
-        if (source == null) {
-            throw new BusinessException("Copy From source process not found!");
-        }
-        return source;
+        return AssertUtils.requireFound(
+                processDao.findProcessByIdAndTenantId(copyFromProcessId, tenantId), "Copy From source process not found!");
     }
 
     // Copy From: deep-copy the source process's description links / days / formulas onto the new process.

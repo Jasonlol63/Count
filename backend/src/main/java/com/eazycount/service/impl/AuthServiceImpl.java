@@ -27,6 +27,8 @@ import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AuthService;
 import com.eazycount.service.LoginRole;
+import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import com.eazycount.service.PermissionService;
 import com.eazycount.util.TenantDtoHelper;
 import com.eazycount.util.SecondaryPasswordUtils;
@@ -284,10 +286,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public Map<String, Object> accessibleTenants(boolean all) {
-        SessionUser user = SecurityUtils.currentUser();
-        if (user == null || user.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser user = AccessControlUtils.requireLoggedIn();
 
         String userType = String.valueOf(user.user_type).trim().toLowerCase();
         List<TenantDTO> rows = findAllTenantsByUserType(userType, user.user_id);
@@ -339,10 +338,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public Map<String, Object> tenantByCode(String code) {
-        SessionUser user = SecurityUtils.currentUser();
-        if (user == null || user.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser user = AccessControlUtils.requireLoggedIn();
         String normalized = code == null ? null : code.trim().toUpperCase();
         if (normalized == null || normalized.isEmpty()) {
             throw new BusinessException("Invalid tenant code");
@@ -386,9 +382,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void verifySecondaryPassword(String secondaryPassword, SessionUser current, String jti, long ttlMillis) {
-        if (current == null || current.user_id == null) {
-            throw new BusinessException("Unauthorized");
-        }
+        AccessControlUtils.requireLoggedIn(current);
 
         String userType = String.valueOf(current.user_type).trim().toLowerCase();
         if ("owner".equals(userType)) {
@@ -410,9 +404,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public Map<String, Object> switchSessionTenant(int tenantId, SessionUser current, String jti, long ttlMillis) {
-        if (current == null || current.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
+        AccessControlUtils.requireLoggedIn(current);
         if (tenantId <= 0) {
             throw new BusinessException("Missing tenant_id parameter");
         }
@@ -420,10 +412,8 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("No permission to access this company");
         }
 
-        Tenant tenant = tenantDao.findTenantById(tenantId);
-        if (tenant == null) {
-            throw new BusinessException("No permission to access this company");
-        }
+        Tenant tenant = AssertUtils.requireFound(
+                tenantDao.findTenantById(tenantId), "No permission to access this company");
         assertTenantNotExpired(tenant);
 
         List<FeatureModule> featureModules = tenantDao.findActiveFeatureModulesByTenantId(tenantId);
@@ -680,11 +670,7 @@ public class AuthServiceImpl implements AuthService {
         return false;
     }
 
-    private SessionUser rebuildSessionUserWithTenant(
-            SessionUser current,
-            Tenant tenant,
-            List<FeatureModule> featureModules
-    ) {
+    private SessionUser rebuildSessionUserWithTenant(SessionUser current, Tenant tenant, List<FeatureModule> featureModules) {
         final String userType = String.valueOf(current.user_type).trim().toLowerCase();
         UserDTO identity;
         if ("member".equals(userType)) {

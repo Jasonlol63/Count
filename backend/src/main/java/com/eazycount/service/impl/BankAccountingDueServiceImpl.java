@@ -15,11 +15,11 @@ import com.eazycount.entity.BankProcessShare;
 import com.eazycount.entity.BkProcessAccountingPosted;
 import com.eazycount.entity.Currency;
 import com.eazycount.entity.Transaction;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AccountingDueService;
 import com.eazycount.service.BankProcessResendService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import com.eazycount.util.TransactionMoneyFormat;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -80,13 +80,8 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
     @Override
     @Transactional
     public List<AccountingDueDTO> resolveInbox(Integer tenantId, LocalDate asOf, boolean restoreSkipped) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
-        if (tenantId == null) {
-            throw new BusinessException("Invalid Tenant Id!");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         LocalDate systemToday = LocalDate.now();
         if (asOf != null) {
@@ -186,15 +181,10 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
     @Override
     @Transactional
     public void skipPeriods(List<AccountingDueDTO> items) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
         Integer tenantId = sessionUser.tenant_id;
-        if (tenantId == null) {
-            throw new BusinessException("Invalid Tenant Id!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
         if (items == null || items.isEmpty()) {
             throw new BusinessException("No accounting due items selected!");
         }
@@ -210,15 +200,10 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
     @Override
     @Transactional
     public int postToTransaction(List<AccountingDueDTO> items) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
         Integer tenantId = sessionUser.tenant_id;
-        if (tenantId == null) {
-            throw new BusinessException("Invalid Tenant Id!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
         if (items == null || items.isEmpty()) {
             throw new BusinessException("No accounting due items selected!");
         }
@@ -599,12 +584,8 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
         return month.atDay(Math.min(anchorDay, month.lengthOfMonth()));
     }
 
-    private static AccountingDueDTO buildDue(BankProcessDTO dto,
-                                             BankProcess bp,
-                                             LocalDate postedDate,
-                                             LocalDate billingStart,
-                                             LocalDate billingEnd,
-                                             BkProcessAccountingPosted.PeriodType periodType) {
+    private static AccountingDueDTO buildDue(BankProcessDTO dto, BankProcess bp, LocalDate postedDate,
+                                             LocalDate billingStart, LocalDate billingEnd, BkProcessAccountingPosted.PeriodType periodType) {
         AccountingDueDTO due = new AccountingDueDTO();
         due.setBankProcessId(bp.getId());
         due.setTenantId(bp.getTenantId());
@@ -639,19 +620,15 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
     private void skipOnePeriod(Integer tenantId, AccountingDueDTO item, String createdBy) {
         Integer bankProcessId = item.getBankProcessId();
         LocalDate postedDate = item.getPostedDate();
-        if (bankProcessId == null || bankProcessId <= 0) {
-            throw new BusinessException("Invalid bank process ID!");
-        }
+        AssertUtils.requirePositive(bankProcessId, "bankProcessId");
         if (postedDate == null) {
             throw new BusinessException("Posted date is required!");
         }
 
         BkProcessAccountingPosted.PeriodType periodType = parsePeriodType(item.getPeriodType());
 
-        BankProcess bankProcess = bankProcessDao.findBKProcessByIdAndTenantId(bankProcessId, tenantId);
-        if (bankProcess == null) {
-            throw new BusinessException("Bank process not found!");
-        }
+        BankProcess bankProcess = AssertUtils.requireFound(
+                bankProcessDao.findBKProcessByIdAndTenantId(bankProcessId, tenantId), "Bank process not found!");
 
         BkProcessAccountingPosted existing = accountingDueDao.findLedgerEntry(
                 tenantId, bankProcessId, postedDate, periodType);
@@ -711,19 +688,15 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
     private int postOneAccountingDuePeriod(Integer tenantId, AccountingDueDTO item, String createdBy) {
         Integer bankProcessId = item.getBankProcessId();
         LocalDate postedDate = item.getPostedDate();
-        if (bankProcessId == null || bankProcessId <= 0) {
-            throw new BusinessException("Invalid bank process ID!");
-        }
+        AssertUtils.requirePositive(bankProcessId, "bankProcessId");
         if (postedDate == null) {
             throw new BusinessException("Posted date is required!");
         }
 
         BkProcessAccountingPosted.PeriodType periodType = parsePeriodType(item.getPeriodType());
 
-        BankProcess bankProcess = bankProcessDao.findBKProcessByIdAndTenantId(bankProcessId, tenantId);
-        if (bankProcess == null) {
-            throw new BusinessException("Bank process not found!");
-        }
+        BankProcess bankProcess = AssertUtils.requireFound(
+                bankProcessDao.findBKProcessByIdAndTenantId(bankProcessId, tenantId), "Bank process not found!");
         if (periodType != BkProcessAccountingPosted.PeriodType.RESEND_CONSOLIDATED
                 && bankProcess.getFrequency() == null) {
             throw new BusinessException("Bank process frequency is required!");
@@ -964,15 +937,15 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
         }
         BigDecimal compensationMult = BigDecimal.valueOf(Math.max(mult, 1));
 
-        BigDecimal buy = scaleMoney(nz(bankProcess.getSupplierPrice()).multiply(ratio).multiply(compensationMult));
-        BigDecimal sell = scaleMoney(nz(bankProcess.getCustomerPrice()).multiply(ratio).multiply(compensationMult));
-        BigDecimal profit = scaleMoney(nz(bankProcess.getCompanyPrice()).multiply(ratio).multiply(compensationMult));
+        BigDecimal buy = TransactionMoneyFormat.normalizeComputedNormal(nz(bankProcess.getSupplierPrice()).multiply(ratio).multiply(compensationMult));
+        BigDecimal sell = TransactionMoneyFormat.normalizeComputedNormal(nz(bankProcess.getCustomerPrice()).multiply(ratio).multiply(compensationMult));
+        BigDecimal profit = TransactionMoneyFormat.normalizeComputedNormal(nz(bankProcess.getCompanyPrice()).multiply(ratio).multiply(compensationMult));
 
         // Description shows the account's original (un-prorated) price, not the ratio-scaled
         // billed amount — the ledger/transaction "amount" column stays the actual billed amount.
-        BigDecimal buyBase = scaleMoney(nz(bankProcess.getSupplierPrice()));
-        BigDecimal sellBase = scaleMoney(nz(bankProcess.getCustomerPrice()));
-        BigDecimal profitBase = scaleMoney(nz(bankProcess.getCompanyPrice()));
+        BigDecimal buyBase = TransactionMoneyFormat.normalizeComputedNormal(nz(bankProcess.getSupplierPrice()));
+        BigDecimal sellBase = TransactionMoneyFormat.normalizeComputedNormal(nz(bankProcess.getCustomerPrice()));
+        BigDecimal profitBase = TransactionMoneyFormat.normalizeComputedNormal(nz(bankProcess.getCompanyPrice()));
 
         // Case B compensation: economic date = today; Case A keeps the due postedDate (may also be compensation).
         LocalDate transactionDate = (periodType == BkProcessAccountingPosted.PeriodType.COMPENSATION)
@@ -1025,11 +998,11 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
                 if (share == null || share.getAccountId() == null || share.getAccountId() <= 0) {
                     continue;
                 }
-                BigDecimal shareAmount = scaleMoney(nz(share.getAmount()).multiply(ratio).multiply(compensationMult));
+                BigDecimal shareAmount = TransactionMoneyFormat.normalizeComputedNormal(nz(share.getAmount()).multiply(ratio).multiply(compensationMult));
                 if (shareAmount.compareTo(BigDecimal.ZERO) <= 0) {
                     continue;
                 }
-                BigDecimal shareBase = scaleMoney(nz(share.getAmount()));
+                BigDecimal shareBase = TransactionMoneyFormat.normalizeComputedNormal(nz(share.getAmount()));
                 insertTxnLine(tenantId, Transaction.TransactionType.WIN, share.getAccountId(), currencyId, shareAmount, transactionDate,
                         buildLineDescription(bankProcess, periodType, postedDate, billingStart, billingEnd, shareAmount, shareBase, bankName, compensation),
                         createdBy, approvedAt, postedId);
@@ -1202,11 +1175,6 @@ public class BankAccountingDueServiceImpl implements AccountingDueService {
 
     private static BigDecimal nz(BigDecimal value) {
         return value != null ? value : BigDecimal.ZERO;
-    }
-
-    /* Store computed due amounts without round-to-2; cap at normal amount max scale. */
-    private static BigDecimal scaleMoney(BigDecimal value) {
-        return TransactionMoneyFormat.normalizeComputedNormal(value);
     }
 
 

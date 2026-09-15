@@ -17,6 +17,7 @@ import com.eazycount.security.SessionUser;
 import com.eazycount.service.CurrencyService;
 import com.eazycount.service.UserService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -83,9 +84,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public List<UserListDTO> findUserByTenantId(Integer tenantId) {
-        if (tenantId == null) {
-            throw new BusinessException("Tenant ID not found!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
         List<UserListDTO> rows = userDao.findUserByTenantId(tenantId);
         for (UserListDTO row : rows) {
             row.setTenantIds(userDao.findTenantIdsByUserId(row.getId()));
@@ -140,19 +139,14 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public UserListDTO createUser(UserListDTO userListDTO) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new com.eazycount.common.BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
         if (userListDTO == null) {
             throw new BusinessException("Invalid request");
         }
 
         Integer tenantId = userListDTO.getScopeTenantId();
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         String accountCode = userListDTO.getAccountId() == null
                 ? ""
@@ -230,26 +224,16 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public UserListDTO updateUser(UserListDTO userListDTO) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
-        if (userListDTO == null
-                || userListDTO.getId() == null || userListDTO.getId() <= 0
-                || userListDTO.getScopeTenantId() == null || userListDTO.getScopeTenantId() <= 0) {
-            throw new BusinessException("Invalid request");
-        }
+        AssertUtils.requirePositive(userListDTO != null ? userListDTO.getId() : null, "id");
+        AccessControlUtils.requireValidTenantId(userListDTO != null ? userListDTO.getScopeTenantId() : null);
 
-        UserListDTO existing = userDao.findUserByIdAndTenantId(userListDTO.getId(), userListDTO.getScopeTenantId());
-        if (existing == null) {
-            throw new BusinessException("User not found!");
-        }
+        UserListDTO existing = AssertUtils.requireFound(
+                userDao.findUserByIdAndTenantId(userListDTO.getId(), userListDTO.getScopeTenantId()), "User not found!");
 
         Integer tenantId = userListDTO.getScopeTenantId();
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         try {
             User user = new User();
@@ -342,23 +326,17 @@ public class UserServiceImpl implements UserService {
     @Transactional
     @Override
     public UserListDTO updateStatusByUserId(Integer userId, Integer scopeTenantId) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
-        if (userId == null || userId <= 0 || scopeTenantId == null || scopeTenantId <= 0) {
-            throw new BusinessException("Invalid request");
-        }
+        AssertUtils.requirePositive(userId, "userId");
+        AccessControlUtils.requireValidTenantId(scopeTenantId);
         if (session.user_id.equals(userId)) {
             throw new BusinessException("You cannot toggle your own status");
         }
 
         try {
-            UserListDTO user = userDao.findUserByIdAndTenantId(userId, scopeTenantId);
-            if (user == null) {
-                throw new BusinessException("User not found!");
-            }
+            UserListDTO user = AssertUtils.requireFound(
+                    userDao.findUserByIdAndTenantId(userId, scopeTenantId), "User not found!");
             if (user.getTenantAccessId() == null) {
                 throw new BusinessException("UserTenantAccess not found!");
             }
@@ -382,32 +360,21 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException("Update User failed!");
         }
 
-        UserListDTO result = userDao.findUserByIdAndTenantId(userId, scopeTenantId);
-        if (result == null) {
-            throw new com.eazycount.common.BusinessException(
-                    "Status updated, but user is no longer visible in this tenant");
-        }
-
-        return result;
+        return AssertUtils.requireFound(userDao.findUserByIdAndTenantId(userId, scopeTenantId),
+                "Status updated, but user is no longer visible in this tenant");
     }
 
     @Override
     @Transactional
     public void deleteUserByIdAndStatus(Integer id, Integer scopeTenantId) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new com.eazycount.common.BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
 
-        if (id == null || id <= 0 || scopeTenantId == null || scopeTenantId <= 0) {
-            throw new BusinessException("Invalid request");
-        }
+        AssertUtils.requirePositive(id, "id");
+        AccessControlUtils.requireValidTenantId(scopeTenantId);
 
-        UserListDTO existing = userDao.findUserByIdAndTenantId(id, scopeTenantId);
-        if (existing == null) {
-            throw new BusinessException("User not found!");
-        }
+        UserListDTO existing = AssertUtils.requireFound(
+                userDao.findUserByIdAndTenantId(id, scopeTenantId), "User not found!");
         if (existing.getStatus() == User.AccountStatus.ACTIVE) {
             throw new BusinessException("User is not inactive, cannot be deleted!");
         }
@@ -438,19 +405,14 @@ public class UserServiceImpl implements UserService {
     /* Account Link Side */
     @Override
     public void insertAccountLink(UserLink userLink) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
         if (userLink == null) {
             throw new BusinessException("Invalid request");
         }
 
         final int tenantId = session.tenant_id;
-        if (tenantId <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         int a = userLink.getAccountId1();
         int b = userLink.getAccountId2();
@@ -506,10 +468,7 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public void deleteAccountLinkById(long id) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
         if (id <= 0) {
             throw new BusinessException("Invalid link id");
@@ -525,14 +484,10 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public void deleteAccountLinkByAccountId(int accountId, int tenantId) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
-        if (accountId <= 0 || tenantId <= 0) {
-            throw new BusinessException("Invalid request");
-        }
+        AssertUtils.requirePositive(accountId, "accountId");
+        AccessControlUtils.requireValidTenantId(tenantId);
         if (tenantId != session.tenant_id) {
             throw new BusinessException("Unauthorized tenant access");
         }
@@ -546,10 +501,7 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public void updateAccountLink(UserLink userLink) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
         if (userLink == null) {
             throw new BusinessException("Invalid request");

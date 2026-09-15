@@ -7,10 +7,10 @@ import com.eazycount.dto.AccountingDueDTO;
 import com.eazycount.dto.BankProcessDTO;
 import com.eazycount.entity.BankProcess;
 import com.eazycount.entity.BkProcessAccountingPosted;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.BankProcessResendService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,10 +36,7 @@ public class    BankProcessResendServiceImpl implements BankProcessResendService
     @Override
     @Transactional
     public AccountingDueDTO resend(AccountingDueDTO request) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
         if (request == null) {
             throw new BusinessException("Invalid Resend request!");
@@ -47,17 +44,11 @@ public class    BankProcessResendServiceImpl implements BankProcessResendService
 
         Integer tenantId = request.getTenantId();
         Integer bankProcessId = request.getBankProcessId();
-        if (tenantId == null) {
-            throw new BusinessException("Invalid Tenant Id!");
-        }
-        if (bankProcessId == null || bankProcessId <= 0) {
-            throw new BusinessException("Invalid bank process ID!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
+        AssertUtils.requirePositive(bankProcessId, "bankProcessId");
 
-        BankProcess existing = bankProcessDao.findBKProcessByIdAndTenantId(bankProcessId, tenantId);
-        if (existing == null) {
-            throw new BusinessException("Bank process not found!");
-        }
+        BankProcess existing = AssertUtils.requireFound(
+                bankProcessDao.findBKProcessByIdAndTenantId(bankProcessId, tenantId), "Bank process not found!");
         if (!RESEND_ELIGIBLE_STATUS.contains(existing.getStatus())) {
             throw new BusinessException("This Bank Process status does not allow Resend!");
         }

@@ -15,6 +15,8 @@ import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.TransactionSubmitService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
+import com.eazycount.util.NormalizeUtils;
 import com.eazycount.util.RateMulCalculator;
 import com.eazycount.util.TransactionDateParse;
 import com.eazycount.util.TransactionMoneyFormat;
@@ -62,9 +64,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         }
 
         Integer tenantId = request.getTenantId();
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException("Invalid tenant id");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         String typeRaw = request.getTransactionType() != null
                 ? request.getTransactionType().trim().toUpperCase(Locale.ROOT)
@@ -100,7 +100,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         return insertAndBuildResult(
                 session, tenantId, transactionType, accounts.toAccountId(), accounts.fromAccountId(),
                 accounts.currency(), amount, resolveTransactionDate(request),
-                trimToNull(request.getRemark()), description, null, request.getBankProcessId());
+                NormalizeUtils.trimToNull(request.getRemark()), description, null, request.getBankProcessId());
     }
 
     private TransactionSubmitDTO submitProfit(
@@ -117,7 +117,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         return insertAndBuildResult(
                 session, tenantId, Transaction.TransactionType.PROFIT,
                 accounts.toAccountId(), accounts.fromAccountId(), accounts.currency(),
-                amount, resolveTransactionDate(request), trimToNull(request.getRemark()), description, null);
+                amount, resolveTransactionDate(request), NormalizeUtils.trimToNull(request.getRemark()), description, null);
     }
 
     private TransactionSubmitDTO submitAdjustment(
@@ -139,7 +139,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         BigDecimal amount = parseSignedNonZeroAmount(request.getAmount());
         return insertAndBuildResult(
                 session, tenantId, Transaction.TransactionType.ADJUSTMENT, toAccountId, null, currency,
-                amount, resolveTransactionDate(request), trimToNull(request.getRemark()),
+                amount, resolveTransactionDate(request), NormalizeUtils.trimToNull(request.getRemark()),
                 ADJUSTMENT_DESCRIPTION, null);
     }
 
@@ -174,11 +174,11 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         BigDecimal exchangeRate = parsePositiveExchangeRate(request.getExchangeRate());
         // leg2（to account）永远记 flat 毛额，不用前端传的 leg2Amount——这样 Fee/Platform Fee/Rate-Mul才不会碰到 to account。
         BigDecimal grossTo = TransactionMoneyFormat.normalizeComputedRate(amountFrom.multiply(exchangeRate));
-        String rateExpression = trimToNull(request.getRateExpression());
+        String rateExpression = NormalizeUtils.trimToNull(request.getRateExpression());
 
         MiddlemanSpec middleman = resolveMiddleman(request, tenantId, leg2, amountFrom, exchangeRate, rateExpression, grossTo);
 
-        String remark = trimToNull(request.getRemark());
+        String remark = NormalizeUtils.trimToNull(request.getRemark());
         LocalDate transactionDate = resolveTransactionDate(request);
         String rateGroupId = newRateGroupId();
 
@@ -326,7 +326,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         Integer accountId = request.getMiddlemanAccountId();
         boolean hasAccount = accountId != null && accountId > 0;
 
-        String rateRawInput = trimToNull(request.getMiddlemanRateExpression());
+        String rateRawInput = NormalizeUtils.trimToNull(request.getMiddlemanRateExpression());
         if (rateRawInput == null && request.getMiddlemanRate() != null) {
             rateRawInput = request.getMiddlemanRate().stripTrailingZeros().toPlainString();
         }
@@ -581,10 +581,8 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
     }
 
     private UserListDTO requireActiveAccount(Integer accountId, Integer tenantId, String label) {
-        UserListDTO account = userDao.findUserByIdAndTenantId(accountId, tenantId);
-        if (account == null) {
-            throw new BusinessException(label + " not found");
-        }
+        UserListDTO account = AssertUtils.requireFound(
+                userDao.findUserByIdAndTenantId(accountId, tenantId), label + " not found");
         if (account.getStatus() != null && account.getStatus() != User.AccountStatus.ACTIVE) {
             throw new BusinessException(label + " is not active");
         }
@@ -593,11 +591,7 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
 
     private Currency resolveCurrency(Integer tenantId, Integer currencyId, String currencyCode) {
         if (currencyId != null && currencyId > 0) {
-            Currency currency = currencyDao.findByIdAndTenantId(currencyId, tenantId);
-            if (currency == null) {
-                throw new BusinessException("Currency not found");
-            }
-            return currency;
+            return AssertUtils.requireFound(currencyDao.findByIdAndTenantId(currencyId, tenantId), "Currency not found");
         }
         String code = currencyCode != null ? currencyCode.trim().toUpperCase(Locale.ROOT) : "";
         if (code.isEmpty()) {
@@ -654,14 +648,6 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
     private static String newRateGroupId() {
         return "RG-" + System.currentTimeMillis() + "-"
                 + ThreadLocalRandom.current().nextInt(1000, 10000);
-    }
-
-    private static String trimToNull(String value) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static String formatDate(LocalDate date) {

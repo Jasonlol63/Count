@@ -3,10 +3,10 @@ package com.eazycount.service.impl;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.ProcessDescDao;
 import com.eazycount.entity.ProcessDescription;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.ProcessDescService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -22,30 +22,17 @@ public class ProcessDescServiceImpl implements ProcessDescService {
 
     @Override
     public List<ProcessDescription> findDescriptionByTenantId(Integer tenantId) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
-        if (tenantId == null) {
-            throw new BusinessException("tenant_id is required!");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
+        AccessControlUtils.requireValidTenantId(tenantId);
         return processDescDao.findDescriptionByTenantId(tenantId);
     }
 
     @Override
     @Transactional
     public void insertNewProcessDescription(ProcessDescription processDescription) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
-        if (processDescription == null) {
-            throw new BusinessException("Request body is required!");
-        }
-        if (processDescription.getTenantId() == null) {
-            throw new BusinessException("tenant_id is required!");
-        }
+        AccessControlUtils.requireValidTenantId(processDescription != null ? processDescription.getTenantId() : null);
         if (processDescription.getName() == null || processDescription.getName().isBlank()) {
             throw new BusinessException("Description name is required!");
         }
@@ -70,22 +57,15 @@ public class ProcessDescServiceImpl implements ProcessDescService {
     @Override
     @Transactional
     public void deleteProcessDescriptionById(Integer id, Integer tenantId) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
         if (id == null) {
             throw new BusinessException("id is required!");
         }
-        if (tenantId == null) {
-            throw new BusinessException("tenant_id is required!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
-        ProcessDescription processDescription = processDescDao.findDescriptionByIdAndTenantId(id, tenantId);
-        if (processDescription == null) {
-            throw new BusinessException("Description does not exist!");
-        }
+        ProcessDescription processDescription = AssertUtils.requireFound(
+                processDescDao.findDescriptionByIdAndTenantId(id, tenantId), "Description does not exist!");
 
         try {
             processDescDao.deleteProcessDescriptionById(id, tenantId);

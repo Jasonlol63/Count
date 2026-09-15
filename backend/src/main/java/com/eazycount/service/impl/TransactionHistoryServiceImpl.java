@@ -8,9 +8,11 @@ import com.eazycount.dto.TransactionHistoryLineRow;
 import com.eazycount.dto.TransactionHistoryRequest;
 import com.eazycount.dto.TransactionHistoryResult;
 import com.eazycount.dto.UserListDTO;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.TransactionHistoryService;
+import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
+import com.eazycount.util.NormalizeUtils;
 import com.eazycount.util.RateMulCalculator;
 import com.eazycount.util.TransactionDateParse;
 import com.eazycount.util.TransactionMoneyFormat;
@@ -29,7 +31,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * 交易记录：Win/Loss 和 Domain Payment（Cr/Dr）分开构建，最后统一合并，避免两边规则互相影响。
@@ -48,15 +49,9 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
 
     @Override
     public TransactionHistoryResult historyList(TransactionHistoryRequest request) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
-        if (request == null
-                || request.getTenantId() == null || request.getTenantId() <= 0
-                || request.getAccountId() == null || request.getAccountId() <= 0) {
-            throw new BusinessException("Invalid request");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
+        AccessControlUtils.requireValidTenantId(request != null ? request.getTenantId() : null);
+        AssertUtils.requirePositive(request != null ? request.getAccountId() : null, "accountId");
 
         LocalDate dateFrom = TransactionDateParse.parseRequired(request.getDateFrom(), "dateFrom");
         LocalDate dateTo = TransactionDateParse.parseRequired(request.getDateTo(), "dateTo");
@@ -66,14 +61,12 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
 
         Integer tenantId = request.getTenantId();
         Integer accountId = request.getAccountId();
-        List<String> currencyCodes = normalizeUpperList(request.getCurrencyCodes());
+        List<String> currencyCodes = NormalizeUtils.normalizeUpperList(request.getCurrencyCodes());
 
-        UserListDTO account = userDao.findUserByIdAndTenantId(accountId, tenantId);
-        if (account == null) {
-            throw new BusinessException("Account not found");
-        }
+        UserListDTO account = AssertUtils.requireFound(
+                userDao.findUserByIdAndTenantId(accountId, tenantId), "Account not found");
 
-        String accountCode = trimToEmpty(account.getAccountId()).toUpperCase(Locale.ROOT);
+        String accountCode = NormalizeUtils.trimToEmpty(account.getAccountId()).toUpperCase(Locale.ROOT);
 
         HistorySlice winLoss = buildWinLossHistorySlice(tenantId, accountId, dateFrom, dateTo, currencyCodes);
         HistorySlice domain = buildDomainPaymentHistorySlice(
@@ -281,8 +274,8 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
 
         TransactionHistoryResult.Account accountDto = new TransactionHistoryResult.Account();
         accountDto.setId(account.getId());
-        accountDto.setAccountId(trimToEmpty(account.getAccountId()));
-        accountDto.setName(trimToEmpty(account.getName()));
+        accountDto.setAccountId(NormalizeUtils.trimToEmpty(account.getAccountId()));
+        accountDto.setName(NormalizeUtils.trimToEmpty(account.getName()));
 
         TransactionHistoryResult.DateRange range = new TransactionHistoryResult.DateRange();
         range.setFrom(dateFrom.format(RANGE_DATE));
@@ -319,7 +312,7 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         row.setId(line.getId());
         row.setDate(formatHistoryDate(line.getTransactionDate()));
         row.setIsBankProcessTransaction(isBank);
-        row.setCardOwner(trimToEmpty(line.getCardOwner()));
+        row.setCardOwner(NormalizeUtils.trimToEmpty(line.getCardOwner()));
         if (isAdjustment) {
             row.setProduct("ADJUSTMENT");
         } else if (isProfit) {
@@ -329,13 +322,13 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         } else if (isRateMiddlemanFee) {
             row.setProduct("RATE");
         } else if (isDataCapture) {
-            String idProduct = trimToEmpty(line.getIdProduct());
+            String idProduct = NormalizeUtils.trimToEmpty(line.getIdProduct());
             row.setProduct(!idProduct.isEmpty() ? idProduct : "DATA CAPTURE");
         } else if (!isBank) {
             row.setProduct(resolveDomainHistoryProduct(line));
         }
         row.setCurrency(currency);
-        String dataCaptureRate = isDataCapture ? trimToEmpty(line.getRateExpression()) : "";
+        String dataCaptureRate = isDataCapture ? NormalizeUtils.trimToEmpty(line.getRateExpression()) : "";
         row.setRate(!dataCaptureRate.isEmpty() ? dataCaptureRate : "-");
         if (isBank || isAdjustment || isProfit || (isRateMiddlemanFee && !isPlatformFee)) {
             row.setWinLoss(TransactionMoneyFormat.formatMoney(signed));
@@ -345,9 +338,9 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             row.setCrDr(TransactionMoneyFormat.formatMoney(signed));
         }
         row.setBalance(TransactionMoneyFormat.formatMoney(running));
-        row.setDescription(trimToEmpty(line.getDescription()));
+        row.setDescription(NormalizeUtils.trimToEmpty(line.getDescription()));
         row.setRemark(line.getRemark());
-        row.setCreatedBy(trimToEmpty(line.getCreatedBy()));
+        row.setCreatedBy(NormalizeUtils.trimToEmpty(line.getCreatedBy()));
         return row;
     }
 
@@ -458,9 +451,9 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             return true;
         }
         // 每次重新生成视角文案，避免存库审计文本影响 History 展示
-        String rate = trimToEmpty(line.getRateExpression());
-        String ccy1 = trimToEmpty(line.getRateCurrencyFromCode()).toUpperCase(Locale.ROOT);
-        String ccy2 = trimToEmpty(line.getRateCurrencyToCode()).toUpperCase(Locale.ROOT);
+        String rate = NormalizeUtils.trimToEmpty(line.getRateExpression());
+        String ccy1 = NormalizeUtils.trimToEmpty(line.getRateCurrencyFromCode()).toUpperCase(Locale.ROOT);
+        String ccy2 = NormalizeUtils.trimToEmpty(line.getRateCurrencyToCode()).toUpperCase(Locale.ROOT);
         String amountText = formatRateHistoryAmount(line.getRateAmountFrom());
         if (rate.isEmpty() || ccy1.isEmpty() || ccy2.isEmpty()) {
             // FX 信息缺失时退化为 PAYMENT 样式
@@ -468,8 +461,8 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             return true;
         }
         String prefix = "EXCH RATE " + rate + " " + ccy1 + " " + amountText + " > " + ccy2;
-        String payerCode = trimToEmpty(line.getToAccountCode()).toUpperCase(Locale.ROOT);
-        String receiverCode = trimToEmpty(line.getFromAccountCode()).toUpperCase(Locale.ROOT);
+        String payerCode = NormalizeUtils.trimToEmpty(line.getToAccountCode()).toUpperCase(Locale.ROOT);
+        String receiverCode = NormalizeUtils.trimToEmpty(line.getFromAccountCode()).toUpperCase(Locale.ROOT);
         // 收款方(From)显示 TO {付款方}；付款方(To)显示 FROM {收款方}，与 PAYMENT 一致
         if (line.getFromAccountId() != null && viewedAccountId.equals(line.getFromAccountId())) {
             line.setDescription(prefix + " | TO " + payerCode);
@@ -509,10 +502,10 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
     static String formatRateMiddlemanMarkupDescription(TransactionHistoryLineRow line) {
         boolean feeKind = isRateMiddlemanFeeKind(line);
         String rateToken = feeKind ? "X" : formatRateMiddlemanRateToken(line);
-        String ccy1 = trimToEmpty(line.getRateCurrencyFromCode()).toUpperCase(Locale.ROOT);
-        String ccy2 = trimToEmpty(line.getRateCurrencyToCode()).toUpperCase(Locale.ROOT);
+        String ccy1 = NormalizeUtils.trimToEmpty(line.getRateCurrencyFromCode()).toUpperCase(Locale.ROOT);
+        String ccy2 = NormalizeUtils.trimToEmpty(line.getRateCurrencyToCode()).toUpperCase(Locale.ROOT);
         String amountText = formatRateHistoryDecimal(line.getRateAmountFrom(), 6);
-        String leg2ToCode = trimToEmpty(line.getRateLeg2ToAccountCode()).toUpperCase(Locale.ROOT);
+        String leg2ToCode = NormalizeUtils.trimToEmpty(line.getRateLeg2ToAccountCode()).toUpperCase(Locale.ROOT);
 
         StringBuilder sb = new StringBuilder("MARKUP");
         if (!rateToken.isEmpty()) {
@@ -562,14 +555,14 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         if (line == null) {
             return false;
         }
-        String kind = trimToEmpty(line.getRateMiddlemanKind()).toUpperCase(Locale.ROOT);
+        String kind = NormalizeUtils.trimToEmpty(line.getRateMiddlemanKind()).toUpperCase(Locale.ROOT);
         if ("FEE".equals(kind)) {
             return true;
         }
         if ("RATE".equals(kind)) {
             return false;
         }
-        String desc = trimToEmpty(line.getDescription()).toUpperCase(Locale.ROOT);
+        String desc = NormalizeUtils.trimToEmpty(line.getDescription()).toUpperCase(Locale.ROOT);
         if (desc.startsWith("MARKUP X ") || "RATE_MIDDLEMAN_FEE".equals(desc)) {
             return true;
         }
@@ -606,8 +599,8 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
         if (!shouldRewriteManualTransferHistoryDescription(line.getDescription(), type)) {
             return;
         }
-        String payerCode = trimToEmpty(line.getToAccountCode()).toUpperCase(Locale.ROOT);
-        String receiverCode = trimToEmpty(line.getFromAccountCode()).toUpperCase(Locale.ROOT);
+        String payerCode = NormalizeUtils.trimToEmpty(line.getToAccountCode()).toUpperCase(Locale.ROOT);
+        String receiverCode = NormalizeUtils.trimToEmpty(line.getFromAccountCode()).toUpperCase(Locale.ROOT);
         if (line.getFromAccountId() != null && viewedAccountId.equals(line.getFromAccountId())) {
             line.setDescription(type + " TO " + payerCode);
             return;
@@ -665,21 +658,6 @@ public class TransactionHistoryServiceImpl implements TransactionHistoryService 
             return "/";
         }
         return date.format(HISTORY_DATE);
-    }
-
-    private static List<String> normalizeUpperList(List<String> raw) {
-        if (raw == null || raw.isEmpty()) {
-            return List.of();
-        }
-        return raw.stream()
-                .filter(s -> s != null && !s.isBlank())
-                .map(s -> s.trim().toUpperCase(Locale.ROOT))
-                .distinct()
-                .collect(Collectors.toList());
-    }
-
-    private static String trimToEmpty(String value) {
-        return value != null ? value.trim() : "";
     }
 
     /* One source's BF + period lines before merge. */

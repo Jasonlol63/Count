@@ -13,6 +13,7 @@ import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.TenantOwnershipService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import com.eazycount.util.TenantDtoHelper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -44,14 +45,9 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
 
     @Override
     public List<TenantOwnershipDTO> getOwnershipList(Integer tenantId, String month) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
 
-        if (tenantId == null) {
-            throw new BusinessException("tenant_id is required!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         if (month == null || month.isBlank() || isCurrentMonth(month)) {
             // 查询实时表
@@ -70,13 +66,8 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
 
     @Override
     public List<TenantOwnershipDTO> getShareholderCandidates(Integer tenantId, String month) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
-        if (tenantId == null) {
-            throw new BusinessException("tenant_id is required!");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         List<TenantOwnershipDTO> candidates = tenantOwnershipDao.getShareholderCandidates(tenantId);
 
@@ -159,20 +150,14 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
 
     @Override
     public Map<String, Object> linkPartner(Integer tenantId, String loginId, String forceType) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
 
         if (!canModifyOwnership(sessionUser)) {
             throw new BusinessException("Read-only: only owner or accounts with Ownership permission can modify ownership");
         }
 
-        Tenant targetTenant = domainDao.findTenantById(tenantId);
-        if (targetTenant == null) {
-            throw new BusinessException("Tenant not found");
-        }
+        Tenant targetTenant = AssertUtils.requireFound(domainDao.findTenantById(tenantId), "Tenant not found");
 
         Map<String, Object> resolved = this.resolvePartner(tenantId, loginId, forceType);
 
@@ -364,9 +349,6 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
     @Transactional
     public void saveOwnership(Integer tenantId, List<Map<String, Object>> ownersPayload, String month, List<String> retrofillMonths) {
         SessionUser sessionUser = SecurityUtils.currentUser();
-        if(sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
         AccessControlUtils.requireWritable(sessionUser);
 
         if (!canModifyOwnership(sessionUser)) {
@@ -417,32 +399,21 @@ public class TenantOwnershipServiceImpl implements TenantOwnershipService {
     @Override
     @Transactional
     public void updateTenantParentId(Integer tenantId, String parentTenantCode) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
         if (!canModifyOwnership(sessionUser)) {
             throw new BusinessException("Read-only: only owner or accounts with Ownership permission can modify ownership");
         }
 
-        Tenant company =domainDao.findTenantById(tenantId);
-        if (company == null) {
-            throw new BusinessException("Tenant not found");
-        }
+        Tenant company = AssertUtils.requireFound(domainDao.findTenantById(tenantId), "Tenant not found");
 
-        Tenant owner = domainDao.findOwnerTenantByIdAndOwnerId(tenantId, company.getOwnerId());
-        if (owner == null) {
-            throw new BusinessException("Tenant or Owner not found");
-        }
+        Tenant owner = AssertUtils.requireFound(
+                domainDao.findOwnerTenantByIdAndOwnerId(tenantId, company.getOwnerId()), "Tenant or Owner not found");
 
         Integer parentId = null;
         String code = parentTenantCode != null ? parentTenantCode.trim() : "";
         if (!code.isBlank()) {
-            Tenant group = tenantOwnershipDao.findTenantByCode(code);
-            if (group == null) {
-                throw new BusinessException("Parent Tenant not found");
-            }
+            Tenant group = AssertUtils.requireFound(tenantOwnershipDao.findTenantByCode(code), "Parent Tenant not found");
             parentId = group.getId();
         }
 

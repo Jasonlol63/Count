@@ -18,6 +18,7 @@ import com.eazycount.security.SessionUser;
 import com.eazycount.service.DomainFeeChargeService;
 import com.eazycount.service.DomainService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import com.eazycount.util.DomainFeeSettingsMapper;
 
 import org.springframework.beans.BeanUtils;
@@ -69,14 +70,9 @@ public class DomainServiceImpl implements DomainService {
 
     @Override
     public List<TenantFeeShareAllocate> findFeeShareByTenantId(Integer tenantId) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
 
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException("Invalid Tenant ID");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         List<TenantFeeShareAllocate> rows = feeShareAllocateDao.findFeeShareByTenantId(tenantId);
         return rows != null ? rows : List.of();
@@ -85,10 +81,7 @@ public class DomainServiceImpl implements DomainService {
     @Override
     @Transactional
     public void batchInsert(List<TenantFeeShareAllocate> list) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
 
         if (list == null || list.isEmpty()) {
             return;
@@ -101,14 +94,9 @@ public class DomainServiceImpl implements DomainService {
     @Override
     @Transactional
     public void deleteByTenantId(Integer tenantId) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
 
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException("Invalid Tenant ID");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         feeShareAllocateDao.deleteByTenantId(tenantId);
     }
@@ -123,9 +111,7 @@ public class DomainServiceImpl implements DomainService {
                 throw new BusinessException("Invalid fee share row");
             }
 
-            if (row.getTenantId() == null || row.getTenantId() <= 0) {
-                throw new BusinessException("Tenant ID is required for fee share row");
-            }
+            AccessControlUtils.requireValidTenantId(row.getTenantId());
 
             if (row.getShareType() == null) {
                 throw new BusinessException("Share type is required");
@@ -187,14 +173,9 @@ public class DomainServiceImpl implements DomainService {
 
     @Override
     public List<FeatureModule> findFeatureModulesByTenantId(Integer tenantId) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
 
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException("Invalid Tenant ID");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         List<FeatureModule> modules = domainDao.findFeatureModulesByTenantId(tenantId);
         return modules != null ? modules : List.of();
@@ -203,10 +184,7 @@ public class DomainServiceImpl implements DomainService {
     @Override
     @Transactional
     public void batchInsertFeatureModules(List<TenantFeatureModule> list) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
 
         if (list == null || list.isEmpty()) {
             return;
@@ -219,14 +197,9 @@ public class DomainServiceImpl implements DomainService {
     @Override
     @Transactional
     public void deleteFeatureModulesByTenantId(Integer tenantId) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
 
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException("Invalid Tenant ID");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
         domainDao.deleteFeatureModulesByTenantId(tenantId);
     }
@@ -245,9 +218,7 @@ public class DomainServiceImpl implements DomainService {
             if (row == null) {
                 throw new BusinessException("Invalid feature module row");
             }
-            if (row.getTenantId() == null || row.getTenantId() <= 0) {
-                throw new BusinessException("Tenant ID is required for feature module row");
-            }
+            AccessControlUtils.requireValidTenantId(row.getTenantId());
             if (row.getModuleId() == null || row.getModuleId() <= 0) {
                 throw new BusinessException("Module ID is required for feature module row");
             }
@@ -267,10 +238,7 @@ public class DomainServiceImpl implements DomainService {
 
     @Override
     public List<OwnerTenantDTO> findAllTenantsByOwner(Integer ownerId) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
 
         List<OwnerTenantDTO> rows = domainDao.findAllTenantsByOwner(ownerId);
         if (rows != null) {
@@ -284,10 +252,7 @@ public class DomainServiceImpl implements DomainService {
     @Override
     @Transactional
     public void insertOwnerDetails(Owner owner) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
 
         if (owner == null) {
             throw new BusinessException("Invalid Owner");
@@ -324,10 +289,7 @@ public class DomainServiceImpl implements DomainService {
     @Override
     @Transactional
     public void insertTenantDetails(Tenant tenant) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         if (tenant == null) {
             throw new BusinessException("Invalid Tenant");
         }
@@ -355,18 +317,12 @@ public class DomainServiceImpl implements DomainService {
     @Override
     @Transactional
     public void updateOwnerDetails(Owner owner) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         if (owner == null) {
             throw new BusinessException("Invalid Owner");
         }
 
-        Owner find = domainDao.findOwnerById(owner.getId());
-        if (find == null) {
-            throw new BusinessException("Owner not found!");
-        }
+        Owner find = AssertUtils.requireFound(domainDao.findOwnerById(owner.getId()), "Owner not found!");
 
         if (owner.getOwnerCode() != null && !owner.getOwnerCode().isBlank()) {
             Owner existing = domainDao.findOwnerByCode(owner.getOwnerCode().trim().toUpperCase());
@@ -400,18 +356,14 @@ public class DomainServiceImpl implements DomainService {
     @Override
     @Transactional
     public void updateTenantDetails(Tenant tenant) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         if (tenant == null) {
             throw new BusinessException("Invalid Tenant");
         }
 
-        Tenant findTenantOwner = domainDao.findOwnerTenantByIdAndOwnerId(tenant.getId(), tenant.getOwnerId());
-        if (findTenantOwner == null) {
-            throw new BusinessException("Invalid Tenant ID or Owner ID!");
-        }
+        Tenant findTenantOwner = AssertUtils.requireFound(
+                domainDao.findOwnerTenantByIdAndOwnerId(tenant.getId(), tenant.getOwnerId()),
+                "Invalid Tenant ID or Owner ID!");
 
         try {
             tenant.setTenantType(tenant.getTenantType());
@@ -425,10 +377,7 @@ public class DomainServiceImpl implements DomainService {
     @Override
     @Transactional
     public void updateTenantDetailsSetting(Tenant tenant) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
         if (tenant == null) {
             throw new BusinessException("Invalid Tenant");
@@ -486,10 +435,7 @@ public class DomainServiceImpl implements DomainService {
     @Override
     @Transactional
     public void deleteOwnerDetails(Owner owner) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
         if (owner == null) {
             throw new BusinessException("Invalid Owner");
@@ -540,17 +486,13 @@ public class DomainServiceImpl implements DomainService {
     @Override
     @Transactional
     public void deleteTenantDetails(Tenant tenant) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         if (tenant == null) {
             throw new BusinessException("Invalid Tenant");
         }
-        Tenant findTenantOwner = domainDao.findOwnerTenantByIdAndOwnerId(tenant.getId(), tenant.getOwnerId());
-        if (findTenantOwner == null) {
-            throw new BusinessException("Invalid Tenant ID or Owner ID!");
-        }
+        Tenant findTenantOwner = AssertUtils.requireFound(
+                domainDao.findOwnerTenantByIdAndOwnerId(tenant.getId(), tenant.getOwnerId()),
+                "Invalid Tenant ID or Owner ID!");
 
         if (findTenantOwner.getCode().equals("C168")
                 && findTenantOwner.getTenantType().equals(Tenant.TenantType.COMPANY)) {
@@ -619,10 +561,7 @@ public class DomainServiceImpl implements DomainService {
     @Override
     @Transactional
     public DomainDTO updateDomain(DomainDTO domainDTO) {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
         if (domainDTO == null) {
             throw new BusinessException("Invalid Domain");

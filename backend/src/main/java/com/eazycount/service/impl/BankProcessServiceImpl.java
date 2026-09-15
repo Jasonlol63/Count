@@ -12,12 +12,12 @@ import com.eazycount.entity.BankOption;
 import com.eazycount.entity.BankProcess;
 import com.eazycount.entity.BankProcessShare;
 import com.eazycount.entity.Transaction;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.BankProcessService;
 import com.eazycount.service.MaintenanceService;
 import com.eazycount.service.TransactionSubmitService;
 import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,13 +55,8 @@ public class BankProcessServiceImpl implements BankProcessService {
 
     @Override
     public List<BankProcessDTO> findAllBankProcess(Integer tenantId) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
-        if (tenantId == null) {
-            throw new BusinessException("Invalid Tenant Id!");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
+        AccessControlUtils.requireValidTenantId(tenantId);
         List<BankProcessDTO> list = bankProcessDao.findAllBankProcess(tenantId);
         if (list == null || list.isEmpty()) {
             return list;
@@ -84,10 +79,7 @@ public class BankProcessServiceImpl implements BankProcessService {
     @Override
     @Transactional
     public BankProcessDTO insertBankProcess(BankProcessDTO bankProcessDTO) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
 
         BankProcess bankProcess = insertNewBankProcess(bankProcessDTO, sessionUser);
@@ -109,10 +101,7 @@ public class BankProcessServiceImpl implements BankProcessService {
     @Override
     @Transactional
     public BankProcessDTO updateBankProcessDetails(BankProcessDTO bankProcessDTO) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
         if (bankProcessDTO == null) {
             throw new BusinessException("Invalid request");
@@ -120,9 +109,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         if (bankProcessDTO.getId() == null) {
             throw new BusinessException("Invalid bank process ID");
         }
-        if (bankProcessDTO.getTenantId() == null) {
-            throw new BusinessException("Invalid Tenant Id!");
-        }
+        AccessControlUtils.requireValidTenantId(bankProcessDTO.getTenantId());
 
         BankProcess updated = updateBankProcess(bankProcessDTO, sessionUser);
         deleteBankProcessShareBatch(updated.getId());
@@ -148,22 +135,15 @@ public class BankProcessServiceImpl implements BankProcessService {
     @Override
     @Transactional
     public void deleteBankProcess(Integer id, Integer tenantId) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
         if (id == null || id <= 0) {
             throw new BusinessException("Invalid Bank Process ID!");
         }
-        if (tenantId == null) {
-            throw new BusinessException("Invalid Tenant Id!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
-        BankProcess existing = bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId);
-        if (existing == null) {
-            throw new BusinessException("Bank process not found!");
-        }
+        BankProcess existing = AssertUtils.requireFound(
+                bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId), "Bank process not found!");
         if (existing.getStatus() == null || existing.getStatus() != BankProcess.Status.INACTIVE) {
             throw new BusinessException("Bank process is not inactive, cannot be deleted!");
         }
@@ -181,17 +161,12 @@ public class BankProcessServiceImpl implements BankProcessService {
     @Override
     @Transactional
     public BankProcess updateBankProcessStatus(Integer id, Integer tenantId, BankProcess.Status status) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
         if (id == null) {
             throw new BusinessException("Invalid Bank Process ID!");
         }
-        if (tenantId == null) {
-            throw new BusinessException("Invalid Tenant Id!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
         if (status == null) {
             throw new BusinessException("Status is required!");
         }
@@ -199,10 +174,8 @@ public class BankProcessServiceImpl implements BankProcessService {
             throw new BusinessException("Invalid status!");
         }
 
-        BankProcess existing = bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId);
-        if (existing == null) {
-            throw new BusinessException("Bank process not found!");
-        }
+        BankProcess existing = AssertUtils.requireFound(
+                bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId), "Bank process not found!");
 
         try {
             bankProcessDao.updateStatus(id, tenantId, status);
@@ -218,22 +191,15 @@ public class BankProcessServiceImpl implements BankProcessService {
     @Override
     @Transactional
     public void updateBankProcessRemark(Integer id, Integer tenantId, String remark) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
         if (id == null || id <= 0) {
             throw new BusinessException("Invalid Bank Process ID!");
         }
-        if (tenantId == null) {
-            throw new BusinessException("Invalid Tenant Id!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
-        BankProcess existing = bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId);
-        if (existing == null) {
-            throw new BusinessException("Bank process not found!");
-        }
+        BankProcess existing = AssertUtils.requireFound(
+                bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId), "Bank process not found!");
         assertEditable(existing);
 
         try {
@@ -246,28 +212,19 @@ public class BankProcessServiceImpl implements BankProcessService {
     @Override
     @Transactional
     public void deleteBankBalance(Integer id, Integer tenantId) {
-        SessionUser sessionUser = SecurityUtils.currentUser();
-        if (sessionUser == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
         if (id == null || id <= 0) {
             throw new BusinessException("Invalid Bank Process ID!");
         }
-        if (tenantId == null) {
-            throw new BusinessException("Invalid Tenant Id!");
-        }
+        AccessControlUtils.requireValidTenantId(tenantId);
 
-        BankProcess existing = bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId);
-        if (existing == null) {
-            throw new BusinessException("Bank process not found!");
-        }
+        BankProcess existing = AssertUtils.requireFound(
+                bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId), "Bank process not found!");
         assertEditable(existing);
 
-        Transaction linked = transactionDao.findLinkedBankBalanceTransaction(tenantId, id);
-        if (linked == null) {
-            throw new BusinessException("No Bank Balance to delete!");
-        }
+        Transaction linked = AssertUtils.requireFound(
+                transactionDao.findLinkedBankBalanceTransaction(tenantId, id), "No Bank Balance to delete!");
 
         // Reuse the existing Payment Maintenance delete flow (archives to transactions_deleted, then
         // hard-deletes) — CONTRA is already one of its supported types, so this keeps Bank Balance
@@ -318,12 +275,7 @@ public class BankProcessServiceImpl implements BankProcessService {
     }
 
     private BankProcess insertNewBankProcess(BankProcessDTO bankProcessDTO, SessionUser sessionUser) {
-        if (bankProcessDTO == null) {
-            throw new BusinessException("Request body is required!");
-        }
-        if (bankProcessDTO.getTenantId() == null) {
-            throw new BusinessException("Invalid Tenant Id!");
-        }
+        AccessControlUtils.requireValidTenantId(bankProcessDTO != null ? bankProcessDTO.getTenantId() : null);
         if (bankProcessDTO.getCountryId() == null) {
             throw new BusinessException("Country ID is required!");
         }
@@ -344,19 +296,13 @@ public class BankProcessServiceImpl implements BankProcessService {
 
         BankProcess.Frequency frequency = parseFrequency(bankProcessDTO.getFrequency());
 
-        BankCountry country = bankCountryOptionDao.findCountryById(
-                bankProcessDTO.getTenantId(), bankProcessDTO.getCountryId());
-        if (country == null) {
-            throw new BusinessException("Country not found!");
-        }
+        AssertUtils.requireFound(bankCountryOptionDao.findCountryById(
+                bankProcessDTO.getTenantId(), bankProcessDTO.getCountryId()), "Country not found!");
 
-        BankOption bankOption = bankCountryOptionDao.findBankOptionById(
+        AssertUtils.requireFound(bankCountryOptionDao.findBankOptionById(
                 bankProcessDTO.getTenantId(),
                 bankProcessDTO.getCountryId(),
-                bankProcessDTO.getBankOptionId());
-        if (bankOption == null) {
-            throw new BusinessException("Bank option not found!");
-        }
+                bankProcessDTO.getBankOptionId()), "Bank option not found!");
 
         BankProcess bankProcess = new BankProcess();
         bankProcess.setTenantId(bankProcessDTO.getTenantId());
@@ -403,11 +349,9 @@ public class BankProcessServiceImpl implements BankProcessService {
     }
 
     private BankProcess updateBankProcess(BankProcessDTO bankProcessDTO, SessionUser sessionUser) {
-        BankProcess existing = bankProcessDao.findBKProcessByIdAndTenantId(
-                bankProcessDTO.getId(), bankProcessDTO.getTenantId());
-        if (existing == null) {
-            throw new BusinessException("Bank process not found!");
-        }
+        BankProcess existing = AssertUtils.requireFound(
+                bankProcessDao.findBKProcessByIdAndTenantId(bankProcessDTO.getId(), bankProcessDTO.getTenantId()),
+                "Bank process not found!");
         assertEditable(existing);
 
         BankProcess.Frequency frequency = parseFrequency(bankProcessDTO.getFrequency());

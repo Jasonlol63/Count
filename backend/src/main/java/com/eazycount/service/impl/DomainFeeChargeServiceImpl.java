@@ -12,9 +12,9 @@ import com.eazycount.entity.Currency;
 import com.eazycount.entity.Tenant;
 import com.eazycount.entity.TenantFeeShareAllocate;
 import com.eazycount.entity.Transaction;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.DomainFeeChargeService;
+import com.eazycount.util.AccessControlUtils;
 import com.eazycount.util.TransactionMoneyFormat;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -79,10 +79,7 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
             throw new BusinessException("Invalid tenant for domain fee charge");
         }
 
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
 
         Integer payerTenantId = tenant.getId();
         String payerCode = tenant.getCode() != null ? tenant.getCode().trim().toUpperCase() : "";
@@ -103,7 +100,7 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
         if (domainFeeAmount == null || domainFeeAmount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException("Domain fee price is not configured for period: " + period);
         }
-        domainFeeAmount = scaleMoney(domainFeeAmount);
+        domainFeeAmount = TransactionMoneyFormat.normalizeComputedNormal(domainFeeAmount);
 
         Tenant c168Tenant = tenantDao.findTenantByCode("C168");
         if (c168Tenant == null || c168Tenant.getId() == null) {
@@ -162,7 +159,7 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
                 continue;
             }
 
-            BigDecimal amount = scaleMoney(
+            BigDecimal amount = TransactionMoneyFormat.normalizeComputedNormal(
                     domainFeeAmount.multiply(percentage)
                             .divide(new BigDecimal("100"),
                                     TransactionMoneyFormat.NORMAL_AMOUNT_SCALE,
@@ -178,7 +175,7 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
                     REMARK_DOMAIN_COMMISSION, createdBy, approvedAt));
         }
 
-        BigDecimal profitAmount = scaleMoney(domainFeeAmount.subtract(commissionTotal));
+        BigDecimal profitAmount = TransactionMoneyFormat.normalizeComputedNormal(domainFeeAmount.subtract(commissionTotal));
         if (profitAmount.compareTo(BigDecimal.ZERO) < 0) {
             profitAmount = BigDecimal.ZERO;
         }
@@ -228,7 +225,4 @@ public class DomainFeeChargeServiceImpl implements DomainFeeChargeService {
         return txn;
     }
 
-    private static BigDecimal scaleMoney(BigDecimal value) {
-        return TransactionMoneyFormat.normalizeComputedNormal(value);
-    }
 }

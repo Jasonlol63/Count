@@ -8,13 +8,14 @@ import com.eazycount.dto.TransactionHistoryResult;
 import com.eazycount.dto.UserCurrencyDTO;
 import com.eazycount.dto.UserListDTO;
 import com.eazycount.entity.Tenant;
-import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.CurrencyService;
 import com.eazycount.service.TransactionHistoryService;
 import com.eazycount.service.UserPageService;
 import com.eazycount.service.UserService;
 import com.eazycount.dao.TenantDao;
+import com.eazycount.util.AccessControlUtils;
+import com.eazycount.util.AssertUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -158,10 +159,8 @@ public class UserPageServiceImpl implements UserPageService {
         int accountId = session.user_id;
         int tenantId = session.tenant_id;
 
-        UserListDTO account = userDao.findUserByIdAndTenantId(accountId, tenantId);
-        if (account == null) {
-            throw new BusinessException("Account not found");
-        }
+        UserListDTO account = AssertUtils.requireFound(
+                userDao.findUserByIdAndTenantId(accountId, tenantId), "Account not found");
 
         List<UserListDTO> linkedAccounts = userService.getAllLinkedAccounts(accountId, tenantId);
         boolean hasAccountLink = linkedAccounts.size() > 1;
@@ -178,10 +177,7 @@ public class UserPageServiceImpl implements UserPageService {
                     .map(a -> new MemberPageDTO.LinkedAccount(a.getId(), a.getAccountId(), a.getName()))
                     .toList());
         } else {
-            Tenant tenant = tenantDao.findTenantById(tenantId);
-            if (tenant == null) {
-                throw new BusinessException("Company not found");
-            }
+            Tenant tenant = AssertUtils.requireFound(tenantDao.findTenantById(tenantId), "Company not found");
             profile.setTenantCode(tenant.getCode());
             profile.setTenantName(tenant.getName());
             profile.setCurrencies(currencyService.findAvailableCurrencies(tenantId, accountId).stream()
@@ -193,10 +189,7 @@ public class UserPageServiceImpl implements UserPageService {
     }
 
     private SessionUser requireMemberSession() {
-        SessionUser session = SecurityUtils.currentUser();
-        if (session == null || session.user_id == null) {
-            throw new BusinessException("Not logged in");
-        }
+        SessionUser session = AccessControlUtils.requireLoggedIn();
         if (!"member".equalsIgnoreCase(session.user_type)) {
             throw new BusinessException("Not a member session");
         }

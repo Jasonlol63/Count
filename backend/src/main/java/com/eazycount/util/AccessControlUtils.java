@@ -1,6 +1,7 @@
 package com.eazycount.util;
 
 import com.eazycount.common.BusinessException;
+import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 
 import java.util.Locale;
@@ -53,6 +54,26 @@ public final class AccessControlUtils {
      * with the Admin role system. See docs/it-role-audit-log.md. */
     public static boolean isItOperator(String role) {
         return "IT".equals(normalizeRole(role));
+    }
+
+    /* 未登录时抛出异常并返回当前登录用户；替代各 Service 里重复的 SecurityUtils.currentUser() + null 判断。*/
+    public static SessionUser requireLoggedIn() {
+        return requireLoggedIn(SecurityUtils.currentUser());
+    }
+
+    /* 与上面同语义，但校验调用方已经拿到手的 session（例如方法参数传入），而不是重新取当前登录用户。*/
+    public static SessionUser requireLoggedIn(SessionUser session) {
+        if (session == null || session.user_id == null) {
+            throw new BusinessException("Not logged in");
+        }
+        return session;
+    }
+
+    /* tenantId 合法性校验（非空且 > 0）；不合法时抛出异常。*/
+    public static void requireValidTenantId(Integer tenantId) {
+        if (tenantId == null || tenantId <= 0) {
+            throw new BusinessException("Invalid tenantId!");
+        }
     }
 
     /* 未登录或账号 read_only=1 时抛出异常；所有写操作方法的第一行都应调用此方法。*/
