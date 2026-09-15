@@ -1,6 +1,5 @@
 package com.eazycount.controller;
 
-import com.eazycount.common.BusinessException;
 import com.eazycount.entity.BankCountry;
 import com.eazycount.entity.BankOption;
 import com.eazycount.service.BankCountryOptionService;
@@ -24,16 +23,12 @@ public class BankCountryOptionController {
 
     @PostMapping("/list-country")
     public ResponseEntity<Map<String, Object>> listCountry(@RequestBody Integer tenantId) {
-        try {
-            final List<BankCountry> bankCountries = bankCountryOptionService.findAllCountry(tenantId);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Country retrieved successfully",
-                    "data", bankCountries
-            ));
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        final List<BankCountry> bankCountries = bankCountryOptionService.findAllCountry(tenantId);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Country retrieved successfully",
+                "data", bankCountries
+        ));
     }
 
     /**
@@ -42,81 +37,53 @@ public class BankCountryOptionController {
      */
     @PostMapping("/list-bank-option")
     public ResponseEntity<Map<String, Object>> listBankOption(@RequestBody BankOption request) {
-        try {
-            final List<BankOption> bankOptions = bankCountryOptionService.findAllBankInCountry(
-                    request.getTenantId(), request.getCountryId());
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Bank options retrieved successfully",
-                    "data", bankOptions
-            ));
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        final List<BankOption> bankOptions = bankCountryOptionService.findAllBankInCountry(
+                request.getTenantId(), request.getCountryId());
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Bank options retrieved successfully",
+                "data", bankOptions
+        ));
     }
 
     @PostMapping("/insert-country")
     public ResponseEntity<Map<String, Object>> insertBankCountry(@RequestBody BankCountry bankCountry) {
-        try {
-            bankCountryOptionService.insertNewCountry(bankCountry);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Country inserted successfully",
-                    "data", bankCountry
-            ));
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        bankCountryOptionService.insertNewCountry(bankCountry);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Country inserted successfully",
+                "data", bankCountry
+        ));
     }
 
     @PostMapping("/insert-bank-option")
     public ResponseEntity<Map<String, Object>> insertBankOption(@RequestBody BankOption bankOption) {
-        try {
-            bankCountryOptionService.insertNewBankOption(bankOption);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Bank option inserted successfully",
-                    "data", bankOption
-            ));
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        bankCountryOptionService.insertNewBankOption(bankOption);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Bank option inserted successfully",
+                "data", bankOption
+        ));
     }
 
     @PostMapping("/delete-country")
     public ResponseEntity<Map<String, Object>> deleteCountry(@RequestBody BankCountry bankCountry) {
-        try {
-            bankCountryOptionService.deleteCountryByIdAndTenantId(
-                    bankCountry.getId(), bankCountry.getTenantId());
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", true);
-            body.put("message", "Country deleted successfully");
-            body.put("data", null);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        bankCountryOptionService.deleteCountryByIdAndTenantId(
+                bankCountry.getId(), bankCountry.getTenantId());
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", true);
+        body.put("message", "Country deleted successfully");
+        body.put("data", null);
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/delete-bank-option")
     public ResponseEntity<Map<String, Object>> deleteBankOption(@RequestBody BankOption bankOption) {
-        try {
-            bankCountryOptionService.deleteBankOptionByIdAndTenantId(
-                    bankOption.getId(), bankOption.getTenantId(), bankOption.getCountryId());
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", true);
-            body.put("message", "Bank option deleted successfully");
-            body.put("data", null);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e);
-        }
-    }
-
-    private static ResponseEntity<Map<String, Object>> error(BusinessException e) {
+        bankCountryOptionService.deleteBankOptionByIdAndTenantId(
+                bankOption.getId(), bankOption.getTenantId(), bankOption.getCountryId());
         final Map<String, Object> body = new LinkedHashMap<>();
-        body.put("success", false);
-        body.put("message", e.getMessage());
+        body.put("success", true);
+        body.put("message", "Bank option deleted successfully");
         body.put("data", null);
         return ResponseEntity.ok(body);
     }

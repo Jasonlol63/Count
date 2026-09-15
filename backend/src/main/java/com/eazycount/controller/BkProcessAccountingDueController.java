@@ -24,56 +24,36 @@ public class BkProcessAccountingDueController {
 
     @PostMapping("/inbox")
     public ResponseEntity<Map<String, Object>> inbox(@RequestBody AccountingDueInboxRequest request) {
-        try {
-            if (request == null || request.getTenantId() == null) {
-                throw new BusinessException("Invalid Tenant Id!");
-            }
-            boolean restoreSkipped = Boolean.TRUE.equals(request.getRestoreSkipped());
-            final List<AccountingDueDTO> due = accountingDueService.resolveInbox(
-                    request.getTenantId(), request.getAsOf(), restoreSkipped);
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", true);
-            body.put("message", "Accounting due retrieved successfully");
-            body.put("data", due);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e);
+        if (request == null || request.getTenantId() == null) {
+            throw new BusinessException("Invalid Tenant Id!");
         }
+        boolean restoreSkipped = Boolean.TRUE.equals(request.getRestoreSkipped());
+        final List<AccountingDueDTO> due = accountingDueService.resolveInbox(
+                request.getTenantId(), request.getAsOf(), restoreSkipped);
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", true);
+        body.put("message", "Accounting due retrieved successfully");
+        body.put("data", due);
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/skip")
     public ResponseEntity<Map<String, Object>> skip(@RequestBody List<AccountingDueDTO> items) {
-        try {
-            accountingDueService.skipPeriods(items);
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", true);
-            body.put("message", "Accounting due skipped successfully");
-            body.put("data", null);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        accountingDueService.skipPeriods(items);
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", true);
+        body.put("message", "Accounting due skipped successfully");
+        body.put("data", null);
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/post")
     public ResponseEntity<Map<String, Object>> post(@RequestBody List<AccountingDueDTO> items) {
-        try {
-            int createdCount = accountingDueService.postToTransaction(items);
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", true);
-            body.put("message", "Posted to transaction, created " + createdCount + " line(s)");
-            body.put("data", Map.of("createdCount", createdCount));
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e);
-        }
-    }
-
-    private static ResponseEntity<Map<String, Object>> error(BusinessException e) {
+        int createdCount = accountingDueService.postToTransaction(items);
         final Map<String, Object> body = new LinkedHashMap<>();
-        body.put("success", false);
-        body.put("message", e.getMessage());
-        body.put("data", null);
+        body.put("success", true);
+        body.put("message", "Posted to transaction, created " + createdCount + " line(s)");
+        body.put("data", Map.of("createdCount", createdCount));
         return ResponseEntity.ok(body);
     }
 }

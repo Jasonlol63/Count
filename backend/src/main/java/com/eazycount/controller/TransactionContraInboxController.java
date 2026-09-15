@@ -1,6 +1,5 @@
 package com.eazycount.controller;
 
-import com.eazycount.common.BusinessException;
 import com.eazycount.dto.TransactionContraInboxDTO;
 import com.eazycount.service.TransactionContraInboxService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,49 +22,29 @@ public class TransactionContraInboxController {
 
     @PostMapping("/approved")
     public ResponseEntity<Map<String, Object>> approved(@RequestBody TransactionContraInboxDTO txnContraInboxDTO) {
-        try{
-            transactionContraInboxService.approve(txnContraInboxDTO);
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", true);
-            body.put("message", "Contra Approved Successfully");
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        transactionContraInboxService.approve(txnContraInboxDTO);
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", true);
+        body.put("message", "Contra Approved Successfully");
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/rejected")
     public ResponseEntity<Map<String, Object>> rejected(@RequestBody TransactionContraInboxDTO txnContraInboxDTO) {
-        try{
-            transactionContraInboxService.reject(txnContraInboxDTO);
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", true);
-            body.put("message", "Contra Rejected Successfully");
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        transactionContraInboxService.reject(txnContraInboxDTO);
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", true);
+        body.put("message", "Contra Rejected Successfully");
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/pending")
     public ResponseEntity<Map<String, Object>> pending(@RequestBody TransactionContraInboxDTO txnContraInboxDTO) {
-        try{
-            List<TransactionContraInboxDTO> rows = transactionContraInboxService.listPending(
-                    txnContraInboxDTO != null ? txnContraInboxDTO.getTenantId() : null);
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", true);
-            body.put("data", rows);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e);
-        }
-    }
-
-    private static ResponseEntity<Map<String, Object>> error(BusinessException e) {
+        List<TransactionContraInboxDTO> rows = transactionContraInboxService.listPending(
+                txnContraInboxDTO != null ? txnContraInboxDTO.getTenantId() : null);
         final Map<String, Object> body = new LinkedHashMap<>();
-        body.put("success", false);
-        body.put("message", e.getMessage());
-        body.put("data", null);
+        body.put("success", true);
+        body.put("data", rows);
         return ResponseEntity.ok(body);
     }
 }

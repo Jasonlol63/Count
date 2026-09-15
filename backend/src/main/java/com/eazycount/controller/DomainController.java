@@ -1,6 +1,5 @@
 package com.eazycount.controller;
 
-import com.eazycount.common.BusinessException;
 import com.eazycount.dto.DomainDTO;
 import com.eazycount.dto.DomainFeeSettingsDTO;
 import com.eazycount.dto.OwnerTenantDTO;
@@ -24,104 +23,68 @@ public class DomainController {
 
     @PostMapping("/list")
     public ResponseEntity<Map<String, Object>> list(@RequestParam(value = "ownerId", required = false) Integer ownerId) {
-        try {
-            final List<OwnerTenantDTO> data = domainService.findAllTenantsByOwner(ownerId);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Owner retrieved successfully",
-                    "data", data));
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        final List<OwnerTenantDTO> data = domainService.findAllTenantsByOwner(ownerId);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Owner retrieved successfully",
+                "data", data));
     }
 
     @PostMapping("/add")
     public ResponseEntity<Map<String, Object>> add(@RequestBody DomainDTO domainDTO) {
-        try {
-            final DomainDTO data = domainService.createDomain(domainDTO);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Owner created successfully",
-                    "data", data));
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        final DomainDTO data = domainService.createDomain(domainDTO);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Owner created successfully",
+                "data", data));
     }
 
     @PutMapping("/update-setting")
     public ResponseEntity<Map<String, Object>> updateSetting(@RequestBody Tenant tenant) {
-        try{
-            domainService.updateTenantDetailsSetting(tenant);
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", true);
-            body.put("message", "Domain setting updated successfully");
-            body.put("data", null);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        domainService.updateTenantDetailsSetting(tenant);
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", true);
+        body.put("message", "Domain setting updated successfully");
+        body.put("data", null);
+        return ResponseEntity.ok(body);
     }
 
 
     @PutMapping("/update")
     public ResponseEntity<Map<String, Object>> update(@RequestBody DomainDTO domainDTO) {
-        try {
-            DomainDTO data = domainService.updateDomain(domainDTO);
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", true);
-            body.put("message", "Domain updated successfully");
-            body.put("data", data);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        DomainDTO data = domainService.updateDomain(domainDTO);
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", true);
+        body.put("message", "Domain updated successfully");
+        body.put("data", data);
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/delete")
     public ResponseEntity<Map<String, Object>> delete(@RequestBody Owner owner) {
-        try {
-            domainService.deleteOwnerDetails(owner);
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", true);
-            body.put("message", "Domain Deleted successfully");
-            body.put("data", null);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        domainService.deleteOwnerDetails(owner);
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", true);
+        body.put("message", "Domain Deleted successfully");
+        body.put("data", null);
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/list-fee")
     public ResponseEntity<Map<String, Object>> listFee() {
-        try{
-            DomainFeeSettingsDTO settings = domainService.findDomainFeeSettings();
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Domain Fee retrieved successfully",
-                    "data", List.of(settings)));
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        DomainFeeSettingsDTO settings = domainService.findDomainFeeSettings();
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Domain Fee retrieved successfully",
+                "data", List.of(settings)));
     }
 
     @PostMapping("/add-fee")
     public ResponseEntity<Map<String, Object>> Insertfee(@RequestBody DomainFeeSettingsDTO settings) {
-        try{
-            DomainFeeSettingsDTO fee = domainService.updateDomainFeeSettings(settings);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Domain Fee updated successfully",
-                    "data", fee));
-        } catch (BusinessException e) {
-            return error(e);
-        }
-    }
-
-    private static ResponseEntity<Map<String, Object>> error(BusinessException e) {
-        final Map<String, Object> body = new LinkedHashMap<>();
-        body.put("success", false);
-        body.put("message", e.getMessage());
-        body.put("data", null);
-        return ResponseEntity.ok(body);
+        DomainFeeSettingsDTO fee = domainService.updateDomainFeeSettings(settings);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Domain Fee updated successfully",
+                "data", fee));
     }
 }

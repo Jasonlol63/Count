@@ -1,6 +1,5 @@
 package com.eazycount.controller;
 
-import com.eazycount.common.BusinessException;
 import com.eazycount.entity.Announcements;
 import com.eazycount.entity.Maintenance;
 import com.eazycount.service.AnnouncementService;
@@ -62,92 +61,60 @@ public class AnnouncementController {
 
     @PostMapping("/addAnnouncementContent")
     public ResponseEntity<Map<String, Object>> addAnnouncementContentPage(@RequestBody Announcements announcements){
-        try {
-            announcementService.addAnnouncement(announcements);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Announcement created successfully",
-                    "data", announcements
-            ));
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        announcementService.addAnnouncement(announcements);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Announcement created successfully",
+                "data", announcements
+        ));
     }
 
     @PostMapping("/addMaintenanceContent")
     public ResponseEntity<Map<String, Object>> addMaintenanceContentPage(@RequestBody Maintenance maintenance){
-        try {
-            announcementService.addMaintenance(maintenance);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Maintenance created successfully",
-                    "data", maintenance
-            ));
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        announcementService.addMaintenance(maintenance);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Maintenance created successfully",
+                "data", maintenance
+        ));
     }
 
     @PostMapping("/updateAnnouncement")
     public ResponseEntity<Map<String, Object>> updateAnnouncement(@RequestBody Announcements announcements){
-        try {
-            announcementService.updateAnnouncement(announcements);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Announcement updated successfully",
-                    "data", announcements
-            ));
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        announcementService.updateAnnouncement(announcements);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Announcement updated successfully",
+                "data", announcements
+        ));
     }
 
     @PostMapping("/updateMaintenance")
     public ResponseEntity<Map<String, Object>> updateMaintenance(@RequestBody Maintenance maintenance){
-        try {
-            announcementService.updateMaintenance(maintenance);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Maintenance updated successfully",
-                    "data", maintenance
-            ));
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        announcementService.updateMaintenance(maintenance);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Maintenance updated successfully",
+                "data", maintenance
+        ));
     }
 
     @PostMapping("/deleteAnnouncement")
     public ResponseEntity<Map<String, Object>> deleteAnnouncement(@RequestBody Announcements announcements) {
-        try {
-            announcementService.deleteAnnouncement(announcements);
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", true);
-            body.put("message", "Announcement deleted successfully");
-            body.put("data", null);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        announcementService.deleteAnnouncement(announcements);
+        final Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", true);
+        body.put("message", "Announcement deleted successfully");
+        body.put("data", null);
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/deleteMaintenance")
     public ResponseEntity<Map<String, Object>> deleteMaintenance(@RequestBody Maintenance maintenance) {
-        try {
-            announcementService.deleteMaintenance(maintenance);
-            final Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", true);
-            body.put("message", "Maintenance deleted successfully");
-            body.put("data", null);
-            return ResponseEntity.ok(body);
-        } catch (BusinessException e) {
-            return error(e);
-        }
-    }
-
-    private static ResponseEntity<Map<String, Object>> error(BusinessException e) {
+        announcementService.deleteMaintenance(maintenance);
         final Map<String, Object> body = new LinkedHashMap<>();
-        body.put("success", false);
-        body.put("message", e.getMessage());
+        body.put("success", true);
+        body.put("message", "Maintenance deleted successfully");
         body.put("data", null);
         return ResponseEntity.ok(body);
     }

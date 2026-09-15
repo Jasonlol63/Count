@@ -29,12 +29,8 @@ public class AuthController {
     private final JwtService jwtService;
     private final AuthTokenStore authTokenStore;
 
-    public AuthController(
-            AuthService authService,
-            PermissionService permissionService,
-            JwtService jwtService,
-            AuthTokenStore authTokenStore
-    ) {
+    public AuthController(AuthService authService, PermissionService permissionService, JwtService jwtService, AuthTokenStore authTokenStore)
+    {
         this.authService = authService;
         this.permissionService = permissionService;
         this.jwtService = jwtService;
@@ -121,15 +117,7 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
         }
 
-        try {
-            return ResponseEntity.ok(authService.accessibleTenants(all == 1));
-        } catch (BusinessException e) {
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
-        }
+        return ResponseEntity.ok(authService.accessibleTenants(all == 1));
     }
 
     // Resolve one accessible tenant's id by its code.
@@ -144,15 +132,7 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
         }
 
-        try {
-            return ResponseEntity.ok(authService.tenantByCode(code));
-        } catch (BusinessException e) {
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success", false);
-            body.put("message", e.getMessage());
-            body.put("data", null);
-            return ResponseEntity.ok(body);
-        }
+        return ResponseEntity.ok(authService.tenantByCode(code));
     }
 
     @PostMapping("/verify-owner-secondary-password")

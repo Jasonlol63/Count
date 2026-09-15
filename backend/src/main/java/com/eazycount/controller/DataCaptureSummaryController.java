@@ -1,6 +1,5 @@
 package com.eazycount.controller;
 
-import com.eazycount.common.BusinessException;
 import com.eazycount.dto.DataCaptureSummaryDTO;
 import com.eazycount.dto.DataCaptureSummarySubmitDTO;
 import com.eazycount.service.DataCaptureSummaryService;
@@ -11,7 +10,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestController
@@ -23,61 +21,37 @@ public class DataCaptureSummaryController {
 
     @PostMapping("/formula/save")
     public ResponseEntity<Map<String, Object>> saveAddFormula(@RequestBody DataCaptureSummaryDTO request) {
-        try {
-            DataCaptureSummaryDTO data = dataCaptureSummaryService.saveAddFormula(request);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Formula Saved Successfully",
-                    "data", data));
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        DataCaptureSummaryDTO data = dataCaptureSummaryService.saveAddFormula(request);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Formula Saved Successfully",
+                "data", data));
     }
 
     @PostMapping("/formula/update")
     public ResponseEntity<Map<String, Object>> updateFormula(@RequestBody DataCaptureSummaryDTO request) {
-        try {
-            DataCaptureSummaryDTO data = dataCaptureSummaryService.updateFormula(request);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Formula Updated Successfully",
-                    "data", data));
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        DataCaptureSummaryDTO data = dataCaptureSummaryService.updateFormula(request);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Formula Updated Successfully",
+                "data", data));
     }
 
     @PostMapping("/formula/delete")
     public ResponseEntity<Map<String, Object>> deleteFormulas(@RequestBody DataCaptureSummaryDTO request) {
-        try {
-            DataCaptureSummaryDTO data = dataCaptureSummaryService.deleteFormulas(request);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Formula Deleted Successfully",
-                    "data", data));
-        } catch (BusinessException e) {
-            return error(e);
-        }
+        DataCaptureSummaryDTO data = dataCaptureSummaryService.deleteFormulas(request);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Formula Deleted Successfully",
+                "data", data));
     }
 
     @PostMapping("/submit")
     public ResponseEntity<Map<String, Object>> submit(@RequestBody DataCaptureSummarySubmitDTO request) {
-        try {
-            DataCaptureSummarySubmitDTO data = dataCaptureSummaryService.submit(request);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Data Capture Submitted Successfully",
-                    "data", data));
-        } catch (BusinessException e) {
-            return error(e);
-        }
-    }
-
-    private static ResponseEntity<Map<String, Object>> error(BusinessException e) {
-        final Map<String, Object> body = new LinkedHashMap<>();
-        body.put("success", false);
-        body.put("message", e.getMessage());
-        body.put("data", null);
-        return ResponseEntity.ok(body);
+        DataCaptureSummarySubmitDTO data = dataCaptureSummaryService.submit(request);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Data Capture Submitted Successfully",
+                "data", data));
     }
 }

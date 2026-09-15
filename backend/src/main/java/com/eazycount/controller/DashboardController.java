@@ -38,14 +38,10 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "currency", required = true) String currency) {
-        try {
-            Integer tenantId = resolveTenantId(tenantIdStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-            return ok(dashboardService.getKpi(tenantId, dateFrom, dateTo, currency));
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
+        Integer tenantId = resolveTenantId(tenantIdStr);
+        LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+        LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+        return ok(dashboardService.getKpi(tenantId, dateFrom, dateTo, currency));
     }
 
     @GetMapping("/chart")
@@ -54,14 +50,10 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "currency", required = true) String currency) {
-        try {
-            Integer tenantId = resolveTenantId(tenantIdStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-            return ok(dashboardService.getTrend(tenantId, dateFrom, dateTo, currency));
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
+        Integer tenantId = resolveTenantId(tenantIdStr);
+        LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+        LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+        return ok(dashboardService.getTrend(tenantId, dateFrom, dateTo, currency));
     }
 
     @GetMapping("/kpi/currency-breakdown")
@@ -70,14 +62,10 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "base_currency", required = true) String baseCurrency) {
-        try {
-            Integer tenantId = resolveTenantId(tenantIdStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-            return ok(dashboardService.getKpiCurrencyBreakdown(tenantId, dateFrom, dateTo, baseCurrency));
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
+        Integer tenantId = resolveTenantId(tenantIdStr);
+        LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+        LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+        return ok(dashboardService.getKpiCurrencyBreakdown(tenantId, dateFrom, dateTo, baseCurrency));
     }
 
     // ==================== 单 Group ====================
@@ -88,15 +76,11 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "currency", required = true) String currency) {
-        try {
-            Integer groupTenantId = resolveTenantId(groupTenantIdStr);
-            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-            return ok(dashboardService.getKpiForGroup(groupTenantId, companyTenantIds, dateFrom, dateTo, currency));
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
+        Integer groupTenantId = resolveTenantId(groupTenantIdStr);
+        List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+        LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+        LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+        return ok(dashboardService.getKpiForGroup(groupTenantId, companyTenantIds, dateFrom, dateTo, currency));
     }
 
     @GetMapping("/chart-group")
@@ -106,15 +90,11 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "currency", required = true) String currency) {
-        try {
-            Integer groupTenantId = resolveTenantId(groupTenantIdStr);
-            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-            return ok(dashboardService.getTrendForGroup(groupTenantId, companyTenantIds, dateFrom, dateTo, currency));
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
+        Integer groupTenantId = resolveTenantId(groupTenantIdStr);
+        List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+        LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+        LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+        return ok(dashboardService.getTrendForGroup(groupTenantId, companyTenantIds, dateFrom, dateTo, currency));
     }
 
     @GetMapping("/group-kpi/currency-breakdown")
@@ -124,16 +104,12 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "base_currency", required = true) String baseCurrency) {
-        try {
-            Integer groupTenantId = resolveTenantId(groupTenantIdStr);
-            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-            return ok(dashboardService.getGroupKpiCurrencyBreakdown(
-                    groupTenantId, companyTenantIds, dateFrom, dateTo, baseCurrency));
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
+        Integer groupTenantId = resolveTenantId(groupTenantIdStr);
+        List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+        LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+        LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+        return ok(dashboardService.getGroupKpiCurrencyBreakdown(
+                groupTenantId, companyTenantIds, dateFrom, dateTo, baseCurrency));
     }
 
     @GetMapping("/group-kpi/net-profit")
@@ -143,16 +119,12 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "currency", required = true) String currency) {
-        try {
-            Integer groupTenantId = resolveTenantId(groupTenantIdStr);
-            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-            return ok(dashboardService.getGroupCompanyNetProfitBreakdown(
-                    groupTenantId, companyTenantIds, dateFrom, dateTo, currency));
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
+        Integer groupTenantId = resolveTenantId(groupTenantIdStr);
+        List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+        LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+        LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+        return ok(dashboardService.getGroupCompanyNetProfitBreakdown(
+                groupTenantId, companyTenantIds, dateFrom, dateTo, currency));
     }
 
     // ==================== Group: All ====================
@@ -163,15 +135,11 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "currency", required = true) String currency) {
-        try {
-            List<Integer> groupTenantIds = parseGroupTenantIds(groupTenantIdsStr);
-            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-            return ok(dashboardService.getKpiForGroups(groupTenantIds, companyTenantIds, dateFrom, dateTo, currency));
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
+        List<Integer> groupTenantIds = parseGroupTenantIds(groupTenantIdsStr);
+        List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+        LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+        LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+        return ok(dashboardService.getKpiForGroups(groupTenantIds, companyTenantIds, dateFrom, dateTo, currency));
     }
 
     @GetMapping("/chart-all-groups")
@@ -181,15 +149,11 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "currency", required = true) String currency) {
-        try {
-            List<Integer> groupTenantIds = parseGroupTenantIds(groupTenantIdsStr);
-            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-            return ok(dashboardService.getTrendForGroups(groupTenantIds, companyTenantIds, dateFrom, dateTo, currency));
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
+        List<Integer> groupTenantIds = parseGroupTenantIds(groupTenantIdsStr);
+        List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+        LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+        LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+        return ok(dashboardService.getTrendForGroups(groupTenantIds, companyTenantIds, dateFrom, dateTo, currency));
     }
 
     @GetMapping("/kpi-all-groups/currency-breakdown")
@@ -199,16 +163,12 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "base_currency", required = true) String baseCurrency) {
-        try {
-            List<Integer> groupTenantIds = parseGroupTenantIds(groupTenantIdsStr);
-            List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-            return ok(dashboardService.getGroupsKpiCurrencyBreakdown(
-                    groupTenantIds, companyTenantIds, dateFrom, dateTo, baseCurrency));
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
+        List<Integer> groupTenantIds = parseGroupTenantIds(groupTenantIdsStr);
+        List<Integer> companyTenantIds = parseTenantIdsAllowEmpty(companyTenantIdsStr);
+        LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+        LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+        return ok(dashboardService.getGroupsKpiCurrencyBreakdown(
+                groupTenantIds, companyTenantIds, dateFrom, dateTo, baseCurrency));
     }
 
     // ==================== Company: All ====================
@@ -219,14 +179,10 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "currency", required = true) String currency) {
-        try {
-            List<Integer> tenantIds = parseTenantIds(tenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-            return ok(dashboardService.getKpiForCompanies(tenantIds, dateFrom, dateTo, currency));
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
+        List<Integer> tenantIds = parseTenantIds(tenantIdsStr);
+        LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+        LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+        return ok(dashboardService.getKpiForCompanies(tenantIds, dateFrom, dateTo, currency));
     }
 
     @GetMapping("/chart-all")
@@ -235,14 +191,10 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "currency", required = true) String currency) {
-        try {
-            List<Integer> tenantIds = parseTenantIds(tenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-            return ok(dashboardService.getTrendForCompanies(tenantIds, dateFrom, dateTo, currency));
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
+        List<Integer> tenantIds = parseTenantIds(tenantIdsStr);
+        LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+        LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+        return ok(dashboardService.getTrendForCompanies(tenantIds, dateFrom, dateTo, currency));
     }
 
     @GetMapping("/kpi-all/currency-breakdown")
@@ -251,14 +203,10 @@ public class DashboardController {
             @RequestParam(value = "date_from", required = true) String dateFromStr,
             @RequestParam(value = "date_to", required = true) String dateToStr,
             @RequestParam(value = "base_currency", required = true) String baseCurrency) {
-        try {
-            List<Integer> tenantIds = parseTenantIds(tenantIdsStr);
-            LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
-            LocalDate dateTo = LocalDate.parse(dateToStr.trim());
-            return ok(dashboardService.getKpiCurrencyBreakdownForCompanies(tenantIds, dateFrom, dateTo, baseCurrency));
-        } catch (BusinessException e) {
-            return error(e.getMessage());
-        }
+        List<Integer> tenantIds = parseTenantIds(tenantIdsStr);
+        LocalDate dateFrom = LocalDate.parse(dateFromStr.trim());
+        LocalDate dateTo = LocalDate.parse(dateToStr.trim());
+        return ok(dashboardService.getKpiCurrencyBreakdownForCompanies(tenantIds, dateFrom, dateTo, baseCurrency));
     }
 
     // ==================== 共享辅助方法 ====================
@@ -344,19 +292,9 @@ public class DashboardController {
 
     private static ResponseEntity<Map<String, Object>> ok(Object data) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("status", "success");
         body.put("success", true);
         body.put("message", "");
         body.put("data", data);
-        return ResponseEntity.ok(body);
-    }
-
-    private static ResponseEntity<Map<String, Object>> error(String message) {
-        final Map<String, Object> body = new LinkedHashMap<>();
-        body.put("status", "error");
-        body.put("success", false);
-        body.put("message", message);
-        body.put("data", null);
         return ResponseEntity.ok(body);
     }
 }
