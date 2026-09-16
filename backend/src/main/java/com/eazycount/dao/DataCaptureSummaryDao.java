@@ -46,6 +46,12 @@ public interface DataCaptureSummaryDao {
 
     int deleteByIdAndTenantId(@Param("id") Integer id, @Param("tenantId") Integer tenantId);
 
+    /* Sibling SUB rows for one Id Product, in current sub_order — used to close gaps after a delete. */
+    List<DataCaptureFormula> findSubRowsOrderedBySubOrder(@Param("tenantId") Integer tenantId, @Param("processId") Integer processId, @Param("parentIdProduct") String parentIdProduct);
+
+    /* Renumber-only update — never touches formula/description/etc. */
+    void updateSubOrderById(@Param("id") Integer id, @Param("tenantId") Integer tenantId, @Param("subOrder") BigDecimal subOrder);
+
     // Copy From: deep-copy a source process's formulas onto a new process id.
     // Formula sync group: tag the source formulas with a group id (self-id) before copying, if they
     // don't already have one, so the copy below can inherit it.

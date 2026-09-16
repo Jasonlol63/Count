@@ -257,6 +257,25 @@
           AND tenant_id = #{tenantId}
     </delete>
 
+    <!-- Gap-closing after a SUB delete: remaining siblings in current sub_order order. -->
+    <select id="findSubRowsOrderedBySubOrder" resultMap="FormulaMap">
+        SELECT
+        <include refid="FormulaSelectColumns"/>
+        FROM data_capture_formula
+        WHERE tenant_id = #{tenantId}
+          AND process_id = #{processId}
+          AND product_type = 'SUB'
+          AND parent_id_product = #{parentIdProduct}
+        ORDER BY sub_order ASC, id ASC
+    </select>
+
+    <update id="updateSubOrderById">
+        UPDATE data_capture_formula
+        SET sub_order = #{subOrder}
+        WHERE id = #{id}
+          AND tenant_id = #{tenantId}
+    </update>
+
     <!-- Copy From: deep-copy a source process's formulas onto a new process id -->
 
     <!-- Formula sync group: give the source formulas a group tag (self-id) the first time they get

@@ -365,6 +365,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         Integer processId = process.getId();
 
         Set<Integer> deletedIds = new LinkedHashSet<>();
+        Set<String> subGroupsToResequence = new LinkedHashSet<>();
         for (DataCaptureSummaryDTO item : items) {
             if (item == null) {
                 continue;
@@ -376,13 +377,35 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
             int removed = dataCaptureSummaryDao.deleteByIdAndTenantId(existing.getId(), tenantId);
             if (removed > 0) {
                 deletedIds.add(existing.getId());
+                if (existing.getProductType() == DataCaptureFormula.ProductType.SUB
+                        && existing.getParentIdProduct() != null) {
+                    subGroupsToResequence.add(existing.getParentIdProduct());
+                }
             }
+        }
+
+        for (String parentIdProduct : subGroupsToResequence) {
+            resequenceSubOrders(tenantId, processId, parentIdProduct);
         }
 
         DataCaptureSummaryDTO result = new DataCaptureSummaryDTO();
         result.setDeletedIds(new ArrayList<>(deletedIds));
         result.setDeletedCount(deletedIds.size());
         return result;
+    }
+
+    /** Renumber remaining SUB siblings to a gap-free 1..N in their current sub_order order. */
+    private void resequenceSubOrders(Integer tenantId, Integer processId, String parentIdProduct) {
+        List<DataCaptureFormula> remaining =
+                dataCaptureSummaryDao.findSubRowsOrderedBySubOrder(tenantId, processId, parentIdProduct);
+        int expected = 1;
+        for (DataCaptureFormula row : remaining) {
+            BigDecimal next = BigDecimal.valueOf(expected);
+            if (row.getSubOrder() == null || row.getSubOrder().compareTo(next) != 0) {
+                dataCaptureSummaryDao.updateSubOrderById(row.getId(), tenantId, next);
+            }
+            expected++;
+        }
     }
 
     @Override
