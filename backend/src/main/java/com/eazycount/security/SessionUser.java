@@ -91,12 +91,18 @@ public class SessionUser implements Serializable {
         this.menu = buildMenu(this.permissions, tenantHasGame, tenantHasBank, "group".equals(loginScope));
     }
 
+    /**
+     * Empty {@code moduleKeys} means "unrestricted" (same convention as the frontend's
+     * {@code hasFullPermissions} — Owner/IT sessions carry an empty list on purpose), not
+     * "has nothing" — so an empty list must pass the report/dataCapture gates too, not fail them.
+     */
     private static Map<String, Boolean> buildMenu(
             List<String> moduleKeys, boolean hasGame, boolean hasBank, boolean isGroupLogin) {
         Set<String> keys = moduleKeys == null ? Set.of() : Set.copyOf(moduleKeys);
+        boolean unrestricted = keys.isEmpty();
         Map<String, Boolean> menu = new LinkedHashMap<>();
-        menu.put("report", keys.contains("report"));
-        menu.put("dataCapture", keys.contains("datacapture") && (hasGame || hasBank || isGroupLogin));
+        menu.put("report", unrestricted || keys.contains("report"));
+        menu.put("dataCapture", (unrestricted || keys.contains("datacapture")) && (hasGame || hasBank || isGroupLogin));
         return menu;
     }
 
@@ -126,7 +132,7 @@ public class SessionUser implements Serializable {
             return fromOwner(dto.getOwner(), effectiveTenant, modules, permissionService);
         }
         if (dto.getItOperator() != null) {
-            return fromItOperator(dto.getItOperator(), effectiveTenant);
+            return fromItOperator(dto.getItOperator(), effectiveTenant, modules, permissionService);
         }
 
         throw new IllegalArgumentException("UserDTO has no identity");
@@ -254,11 +260,22 @@ public class SessionUser implements Serializable {
     }
 
     /**
-     * IT accounts come from {@link ItOperatorRegistry}, not a DB row — no permission-service
-     * lookup here (deliberately: IT is a separate track from the Admin role/permission system).
+     * IT accounts come from {@link ItOperatorRegistry}, not a DB row — no permission/role lookup
+     * here (deliberately: IT is a separate track from the Admin role/permission system, and
+     * always carries an empty permissions list = unrestricted). {@code featureModules} is still
+     * needed, though: tenant_has_game/tenant_has_bank must reflect the *company IT is currently
+     * in*, same as every other role, otherwise Report/Data Capture/bank-or-game-gated sidebar
+     * entries stay wrong no matter which company an IT operator logs into.
      */
-    private static SessionUser fromItOperator(ItOperatorIdentity operator, Tenant tenant) {
+    private static SessionUser fromItOperator(
+            ItOperatorIdentity operator,
+            Tenant tenant,
+            List<FeatureModule> featureModules,
+            PermissionService permissionService
+    ) {
         final String companyCode = tenantCode(tenant);
+        final boolean hasGame = permissionService.hasGameModule(featureModules);
+        final boolean hasBank = permissionService.hasBankModule(featureModules);
 
         return new SessionUser(
                 "it",
@@ -276,8 +293,8 @@ public class SessionUser implements Serializable {
                 "it",
                 Collections.emptyList(),
                 "C168".equalsIgnoreCase(companyCode),
-                false,
-                false,
+                hasGame,
+                hasBank,
                 0
         );
     }
