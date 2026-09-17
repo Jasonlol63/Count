@@ -33,6 +33,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -269,6 +270,8 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
 
     @Override
     @Transactional
+    @Audited(module = "DATA_CAPTURE", action = AuditLog.Action.UPDATE,
+            entityIdExpr = "#result.id", sourceTable = "data_capture_formula")
     public DataCaptureSummaryDTO updateFormula(DataCaptureSummaryDTO request) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -305,6 +308,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         if (existing == null || existing.getId() == null) {
             throw new BusinessException("Formula not found");
         }
+        AuditContext.captureBefore(existing.getId(), formulaSnapshot(existing));
 
         String formula = NormalizeUtils.trimToNull(request.getFormula());
         if (formula == null) {
@@ -358,6 +362,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         existing.setUpdatedBy(session.login_id != null ? session.login_id : "");
 
         dataCaptureSummaryDao.updateFormulaById(existing);
+        AuditContext.captureAfter(existing.getId(), formulaSnapshot(existing));
 
         // Copy From formula sync: mirror this edit onto every other formula sharing the same group
         // tag (i.e. formulas copied from/to this one across processes). Delete is deliberately NOT
@@ -376,6 +381,8 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
 
     @Override
     @Transactional
+    @Audited(module = "DATA_CAPTURE", action = AuditLog.Action.DELETE,
+            entityIdExpr = "#result.deletedIds", sourceTable = "data_capture_formula")
     public DataCaptureSummaryDTO deleteFormulas(DataCaptureSummaryDTO request) {
         AccessControlUtils.requireWritable(AccessControlUtils.requireLoggedIn());
         if (request == null) {
@@ -395,6 +402,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
 
         Set<Integer> deletedIds = new LinkedHashSet<>();
         Set<String> subGroupsToResequence = new LinkedHashSet<>();
+        Map<Integer, Object> beforeSnapshots = new LinkedHashMap<>();
         for (DataCaptureSummaryDTO item : items) {
             if (item == null) {
                 continue;
@@ -406,12 +414,14 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
             int removed = dataCaptureSummaryDao.deleteByIdAndTenantId(existing.getId(), tenantId);
             if (removed > 0) {
                 deletedIds.add(existing.getId());
+                beforeSnapshots.put(existing.getId(), formulaSnapshot(existing));
                 if (existing.getProductType() == DataCaptureFormula.ProductType.SUB
                         && existing.getParentIdProduct() != null) {
                     subGroupsToResequence.add(existing.getParentIdProduct());
                 }
             }
         }
+        AuditContext.captureBeforeBatch(beforeSnapshots);
 
         for (String parentIdProduct : subGroupsToResequence) {
             resequenceSubOrders(tenantId, processId, parentIdProduct);

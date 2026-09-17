@@ -1,7 +1,10 @@
 package com.eazycount.service.impl;
 
+import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.ProcessDescDao;
+import com.eazycount.entity.AuditLog;
 import com.eazycount.entity.ProcessDescription;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.ProcessDescService;
@@ -12,7 +15,9 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class ProcessDescServiceImpl implements ProcessDescService {
@@ -28,6 +33,7 @@ public class ProcessDescServiceImpl implements ProcessDescService {
     }
 
     @Override
+    @Audited(module = "PROCESS_DESCRIPTION", action = AuditLog.Action.CREATE, entityIdExpr = "#processDescription.id", sourceTable = "process_description")
     @Transactional
     public void insertNewProcessDescription(ProcessDescription processDescription) {
         SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
@@ -52,9 +58,12 @@ public class ProcessDescServiceImpl implements ProcessDescService {
         } catch (Exception e) {
             throw new BusinessException("Insert failed. Please try again!");
         }
+
+        AuditContext.captureAfter(processDescription.getId(), processDescriptionSnapshot(processDescription));
     }
 
     @Override
+    @Audited(module = "PROCESS_DESCRIPTION", action = AuditLog.Action.DELETE, entityIdExpr = "#id", sourceTable = "process_description")
     @Transactional
     public void deleteProcessDescriptionById(Integer id, Integer tenantId) {
         SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
@@ -66,11 +75,25 @@ public class ProcessDescServiceImpl implements ProcessDescService {
 
         ProcessDescription processDescription = AssertUtils.requireFound(
                 processDescDao.findDescriptionByIdAndTenantId(id, tenantId), "Description does not exist!");
+        AuditContext.captureBefore(id, processDescriptionSnapshot(processDescription));
 
         try {
             processDescDao.deleteProcessDescriptionById(id, tenantId);
         } catch (Exception e) {
             throw new BusinessException("Delete failed. Please try again!");
         }
+    }
+
+    /** {@code process_description} column names, not {@link ProcessDescription}'s Java field names — see docs/it-role-audit-log.md. */
+    private static Map<String, Object> processDescriptionSnapshot(ProcessDescription d) {
+        if (d == null) {
+            return null;
+        }
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("id", d.getId());
+        snapshot.put("tenant_id", d.getTenantId());
+        snapshot.put("name", d.getName());
+        snapshot.put("created_at", d.getCreatedAt());
+        return snapshot;
     }
 }

@@ -13,6 +13,7 @@ import com.eazycount.dto.MaintenanceFormulaDTO;
 import com.eazycount.dto.MaintenancePaymentDTO;
 import com.eazycount.dto.MaintenanceTransactionDTO;
 import com.eazycount.entity.AuditLog;
+import com.eazycount.entity.DataCaptureFormula;
 import com.eazycount.entity.Transaction;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
@@ -132,6 +133,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     // Capture Maintenance delete: unit is always the whole capture (data_captures.id) — the list is already
     // one row per capture, so `mc.captureIds` are exactly the ids to act on, no line-id resolution needed.
     @Override
+    @Audited(module = "CAPTURE_MAINTENANCE", action = AuditLog.Action.DELETE, entityIdExpr = "#mc.captureIds", sourceTable = "data_capture_line")
     @Transactional
     public void deleteMaintenanceCaptureRows(MaintenanceCaptureDTO mc) {
         SessionUser session = requireWritableSession();
@@ -180,6 +182,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     // Formula Maintenance Edit: only account_id/source_percent/input_method/formula/description are editable.
     // enable_source_percent/enable_input_method are left untouched; updated_at auto-refreshes (ON UPDATE CURRENT_TIMESTAMP).
     @Override
+    @Audited(module = "FORMULA_MAINTENANCE", action = AuditLog.Action.UPDATE, entityIdExpr = "#ft.id", sourceTable = "data_capture_formula")
     @Transactional
     public void updateFormulaMaintenance(MaintenanceFormulaDTO ft) {
         SessionUser session = requireWritableSession();
@@ -194,11 +197,17 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         String description = normalizeQ(ft.getDescription());
         String updatedBy = session.login_id.trim();
 
+        DataCaptureFormula before = dataCaptureSummaryDao.findByIdAndTenantId(id, tenantId);
+        AuditContext.captureBefore(id, formulaSnapshot(before));
+
         int updated = maintenanceDao.updateFormulaMaintenanceRow(
                 tenantId, id, accountId, sourcePercent, inputMethod, formula, description, updatedBy);
         if (updated <= 0) {
             throw new BusinessException("Formula maintenance record not found");
         }
+
+        DataCaptureFormula after = dataCaptureSummaryDao.findByIdAndTenantId(id, tenantId);
+        AuditContext.captureAfter(id, formulaSnapshot(after));
 
         // Copy From formula sync: mirror this edit onto every other formula sharing the same group
         // tag (i.e. formulas copied from/to this one across processes). Delete is deliberately NOT
@@ -212,6 +221,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     // Formula Maintenance Delete: hard delete, batch by id, tenant-scoped — no archive/soft-delete.
     @Override
+    @Audited(module = "FORMULA_MAINTENANCE", action = AuditLog.Action.DELETE, entityIdExpr = "#ft.formulaIds", sourceTable = "data_capture_formula")
     @Transactional
     public void deleteFormulaMaintenance(MaintenanceFormulaDTO ft) {
         requireWritableSession();
@@ -219,10 +229,44 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         AccessControlUtils.requireValidTenantId(tenantId);
         List<Integer> ids = requireIds(ft != null ? ft.getFormulaIds() : null);
 
+        Map<Integer, Object> beforeSnapshots = new LinkedHashMap<>();
+        for (Integer id : ids) {
+            beforeSnapshots.put(id, formulaSnapshot(dataCaptureSummaryDao.findByIdAndTenantId(id, tenantId)));
+        }
+        AuditContext.captureBeforeBatch(beforeSnapshots);
+
         int removed = maintenanceDao.deleteFormulaMaintenanceRows(tenantId, ids);
         if (removed <= 0) {
             throw new BusinessException("No matching formula maintenance records to delete");
         }
+    }
+
+    /** {@code data_capture_formula} column names, not {@link DataCaptureFormula}'s Java field names — see docs/it-role-audit-log.md. */
+    private static Map<String, Object> formulaSnapshot(DataCaptureFormula f) {
+        if (f == null) {
+            return null;
+        }
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("id", f.getId());
+        snapshot.put("formula_group_id", f.getFormulaGroupId());
+        snapshot.put("tenant_id", f.getTenantId());
+        snapshot.put("process_id", f.getProcessId());
+        snapshot.put("id_product", f.getIdProduct());
+        snapshot.put("product_type", f.getProductType());
+        snapshot.put("parent_id_product", f.getParentIdProduct());
+        snapshot.put("account_id", f.getAccountId());
+        snapshot.put("currency_id", f.getCurrencyId());
+        snapshot.put("description", f.getDescription());
+        snapshot.put("formula", f.getFormula());
+        snapshot.put("input_method", f.getInputMethod());
+        snapshot.put("source_percent", f.getSourcePercent());
+        snapshot.put("enable_source_percent", f.getEnableSourcePercent());
+        snapshot.put("enable_input_method", f.getEnableInputMethod());
+        snapshot.put("created_by", f.getCreatedBy());
+        snapshot.put("updated_by", f.getUpdatedBy());
+        snapshot.put("created_at", f.getCreatedAt());
+        snapshot.put("updated_at", f.getUpdatedAt());
+        return snapshot;
     }
 
     @Override

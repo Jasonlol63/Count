@@ -1,5 +1,7 @@
 package com.eazycount.service.impl;
 
+import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.AdminDao;
 import com.eazycount.dao.CurrencyDao;
@@ -22,8 +24,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -86,6 +90,7 @@ public class ProcessServiceImpl implements ProcessService {
     }
 
     @Override
+    @Audited(module = "PROCESS", action = AuditLog.Action.CREATE, entityIdExpr = "#result.id", sourceTable = "process")
     @Transactional
     public ProcessDTO addNewProcess(ProcessDTO processDTO) {
         SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
@@ -188,6 +193,7 @@ public class ProcessServiceImpl implements ProcessService {
     }
 
     @Override
+    @Audited(module = "PROCESS", action = AuditLog.Action.UPDATE, entityIdExpr = "#processDTO.id", sourceTable = "process")
     @Transactional
     public ProcessDTO updateProcess(ProcessDTO processDTO) {
         SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
@@ -201,6 +207,7 @@ public class ProcessServiceImpl implements ProcessService {
         if (existed == null || !processDTO.getTenantId().equals(existed.getTenantId())) {
             throw new BusinessException("Process not found!");
         }
+        AuditContext.captureBefore(existed.getId(), processSnapshot(existed));
 
         if (currencyDao.findByIdAndTenantId(processDTO.getCurrencyId(), processDTO.getTenantId()) == null) {
             throw new BusinessException("Currency not found!");
@@ -223,6 +230,7 @@ public class ProcessServiceImpl implements ProcessService {
         processDao.updateProcessDetails(process);
 
         Integer processId = processDTO.getId();
+        AuditContext.captureAfter(processId, processSnapshot(processDao.findProcessById(processId)));
         processDao.deleteProcessDescriptionLinkByProcessId(processId);
         processDao.deleteProcessDayByProcessId(processId);
 
@@ -271,6 +279,7 @@ public class ProcessServiceImpl implements ProcessService {
     }
 
     @Override
+    @Audited(module = "PROCESS", action = AuditLog.Action.DELETE, entityIdExpr = "#id", sourceTable = "process")
     @Transactional
     public void deleteProcessById(Integer id, Integer tenantId) {
         SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
@@ -290,6 +299,8 @@ public class ProcessServiceImpl implements ProcessService {
             throw new BusinessException("Process has existing transaction cannot be deleted!");
         }
 
+        AuditContext.captureBefore(id, processSnapshot(process));
+
         // Child rows (description_link / day / process_submitted) cascade from process FK.
         try {
             processDao.deleteProcessById(id, tenantId);
@@ -299,6 +310,7 @@ public class ProcessServiceImpl implements ProcessService {
     }
 
     @Override
+    @Audited(module = "PROCESS", action = AuditLog.Action.UPDATE, entityIdExpr = "#id", sourceTable = "process")
     public Process updateProcessStatus(Integer id, Integer tenantId) {
         SessionUser sessionUser = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(sessionUser);
@@ -311,6 +323,7 @@ public class ProcessServiceImpl implements ProcessService {
         if (process == null || !tenantId.equals(process.getTenantId())) {
             throw new BusinessException("Process not found!");
         }
+        AuditContext.captureBefore(id, processSnapshot(process));
 
         Process.Status current = process.getStatus() != null
                 ? process.getStatus()
@@ -321,7 +334,9 @@ public class ProcessServiceImpl implements ProcessService {
 
         processDao.updateProcessStatus(id, tenantId, newStatus);
 
-        return AssertUtils.requireFound(processDao.findProcessById(id), "Process not found!");
+        Process updated = AssertUtils.requireFound(processDao.findProcessById(id), "Process not found!");
+        AuditContext.captureAfter(id, processSnapshot(updated));
+        return updated;
     }
 
     // Save Draft is GAME-only (opt-in switch); BANK draft eligibility is decided by a fixed process-code
@@ -355,6 +370,31 @@ public class ProcessServiceImpl implements ProcessService {
         } catch (Exception e) {
             throw new BusinessException("Failed to copy data from source process!");
         }
+    }
+
+    /** {@code process} column names, not {@link Process}'s Java field names — see docs/it-role-audit-log.md. */
+    private static Map<String, Object> processSnapshot(Process p) {
+        if (p == null) {
+            return null;
+        }
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("id", p.getId());
+        snapshot.put("tenant_id", p.getTenantId());
+        snapshot.put("category", p.getCategory());
+        snapshot.put("code", p.getCode());
+        snapshot.put("copied_from_process_id", p.getCopiedFromProcessId());
+        snapshot.put("enable_save_draft", p.getEnableSaveDraft());
+        snapshot.put("currency_id", p.getCurrencyId());
+        snapshot.put("remove_word", p.getRemoveWord());
+        snapshot.put("replace_word_from", p.getReplaceWordFrom());
+        snapshot.put("replace_word_to", p.getReplaceWordTo());
+        snapshot.put("remark", p.getRemark());
+        snapshot.put("status", p.getStatus());
+        snapshot.put("created_by", p.getCreatedBy());
+        snapshot.put("updated_by", p.getUpdatedBy());
+        snapshot.put("created_at", p.getCreatedAt());
+        snapshot.put("updated_at", p.getUpdatedAt());
+        return snapshot;
     }
 
     private void assertNoCodeDescriptionConflict(
