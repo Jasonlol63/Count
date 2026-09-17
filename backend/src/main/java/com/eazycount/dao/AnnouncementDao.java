@@ -15,6 +15,10 @@ public interface AnnouncementDao {
 
     List<Maintenance> findMaintenanceInLogin();
 
+    Announcements findAnnouncementById(Integer id);
+
+    Maintenance findMaintenanceById(Integer id);
+
     void addAnnouncement(Announcements announcements);
 
     void updateAnnouncement(Announcements announcements);

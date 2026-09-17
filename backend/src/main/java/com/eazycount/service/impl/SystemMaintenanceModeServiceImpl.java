@@ -43,5 +43,6 @@ public class SystemMaintenanceModeServiceImpl implements SystemMaintenanceModeSe
         AuditContext.captureBefore(ENTITY_ID, Map.of("enabled", isEnabled()));
         systemMaintenanceModeDao.updateEnabled(enabled);
         redisTemplate.opsForValue().set(REDIS_KEY, enabled ? "1" : "0");
+        AuditContext.captureAfter(ENTITY_ID, Map.of("enabled", enabled));
     }
 }

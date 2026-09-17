@@ -1,5 +1,8 @@
 package com.eazycount.service.impl;
 
+import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.Audited;
+import com.eazycount.entity.AuditLog;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.TransactionDao;
@@ -71,8 +74,21 @@ public class CurrencyServiceImpl implements CurrencyService {
         return new HashSet<>(linked);
     }
 
+    private Map<String, Object> currencySnapshot(Currency c) {
+        if (c == null) {
+            return null;
+        }
+        Map<String, Object> s = new HashMap<>();
+        s.put("code", c.getCode());
+        s.put("sync_source", c.getSyncSource());
+        s.put("status", c.getStatus());
+        return s;
+    }
+
     @Transactional
     @Override
+    @Audited(module = "ACCOUNT", action = AuditLog.Action.CREATE,
+            entityIdExpr = "#currency.id", sourceTable = "currency")
     public Currency addNewCurrency(Currency currency) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -102,12 +118,15 @@ public class CurrencyServiceImpl implements CurrencyService {
         } catch (Exception e) {
             throw new BusinessException("Insert Currency Failed!");
         }
+        AuditContext.captureAfter(currency.getId(), currencySnapshot(currency));
 
         return currency;
     }
 
     @Transactional
     @Override
+    @Audited(module = "ACCOUNT", action = AuditLog.Action.DELETE,
+            entityIdExpr = "#id", sourceTable = "currency")
     public void deleteCurrencyByIdAndTenantId (Integer id, Integer tenantId) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -117,6 +136,7 @@ public class CurrencyServiceImpl implements CurrencyService {
 
         Currency currency = AssertUtils.requireFound(
                 currencyDao.findByIdAndTenantId(id, tenantId), "Currency not found or access denied");
+        AuditContext.captureBefore(id, currencySnapshot(currency));
         List<UserLinkedDTO> accountsInUse = currencyDao.findLinkedAccountsByCurrencyIdAndTenantId(id, tenantId);
         if (accountsInUse != null && !accountsInUse.isEmpty()) {
             String labels = accountsInUse.stream()
@@ -153,6 +173,8 @@ public class CurrencyServiceImpl implements CurrencyService {
     }
 
     @Override
+    @Audited(module = "ACCOUNT", action = AuditLog.Action.CREATE,
+            entityIdExpr = "#accountId", sourceTable = "account_currency")
     public void insertAccountCurrency(int accountId, int tenantId, List<Integer> currencyIds) {
         AccessControlUtils.requireLoggedIn();
 
@@ -178,13 +200,18 @@ public class CurrencyServiceImpl implements CurrencyService {
             row.setSortOrder(i);
             currencyDao.insertAccountCurrency(row);
         }
+        AuditContext.captureAfter(accountId, Map.of("currency_ids", ids));
     }
 
     @Override
+    @Audited(module = "ACCOUNT", action = AuditLog.Action.DELETE,
+            entityIdExpr = "#accountId", sourceTable = "account_currency")
     public void deleteByAccountIdAndTenantId(Integer accountId, Integer tenantId) {
         AssertUtils.requirePositive(accountId, "accountId");
         AccessControlUtils.requireValidTenantId(tenantId);
 
+        AuditContext.captureBefore(accountId,
+                Map.of("currency_ids", currencyDao.findCurrencyIdsByAccountIdAndTenantId(accountId, tenantId)));
         try{
             currencyDao.deleteByAccountIdAndTenantId(accountId, tenantId);
         }catch (Exception e){
@@ -215,6 +242,8 @@ public class CurrencyServiceImpl implements CurrencyService {
 
     @Override
     @Transactional
+    @Audited(module = "ACCOUNT", action = AuditLog.Action.UPDATE,
+            entityIdExpr = "#request.currencyId", sourceTable = "account_currency")
     public void bulkUpdateAccountCurrency(UserLinkedDTO request) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -229,6 +258,10 @@ public class CurrencyServiceImpl implements CurrencyService {
 
         List<Integer> toLink = NormalizeUtils.normalizeIds(request.getLinkedAccountIds());
         List<Integer> toUnlink = NormalizeUtils.normalizeIds(request.getUnlinkedAccountIds());
+        // The method's own computed diff *is* the before/after here — no need to re-derive it
+        // from a fresh DB read, since these two lists are exactly what's about to change.
+        AuditContext.captureBefore(currencyId, Map.of("about_to_unlink_accounts", toUnlink));
+        AuditContext.captureAfter(currencyId, Map.of("linked_accounts", toLink));
 
         List<Integer> allAccountIds = new ArrayList<>();
         allAccountIds.addAll(toLink);

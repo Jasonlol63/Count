@@ -78,9 +78,23 @@ public class AuditLogAspect {
             request.setSourceTable(audited.sourceTable());
             request.setRestorable(audited.restorable());
             request.setBeforeData(AuditContext.consumeBefore(id));
-            request.setAfterData(audited.action() == AuditLog.Action.CREATE ? result : null);
+            request.setAfterData(resolveAfterData(id, audited.action(), result));
             auditLogService.record(request);
         }
+    }
+
+    /**
+     * CREATE keeps its long-standing behavior of using the method's return value as "after"
+     * (no method needs to opt in). For every other action, "after" only exists if the method
+     * body explicitly staged one via {@link AuditContext#captureAfter}/{@code captureAfterBatch}
+     * — most don't yet, and their audit rows correctly keep {@code afterData == null} until they do.
+     */
+    private Object resolveAfterData(Object id, AuditLog.Action action, Object result) {
+        Object captured = AuditContext.consumeAfter(id);
+        if (captured != null) {
+            return captured;
+        }
+        return action == AuditLog.Action.CREATE ? result : null;
     }
 
     /**

@@ -1,7 +1,10 @@
 package com.eazycount.service.impl;
 
+import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.AnnouncementDao;
+import com.eazycount.entity.AuditLog;
 import com.eazycount.entity.Announcements;
 import com.eazycount.entity.Maintenance;
 import com.eazycount.security.SessionUser;
@@ -11,13 +14,41 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class AnnouncementServiceImpl implements AnnouncementService {
 
     @Autowired
     private AnnouncementDao announcementDao;
+
+    private Map<String, Object> snapshot(Announcements a) {
+        if (a == null) {
+            return null;
+        }
+        Map<String, Object> s = new HashMap<>();
+        s.put("title", a.getTitle());
+        s.put("content", a.getContent());
+        s.put("company_code", a.getCompanyCode());
+        s.put("status", a.getStatus());
+        s.put("user_type", a.getUserType());
+        return s;
+    }
+
+    private Map<String, Object> snapshot(Maintenance m) {
+        if (m == null) {
+            return null;
+        }
+        Map<String, Object> s = new HashMap<>();
+        s.put("prefix", m.getPrefix());
+        s.put("content", m.getContent());
+        s.put("company_code", m.getCompanyCode());
+        s.put("status", m.getStatus());
+        s.put("user_type", m.getUserType());
+        return s;
+    }
 
     @Override
     public List<Announcements> findAllAnnouncement() {return announcementDao.findAllAnnouncement();}
@@ -37,6 +68,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
     @Override
     @Transactional
+    @Audited(module = "ANNOUNCEMENT", action = AuditLog.Action.CREATE, entityIdExpr = "#maintenance.id", sourceTable = "maintenance_marquee")
     public void addMaintenance(Maintenance maintenance) {
         final SessionUser current = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(current);
@@ -67,6 +99,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             maintenance.setContent(maintenance.getContent());
             maintenance.setCreatedAt(maintenance.getCreatedAt());
             announcementDao.addMaintenance(maintenance);
+            AuditContext.captureAfter(maintenance.getId(), snapshot(maintenance));
         } catch (Exception e) {
             throw new BusinessException("Insert failed. Please try again!");
         }
@@ -75,6 +108,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
     @Override
     @Transactional
+    @Audited(module = "ANNOUNCEMENT", action = AuditLog.Action.CREATE, entityIdExpr = "#announcements.id", sourceTable = "announcements")
     public void addAnnouncement(Announcements announcements) {
         final SessionUser current = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(current);
@@ -105,6 +139,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             announcements.setContent(announcements.getContent());
             announcements.setCreatedAt(announcements.getCreatedAt());
             announcementDao.addAnnouncement(announcements);
+            AuditContext.captureAfter(announcements.getId(), snapshot(announcements));
 
         }catch (Exception e){
             throw new BusinessException("Insert failed. Please try again!");
@@ -114,6 +149,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
     @Override
     @Transactional
+    @Audited(module = "ANNOUNCEMENT", action = AuditLog.Action.UPDATE, entityIdExpr = "#announcements.id", sourceTable = "announcements")
     public void updateAnnouncement(Announcements announcements) {
         final SessionUser current = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(current);
@@ -123,9 +159,11 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             throw new BusinessException("Id not found. Please try again!");
         }
         try{
+            AuditContext.captureBefore(announcements.getId(), snapshot(announcementDao.findAnnouncementById(announcements.getId())));
             announcements.setTitle(announcements.getTitle());
             announcements.setContent(announcements.getContent());
             announcementDao.updateAnnouncement(announcements);
+            AuditContext.captureAfter(announcements.getId(), snapshot(announcementDao.findAnnouncementById(announcements.getId())));
         }catch (Exception e){
             throw new BusinessException("Update failed. Please try again!");
         }
@@ -133,6 +171,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
     @Override
     @Transactional
+    @Audited(module = "ANNOUNCEMENT", action = AuditLog.Action.UPDATE, entityIdExpr = "#maintenance.id", sourceTable = "maintenance_marquee")
     public void updateMaintenance(Maintenance maintenance) {
         final SessionUser current = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(current);
@@ -142,9 +181,11 @@ public class AnnouncementServiceImpl implements AnnouncementService {
         }
 
         try{
+            AuditContext.captureBefore(maintenance.getId(), snapshot(announcementDao.findMaintenanceById(maintenance.getId())));
             maintenance.setPrefix(maintenance.getPrefix());
             maintenance.setContent(maintenance.getContent());
             announcementDao.updateMaintenance(maintenance);
+            AuditContext.captureAfter(maintenance.getId(), snapshot(announcementDao.findMaintenanceById(maintenance.getId())));
         }catch (Exception e){
             throw new BusinessException("Update failed. Please try again!");
         }
@@ -152,6 +193,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
     @Override
     @Transactional
+    @Audited(module = "ANNOUNCEMENT", action = AuditLog.Action.DELETE, entityIdExpr = "#announcements.id", sourceTable = "announcements")
     public void deleteAnnouncement(Announcements announcements) {
         final SessionUser current = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(current);
@@ -160,6 +202,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             throw new BusinessException("Id not found. Please try again!");
         }
         try{
+            AuditContext.captureBefore(announcements.getId(), snapshot(announcementDao.findAnnouncementById(announcements.getId())));
             announcementDao.deleteAnnouncement(announcements);
         }catch (Exception e){
             throw new BusinessException("Delete failed. Please try again!");
@@ -168,6 +211,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
     @Override
     @Transactional
+    @Audited(module = "ANNOUNCEMENT", action = AuditLog.Action.DELETE, entityIdExpr = "#maintenance.id", sourceTable = "maintenance_marquee")
     public void deleteMaintenance(Maintenance maintenance) {
         final SessionUser current = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(current);
@@ -176,6 +220,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             throw new BusinessException("Id not found. Please try again!");
         }
         try{
+            AuditContext.captureBefore(maintenance.getId(), snapshot(announcementDao.findMaintenanceById(maintenance.getId())));
             announcementDao.deleteMaintenance(maintenance);
         }catch (Exception e){
             throw new BusinessException("Delete failed. Please try again!");

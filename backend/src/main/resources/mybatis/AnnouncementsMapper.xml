@@ -51,7 +51,15 @@
         order by created_at desc
         limit 10
     </select>
-    
+
+    <select id="findAnnouncementById" resultMap="AnnouncementMap">
+        select * from announcements where id = #{id}
+    </select>
+
+    <select id="findMaintenanceById" resultMap="MaintenanceMap">
+        select * from maintenance_marquee where id = #{id}
+    </select>
+
     <insert id="addAnnouncement" useGeneratedKeys="true" keyProperty="id">
         insert into announcements(title, content, company_code, status, created_by, user_type, created_at)
         values(#{title}, #{content}, #{companyCode}, #{status}, #{createdBy}, #{userType}, NOW())

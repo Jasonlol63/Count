@@ -1,5 +1,7 @@
 package com.eazycount.service.impl;
 
+import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.DomainDao;
@@ -376,6 +378,7 @@ public class DomainServiceImpl implements DomainService {
 
     @Override
     @Transactional
+    @Audited(module = "DOMAIN_TENANT_SETTING", action = AuditLog.Action.UPDATE, entityIdExpr = "#tenant.id", sourceTable = "tenant")
     public void updateTenantDetailsSetting(Tenant tenant) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -400,10 +403,15 @@ public class DomainServiceImpl implements DomainService {
                 AccessControlUtils.assertCanSetPermanentExpiration(session);
             }
 
+            // Only the tenant-row fields this method actually writes — not the cascading feature
+            // module / fee share side effects below, which live in other tables.
+            AuditContext.captureBefore(findTenantOwner.getId(), tenantSettingSnapshot(findTenantOwner));
+
             findTenantOwner.setCode(tenant.getCode());
             findTenantOwner.setName(tenant.getCode());
             findTenantOwner.setExpirationDate(tenant.getExpirationDate());
             domainDao.updateTenantDetails(findTenantOwner);
+            AuditContext.captureAfter(findTenantOwner.getId(), tenantSettingSnapshot(findTenantOwner));
 
             Integer tenantId = findTenantOwner.getId();
 
@@ -432,8 +440,31 @@ public class DomainServiceImpl implements DomainService {
         }
     }
 
+    /** Column-named owner snapshot for audit capture — deliberately excludes password/secondaryPassword, never belongs in an audit trail. */
+    private Map<String, Object> ownerSnapshot(Owner o) {
+        if (o == null) {
+            return null;
+        }
+        Map<String, Object> snapshot = new HashMap<>();
+        snapshot.put("owner_code", o.getOwnerCode());
+        snapshot.put("name", o.getName());
+        snapshot.put("email", o.getEmail());
+        snapshot.put("status", o.getStatus());
+        return snapshot;
+    }
+
+    /** Column-named snapshot of the tenant fields {@link #updateTenantDetailsSetting} writes — for audit before/after capture. */
+    private Map<String, Object> tenantSettingSnapshot(Tenant t) {
+        Map<String, Object> snapshot = new HashMap<>();
+        snapshot.put("code", t.getCode());
+        snapshot.put("name", t.getName());
+        snapshot.put("expiration_date", t.getExpirationDate());
+        return snapshot;
+    }
+
     @Override
     @Transactional
+    @Audited(module = "DOMAIN", action = AuditLog.Action.DELETE, entityIdExpr = "#owner.id", sourceTable = "owner")
     public void deleteOwnerDetails(Owner owner) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -508,6 +539,7 @@ public class DomainServiceImpl implements DomainService {
 
     @Transactional
     @Override
+    @Audited(module = "DOMAIN", action = AuditLog.Action.CREATE, entityIdExpr = "#result.id", sourceTable = "owner")
     public DomainDTO createDomain(DomainDTO domainDTO) {
         AccessControlUtils.requireWritable(SecurityUtils.currentUser());
 
@@ -560,6 +592,7 @@ public class DomainServiceImpl implements DomainService {
 
     @Override
     @Transactional
+    @Audited(module = "DOMAIN", action = AuditLog.Action.UPDATE, entityIdExpr = "#domainDTO.id", sourceTable = "owner")
     public DomainDTO updateDomain(DomainDTO domainDTO) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -569,7 +602,11 @@ public class DomainServiceImpl implements DomainService {
 
         Owner owner = new Owner();
         BeanUtils.copyProperties(domainDTO, owner);
+        // Only the owner row itself — this method also cascades into tenant/account creation
+        // below, which are separate tables outside this annotation's declared "owner" sourceTable.
+        AuditContext.captureBefore(owner.getId(), ownerSnapshot(domainDao.findOwnerById(owner.getId())));
         this.updateOwnerDetails(owner);
+        AuditContext.captureAfter(owner.getId(), ownerSnapshot(domainDao.findOwnerById(owner.getId())));
 
         Integer ownerId = owner.getId();
 
@@ -714,6 +751,7 @@ public class DomainServiceImpl implements DomainService {
 
     @Override
     @Transactional
+    @Audited(module = "DOMAIN_FEE_SETTINGS", action = AuditLog.Action.UPDATE, entityIdExpr = "'DOMAIN_FEE_SETTINGS'", sourceTable = "domain_list_fee_price")
     public DomainFeeSettingsDTO updateDomainFeeSettings(DomainFeeSettingsDTO settings) {
         AccessControlUtils.requireWritable(SecurityUtils.currentUser());
         if (settings == null) {

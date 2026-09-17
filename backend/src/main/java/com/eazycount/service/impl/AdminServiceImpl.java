@@ -1,5 +1,8 @@
 package com.eazycount.service.impl;
 
+import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.Audited;
+import com.eazycount.entity.AuditLog;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.AdminDao;
 import com.eazycount.dao.DomainDao;
@@ -27,9 +30,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -55,6 +60,36 @@ public class AdminServiceImpl implements AdminService {
 
     public AdminServiceImpl(AdminDao adminDao) {
         this.adminDao = adminDao;
+    }
+
+    /** Deliberately excludes password/secondaryPassword — never belongs in an audit trail. */
+    private Map<String, Object> adminSnapshot(Admin a) {
+        if (a == null) {
+            return null;
+        }
+        Map<String, Object> s = new HashMap<>();
+        s.put("login_id", a.getLoginId());
+        s.put("name", a.getName());
+        s.put("email", a.getEmail());
+        s.put("role_id", a.getRoleId());
+        s.put("role_code", a.getRoleCode());
+        s.put("status", a.getStatus());
+        s.put("read_only", a.getReadOnly());
+        s.put("permission_mode", a.getPermissionMode());
+        return s;
+    }
+
+    /** Deliberately excludes password/secondaryPassword — never belongs in an audit trail. */
+    private Map<String, Object> ownerSnapshot(Owner o) {
+        if (o == null) {
+            return null;
+        }
+        Map<String, Object> s = new HashMap<>();
+        s.put("owner_code", o.getOwnerCode());
+        s.put("name", o.getName());
+        s.put("email", o.getEmail());
+        s.put("status", o.getStatus());
+        return s;
     }
 
     @Override
@@ -230,6 +265,7 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     @Transactional
+    @Audited(module = "ADMIN", action = AuditLog.Action.UPDATE, entityIdExpr = "#dto.id", sourceTable = "owner")
     public AdminDTO updateOwnerProfile(AdminDTO dto) {
         AccessControlUtils.requireLoggedIn();
         if (dto == null || dto.getId() == null || dto.getId() <= 0) {
@@ -239,6 +275,7 @@ public class AdminServiceImpl implements AdminService {
         requireOwnerSessionForProfile(dto.getId());
 
         Owner existing = AssertUtils.requireFound(domainDao.findOwnerById(dto.getId()), "Owner not found!");
+        AuditContext.captureBefore(dto.getId(), ownerSnapshot(existing));
 
         Owner patch = new Owner();
         patch.setId(existing.getId());
@@ -255,6 +292,7 @@ public class AdminServiceImpl implements AdminService {
         domainService.updateOwnerDetails(patch);
 
         Owner updated = AssertUtils.requireFound(domainDao.findOwnerById(dto.getId()), "Owner not found!");
+        AuditContext.captureAfter(dto.getId(), ownerSnapshot(updated));
         return buildOwnerShadowListRow(updated);
     }
 
@@ -345,6 +383,7 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     @Transactional
+    @Audited(module = "ADMIN", action = AuditLog.Action.CREATE, entityIdExpr = "#result.admin.id", sourceTable = "user")
     public AdminDTO createAdmin(AdminDTO dto) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         if (dto == null) {
@@ -358,11 +397,17 @@ public class AdminServiceImpl implements AdminService {
 
         Admin admin = persistUserForCreate(dto);
         AdminTenantAccess primaryAccess = syncTenantGrants(admin, dto, true);
+        // Only the primary `user` row — the fanned-out tenant/account/process access grants and
+        // permission overrides this also writes are separate tables outside this sourceTable.
+        AuditContext.captureAfter(admin.getId(), adminSnapshot(admin));
         return buildResult(admin, primaryAccess);
     }
 
     @Override
     @Transactional
+    // Must resolve to the exact same id used for AuditContext.captureBefore/After below
+    // (mirrors resolveUserId(dto): dto.id first, dto.admin.id as fallback).
+    @Audited(module = "ADMIN", action = AuditLog.Action.UPDATE, entityIdExpr = "(#dto.id != null && #dto.id > 0) ? #dto.id : #dto.admin?.id", sourceTable = "user")
     public AdminDTO updateAdmin(AdminDTO dto) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         if (dto == null) {
@@ -384,8 +429,12 @@ public class AdminServiceImpl implements AdminService {
         AccessControlUtils.assertCanManageAdminTarget(
                 session, actorRole.getHierarchyLevel(), isSelf, targetRole.getHierarchyLevel(), roleChanging);
 
+        // Only the primary `user` row — the re-synced tenant/account/process access grants and
+        // permission overrides this also writes are separate tables outside this sourceTable.
+        AuditContext.captureBefore(userId, adminSnapshot(existing));
         Admin admin = persistUserForUpdate(dto, existing);
         AdminTenantAccess primaryAccess = syncTenantGrants(admin, dto, false);
+        AuditContext.captureAfter(userId, adminSnapshot(admin));
         return buildResult(admin, primaryAccess);
     }
 
@@ -795,6 +844,7 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
+    @Audited(module = "ADMIN", action = AuditLog.Action.UPDATE, entityIdExpr = "#userId", sourceTable = "user")
     public AdminDTO updateStatusById(Integer userId, Integer scopeTenantId) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
 
@@ -820,18 +870,21 @@ public class AdminServiceImpl implements AdminService {
         Admin.UserStatus newStatus = current == Admin.UserStatus.ACTIVE
                 ? Admin.UserStatus.INACTIVE
                 : Admin.UserStatus.ACTIVE;
+        AuditContext.captureBefore(userId, java.util.Map.of("status", current));
 
         try {
             adminDao.updateStatusById(userId, newStatus);
         } catch (Exception e) {
             throw new BusinessException("Update Admin Status Failed!");
         }
+        AuditContext.captureAfter(userId, java.util.Map.of("status", newStatus));
 
         return AssertUtils.requireFound(adminDao.findAdminByUserIdAndTenantId(userId, scopeTenantId), "User not found!");
     }
 
     @Override
     @Transactional
+    @Audited(module = "ADMIN", action = AuditLog.Action.DELETE, entityIdExpr = "#userId", sourceTable = "user")
     public void deleteAdminByIdAndStatus(Integer userId, Integer scopeTenantId) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
 
@@ -854,6 +907,7 @@ public class AdminServiceImpl implements AdminService {
         AdminRole targetRole = resolveRole(scoped.getAdmin().getRoleCode());
         AccessControlUtils.assertCanManageAdminTarget(
                 session, actorRole.getHierarchyLevel(), false, targetRole.getHierarchyLevel(), false);
+        AuditContext.captureBefore(userId, adminSnapshot(scoped.getAdmin()));
 
         try {
             adminDao.deleteTenantAccessByUserIdAndTenantId(userId, scopeTenantId);

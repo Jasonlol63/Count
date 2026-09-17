@@ -1,5 +1,8 @@
 package com.eazycount.service.impl;
 
+import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.Audited;
+import com.eazycount.entity.AuditLog;
 import com.eazycount.dao.AutoRenewDao;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.DomainDao;
@@ -31,9 +34,11 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -206,7 +211,21 @@ public class AutoRenewServiceImpl implements AutoRenewService {
         return responseData;
     }
 
+    private Map<String, Object> statusSnapshot(AutoRenewDTO r) {
+        if (r == null) {
+            return null;
+        }
+        Map<String, Object> s = new HashMap<>();
+        s.put("status", r.getStatus());
+        s.put("period", r.getPeriod());
+        s.put("price", r.getPrice());
+        s.put("new_expiration_date", r.getNewExpirationDate());
+        s.put("processed_by", r.getProcessedBy());
+        return s;
+    }
+
     @Override
+    @Audited(module = "AUTO_RENEW", action = AuditLog.Action.UPDATE, entityIdExpr = "#requestId", sourceTable = "tenant_auto_renew")
     public void rejectRequest(Integer requestId) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -218,13 +237,16 @@ public class AutoRenewServiceImpl implements AutoRenewService {
         if (!"pending".equalsIgnoreCase(request.getStatus())) {
             throw new BusinessException("Auto renew request is not pending");
         }
+        AuditContext.captureBefore(requestId, statusSnapshot(request));
 
         String processedBy = session.login_id != null ? session.login_id : "system";
         autoRenewDao.rejectRequest(requestId, processedBy);
+        AuditContext.captureAfter(requestId, statusSnapshot(autoRenewDao.selectRequestById(requestId)));
     }
 
     @Override
     @Transactional
+    @Audited(module = "AUTO_RENEW", action = AuditLog.Action.UPDATE, entityIdExpr = "#requestId", sourceTable = "tenant_auto_renew")
     public AutoRenewDTO approveRequest(Integer requestId, String periodRaw, boolean chargeOnApprove) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -240,6 +262,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
         if (!"pending".equalsIgnoreCase(request.getStatus())) {
             throw new BusinessException("Auto renew request is not pending");
         }
+        AuditContext.captureBefore(requestId, statusSnapshot(request));
 
         Tenant tenant = domainDao.findTenantById(request.getTenantId());
         if (tenant == null || tenant.getId() == null) {
@@ -275,6 +298,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
 
         String processedBy = session.login_id != null ? session.login_id : "system";
         autoRenewDao.approveRequest(requestId, period, price, newExpiration, processedBy);
+        AuditContext.captureAfter(requestId, statusSnapshot(autoRenewDao.selectRequestById(requestId)));
 
         AutoRenewDTO data = new AutoRenewDTO();
         data.setRequestId(requestId);
@@ -288,12 +312,16 @@ public class AutoRenewServiceImpl implements AutoRenewService {
 
     @Override
     @Transactional
+    // Despite the method name, this reverts an approved/rejected request back to pending — it
+    // never deletes the tenant_auto_renew row itself, so it's audited as UPDATE, not DELETE.
+    @Audited(module = "AUTO_RENEW", action = AuditLog.Action.UPDATE, entityIdExpr = "#requestId", sourceTable = "tenant_auto_renew")
     public void deleteRequest(Integer requestId) {
         AccessControlUtils.requireWritable(AccessControlUtils.requireLoggedIn());
         AssertUtils.requirePositive(requestId, "request id");
 
         AutoRenewDTO request = AssertUtils.requireFound(
                 autoRenewDao.selectRequestById(requestId), "Auto renew request not found");
+        AuditContext.captureBefore(requestId, statusSnapshot(request));
 
         String status = request.getStatus();
         if ("approved".equalsIgnoreCase(status)) {
@@ -320,6 +348,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
         } else {
             throw new BusinessException("Only approved or rejected requests can be deleted");
         }
+        AuditContext.captureAfter(requestId, statusSnapshot(autoRenewDao.selectRequestById(requestId)));
     }
 
     /* 到期状态 Badge 阈值：≤7 天 danger，≤30 天 warning，已过期 expired，其余 normal */

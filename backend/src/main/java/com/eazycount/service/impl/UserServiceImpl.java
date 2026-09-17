@@ -1,5 +1,8 @@
 package com.eazycount.service.impl;
 
+import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.Audited;
+import com.eazycount.entity.AuditLog;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.AdminDao;
 import com.eazycount.dao.TenantDao;
@@ -49,6 +52,50 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    /** Deliberately excludes password — never belongs in an audit trail. */
+    private Map<String, Object> userSnapshot(User u) {
+        if (u == null) {
+            return null;
+        }
+        Map<String, Object> s = new HashMap<>();
+        s.put("account_id", u.getAccountId());
+        s.put("name", u.getName());
+        s.put("role", u.getRole());
+        s.put("status", u.getStatus());
+        s.put("payment_alert", u.getPaymentAlert());
+        s.put("alert_day", u.getAlertDay());
+        s.put("alert_amount", u.getAlertAmount());
+        s.put("alert_specific_date", u.getAlertSpecificDate());
+        s.put("remark", u.getRemark());
+        return s;
+    }
+
+    private Map<String, Object> userSnapshot(UserListDTO u) {
+        if (u == null) {
+            return null;
+        }
+        Map<String, Object> s = new HashMap<>();
+        s.put("account_id", u.getAccountId());
+        s.put("name", u.getName());
+        s.put("role", u.getRole());
+        s.put("status", u.getStatus());
+        s.put("remark", u.getRemark());
+        return s;
+    }
+
+    private Map<String, Object> linkSnapshot(UserLink l) {
+        if (l == null) {
+            return null;
+        }
+        Map<String, Object> s = new HashMap<>();
+        s.put("account_id_1", l.getAccountId1());
+        s.put("account_id_2", l.getAccountId2());
+        s.put("tenant_id", l.getTenantId());
+        s.put("link_type", l.getLinkType());
+        s.put("source_account_id", l.getSourceAccountId());
+        return s;
+    }
 
     private List<Integer> normalizeTenantIds(List<Integer> raw) {
         LinkedHashSet<Integer> out = new LinkedHashSet<>();
@@ -138,6 +185,8 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
+    @Audited(module = "ACCOUNT", action = AuditLog.Action.CREATE,
+            entityIdExpr = "#userListDTO.id", sourceTable = "account")
     public UserListDTO createUser(UserListDTO userListDTO) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -217,12 +266,17 @@ public class UserServiceImpl implements UserService {
         userListDTO.setTenantAccessId(primaryTenantAccessId);
         userListDTO.setScopeTenantId(userListDTO.getScopeTenantId());
         userListDTO.setTenantIds(targetTenantIds);
+        // Only the primary `account` row — the tenant access grants and currency grants this
+        // also writes are separate tables outside this sourceTable.
+        AuditContext.captureAfter(user.getId(), userSnapshot(user));
         return userListDTO;
 
     }
 
     @Override
     @Transactional
+    @Audited(module = "ACCOUNT", action = AuditLog.Action.UPDATE,
+            entityIdExpr = "#userListDTO.id", sourceTable = "account")
     public UserListDTO updateUser(UserListDTO userListDTO) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -231,6 +285,9 @@ public class UserServiceImpl implements UserService {
 
         UserListDTO existing = AssertUtils.requireFound(
                 userDao.findUserByIdAndTenantId(userListDTO.getId(), userListDTO.getScopeTenantId()), "User not found!");
+        // Only the primary `account` row — the tenant access re-sync and currency grants this
+        // also writes are separate tables outside this sourceTable.
+        AuditContext.captureBefore(userListDTO.getId(), userSnapshot(existing));
 
         Integer tenantId = userListDTO.getScopeTenantId();
         AccessControlUtils.requireValidTenantId(tenantId);
@@ -309,6 +366,7 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException("User not found after update!");
         }
         updated.setTenantIds(desiredTenantIds);
+        AuditContext.captureAfter(userListDTO.getId(), userSnapshot(updated));
 
         if (desiredSet.contains(tenantId)) {
             currencyService.deleteByAccountIdAndTenantId(
@@ -325,6 +383,8 @@ public class UserServiceImpl implements UserService {
 
     @Transactional
     @Override
+    @Audited(module = "ACCOUNT", action = AuditLog.Action.UPDATE,
+            entityIdExpr = "#userId", sourceTable = "account")
     public UserListDTO updateStatusByUserId(Integer userId, Integer scopeTenantId) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -354,7 +414,9 @@ public class UserServiceImpl implements UserService {
             } else {
                 newStatus = User.AccountStatus.ACTIVE;
             }
+            AuditContext.captureBefore(userId, Map.of("status", currentStatus));
             userDao.updateStatusByUserId(userId, newStatus);
+            AuditContext.captureAfter(userId, Map.of("status", newStatus));
 
         } catch (Exception e) {
             throw new BusinessException("Update User failed!");
@@ -366,6 +428,8 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
+    @Audited(module = "ACCOUNT", action = AuditLog.Action.DELETE,
+            entityIdExpr = "#id", sourceTable = "account")
     public void deleteUserByIdAndStatus(Integer id, Integer scopeTenantId) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -382,6 +446,7 @@ public class UserServiceImpl implements UserService {
         if (transactionDao.countTransactionsByAccountId(id, scopeTenantId) > 0) {
             throw new BusinessException("This Account has existing transaction cannot be deleted!");
         }
+        AuditContext.captureBefore(id, userSnapshot(existing));
 
         try {
             userDao.deleteUserTenantAccessByAccountIdAndTenantId(id, scopeTenantId);
@@ -404,6 +469,8 @@ public class UserServiceImpl implements UserService {
 
     /* Account Link Side */
     @Override
+    @Audited(module = "ACCOUNT", action = AuditLog.Action.CREATE,
+            entityIdExpr = "#userLink.id", sourceTable = "account_link")
     public void insertAccountLink(UserLink userLink) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -460,13 +527,19 @@ public class UserServiceImpl implements UserService {
         accLink.setSourceAccountId(source);
         try {
             userDao.insertAccountLink(accLink);
+            // Propagate the generated id onto the original parameter — entityIdExpr binds the
+            // caller's `userLink` object, not this method's local `accLink`.
+            userLink.setId(accLink.getId());
         } catch (Exception e) {
             throw new BusinessException("Insert Account Link failed!");
         }
+        AuditContext.captureAfter(accLink.getId(), linkSnapshot(accLink));
     }
 
     @Override
     @Transactional
+    @Audited(module = "ACCOUNT", action = AuditLog.Action.DELETE,
+            entityIdExpr = "#id", sourceTable = "account_link")
     public void deleteAccountLinkById(long id) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -483,6 +556,8 @@ public class UserServiceImpl implements UserService {
     /* Account Link - Delete by AccountId (all links of one account in tenant) */
     @Override
     @Transactional
+    @Audited(module = "ACCOUNT", action = AuditLog.Action.DELETE,
+            entityIdExpr = "#accountId", sourceTable = "account_link")
     public void deleteAccountLinkByAccountId(int accountId, int tenantId) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -500,6 +575,11 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
+    // Delete-then-reinsert. `insertAccountLink`'s own @Audited never fires here (Spring AOP
+    // proxies don't intercept self-invocation via `this.`), so this is the one row logged for
+    // the whole swap — entityIdExpr picks up the *new* link id insertAccountLink sets below.
+    @Audited(module = "ACCOUNT", action = AuditLog.Action.UPDATE,
+            entityIdExpr = "#userLink.id", sourceTable = "account_link")
     public void updateAccountLink(UserLink userLink) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -534,6 +614,9 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Audited(module = "ACCOUNT", action = AuditLog.Action.DELETE,
+            entityIdExpr = "T(String).valueOf(#accountId1) + '_' + T(String).valueOf(#accountId2)",
+            sourceTable = "account_link")
     public void deleteAccountLinkByPair(int accountId1, int accountId2, int tenantId) {
         SessionUser session = SecurityUtils.currentUser();
         if (session == null)

@@ -1,5 +1,8 @@
 package com.eazycount.service.impl;
 
+import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.Audited;
+import com.eazycount.entity.AuditLog;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.DataCaptureDao;
@@ -29,9 +32,11 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -54,8 +59,30 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
     @Autowired
     private TransactionDao transactionDao;
 
+    private Map<String, Object> formulaSnapshot(DataCaptureFormula f) {
+        if (f == null) {
+            return null;
+        }
+        Map<String, Object> s = new HashMap<>();
+        s.put("id_product", f.getIdProduct());
+        s.put("description", f.getDescription());
+        s.put("source_columns", f.getSourceColumns());
+        s.put("formula", f.getFormula());
+        s.put("input_method", f.getInputMethod());
+        s.put("source_percent", f.getSourcePercent());
+        s.put("account_id", f.getAccountId());
+        s.put("currency_id", f.getCurrencyId());
+        return s;
+    }
+
+    // Actually branches at runtime into either an insert (new MAIN/SUB row) or an update
+    // (editing an existing MAIN row) — see saveAsMain/saveAsSub. Annotated CREATE for the
+    // common "add a formula" case; the update branch's real before/after still gets captured
+    // via AuditContext inside saveAsMain, just under this method's CREATE label.
     @Override
     @Transactional
+    @Audited(module = "DATA_CAPTURE", action = AuditLog.Action.CREATE,
+            entityIdExpr = "#result.id", sourceTable = "data_capture_formula")
     public DataCaptureSummaryDTO saveAddFormula(DataCaptureSummaryDTO request) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -193,11 +220,13 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         row.setUpdatedBy(loginId);
 
         if (existingMain != null && existingMain.getId() != null) {
+            AuditContext.captureBefore(existingMain.getId(), formulaSnapshot(existingMain));
             dataCaptureSummaryDao.updateMainFields(row);
         } else {
             row.setCreatedBy(loginId);
             dataCaptureSummaryDao.insertFormula(row);
         }
+        AuditContext.captureAfter(row.getId(), formulaSnapshot(row));
 
         return toResponse(row, request);
     }

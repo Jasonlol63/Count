@@ -1,5 +1,8 @@
 package com.eazycount.service.impl;
 
+import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.Audited;
+import com.eazycount.entity.AuditLog;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.DataCaptureDao;
 import com.eazycount.dao.ProcessDao;
@@ -80,8 +83,21 @@ public class DataCaptureServiceImpl implements DataCaptureService {
         return response;
     }
 
+    private List<Map<String, Object>> cellsSnapshot(List<DataCaptureDraftCell> cells) {
+        if (cells == null || cells.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>(cells.size());
+        for (DataCaptureDraftCell c : cells) {
+            out.add(Map.of("row_index", c.getRowIndex(), "col_index", c.getColIndex(), "cell_value", c.getCellValue()));
+        }
+        return out;
+    }
+
     @Override
     @Transactional
+    @Audited(module = "DATA_CAPTURE", action = AuditLog.Action.UPDATE,
+            entityIdExpr = "#result.processId", sourceTable = "data_capture_draft_cell")
     public DataCaptureBankDTO saveBankDraft(DataCaptureBankDTO request) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -120,6 +136,7 @@ public class DataCaptureServiceImpl implements DataCaptureService {
             dataCaptureDao.touchDraftUpdatedAt(draft.getId());
         }
 
+        AuditContext.captureBefore(process.getId(), cellsSnapshot(dataCaptureDao.findDraftCellsByDraftId(draft.getId())));
         dataCaptureDao.deleteDraftCellsByDraftId(draft.getId());
         List<DataCaptureDraftCell> rows = new ArrayList<>(cells.size());
         for (DataCaptureBankDTO.Cell cell : cells) {
@@ -131,6 +148,7 @@ public class DataCaptureServiceImpl implements DataCaptureService {
             rows.add(row);
         }
         dataCaptureDao.insertDraftCells(rows);
+        AuditContext.captureAfter(process.getId(), cellsSnapshot(rows));
 
         DataCaptureBankDTO response = new DataCaptureBankDTO();
         response.setTenantId(tenantId);
@@ -199,6 +217,8 @@ public class DataCaptureServiceImpl implements DataCaptureService {
 
     @Override
     @Transactional
+    @Audited(module = "DATA_CAPTURE", action = AuditLog.Action.UPDATE,
+            entityIdExpr = "#result.processId", sourceTable = "data_capture_draft_cell")
     public DataCaptureBankDTO saveGameDraft(DataCaptureBankDTO request) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -233,6 +253,7 @@ public class DataCaptureServiceImpl implements DataCaptureService {
             dataCaptureDao.touchDraftUpdatedAt(draft.getId());
         }
 
+        AuditContext.captureBefore(process.getId(), cellsSnapshot(dataCaptureDao.findDraftCellsByDraftId(draft.getId())));
         dataCaptureDao.deleteDraftCellsByDraftId(draft.getId());
         List<DataCaptureDraftCell> rows = new ArrayList<>(cells.size());
         for (DataCaptureBankDTO.Cell cell : cells) {
@@ -244,6 +265,7 @@ public class DataCaptureServiceImpl implements DataCaptureService {
             rows.add(row);
         }
         dataCaptureDao.insertDraftCells(rows);
+        AuditContext.captureAfter(process.getId(), cellsSnapshot(rows));
 
         DataCaptureBankDTO response = new DataCaptureBankDTO();
         response.setTenantId(tenantId);
