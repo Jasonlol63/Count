@@ -3,6 +3,8 @@ package com.eazycount.jwt;
 import com.eazycount.security.AuthTokenStore;
 import com.eazycount.security.LoginUserPrincipal;
 import com.eazycount.security.SessionUser;
+import com.eazycount.service.SystemMaintenanceModeService;
+import com.eazycount.util.AccessControlUtils;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -24,10 +26,16 @@ public class JwtAuthTokenFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final AuthTokenStore authTokenStore;
+    private final SystemMaintenanceModeService systemMaintenanceModeService;
 
-    public JwtAuthTokenFilter(JwtService jwtService, AuthTokenStore authTokenStore) {
+    public JwtAuthTokenFilter(
+            JwtService jwtService,
+            AuthTokenStore authTokenStore,
+            SystemMaintenanceModeService systemMaintenanceModeService
+    ) {
         this.jwtService = jwtService;
         this.authTokenStore = authTokenStore;
+        this.systemMaintenanceModeService = systemMaintenanceModeService;
     }
 
     @Override
@@ -50,6 +58,13 @@ public class JwtAuthTokenFilter extends OncePerRequestFilter {
 
             final Optional<SessionUser> user = authTokenStore.find(jti);
             if (user.isEmpty()) {
+                return;
+            }
+
+            // Global "kick everyone" switch: while enabled, every non-IT session is rejected
+            // outright — no exceptions, no per-tenant scoping. IT itself is exempt so it can
+            // keep working during the maintenance window.
+            if (systemMaintenanceModeService.isEnabled() && !AccessControlUtils.isItOperator(user.get().role)) {
                 return;
             }
 

@@ -1312,4 +1312,17 @@ CREATE TABLE `audit_log` (
     KEY `idx_related_log` (`related_log_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CRUD audit trail for the IT console -- one row per write operation';
 
+-- Singleton (id=1) global switch for the IT console's "kick everyone" maintenance mode --
+-- unconditional, not tenant-scoped (see migrate_add_system_maintenance_mode_table.sql and
+-- docs/it-role-maintenance-mode-and-sidebar-fix.md for the design notes, including why no
+-- enabled_by/enabled_at columns: that history is already captured via @Audited into audit_log).
+CREATE TABLE `system_maintenance_mode` (
+    `id`         TINYINT UNSIGNED NOT NULL COMMENT 'Always 1 -- singleton row',
+    `enabled`    TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = maintenance mode ON, all non-IT sessions rejected',
+    `updated_at` TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Singleton row (id=1) global switch for IT-only system-wide maintenance/kick mode';
+
+INSERT INTO `system_maintenance_mode` (`id`, `enabled`) VALUES (1, 0);
+
 SET FOREIGN_KEY_CHECKS = 1;

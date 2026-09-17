@@ -3,7 +3,7 @@
 > **目标 schema**：`schema.sql`（本目录）  
 > **对照来源**：旧 PHP 库（`count168.org` / `easycount_schema.sql`、`games_schema.sql`；以及 `backend/src/main/resources/schema.sql` 残缺摘录）  
 > **运行库示例**：`testcount`  
-> **最后更新**：2026-09-15
+> **最后更新**：2026-09-17
 
 本文说明旧表在新租户模型（`tenant`）下如何 **迁移 / 拆分 / 合并 / 优化 / 弃用**。  
 **只谈表结构与设计意图**；业务 API 是否已切到 Spring 另见 `docs/frontend-springboot-migration.md` 第32节（Data Capture）。
@@ -250,6 +250,7 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 | `exchange_rate`（新表，2026-09-15 补录进 schema.sql） | 全局（非 tenant-scoped）每日 FX 快照，全部以 USD 为轴心币 | 供 Dashboard 多币别 Amount/Original Amount/Rate 拆分（Currency & Earning tab）；由每日排程任务写入，迁移脚本：`migrate_add_exchange_rate_table.sql` |
 | `platform_settings`（新表，2026-09-15 补录进 schema.sql） | 单例表（固定 `id=1`），全局平台级配置 | 首个字段 `telegram_support_link`：登录页悬浮按钮的 Telegram 支持链接；非 tenant-scoped，无 `company_code`/`tenant_id`；迁移脚本：`migrate_add_platform_settings_table.sql` |
 | `audit_log`（新表，2026-09-15 补录进 schema.sql） | IT 控制台的 CRUD 审计日志，一条写操作一行 | `before_data`/`after_data` 是 `TEXT`（JSON 格式文本，**不是** MySQL 原生 `JSON` 类型，理由见 docs/it-role-audit-log.md）；字段名对齐 `source_table` 的数据库列名，方便人工核对/补数据；`restorable`/`restored`/`related_log_id` 支撑 Payment/BankProcess/CaptureTransaction 的 Restore 流程（从共用的 `transactions_deleted` 表恢复），多数模块（如 ACCOUNT）只记录不支持 restore；非 tenant-scoped（IT 跨公司查询），迁移脚本：`migrate_add_audit_log_table.sql` |
+| `system_maintenance_mode`（新表，2026-09-17 补录进 schema.sql） | IT 控制台全局"踢人"维护开关 | 单例表（固定 `id=1`，跟 `platform_settings` 同一套模式），全局无差别、不分 tenant，只有 `id`/`enabled`/`updated_at` 三列——不存 `enabled_by`/`enabled_at` 之类的审计字段，因为切换动作本身贴了 `@Audited`，谁在什么时候切换的已经进了 `audit_log`，没必要在这张表里重复维护第二份历史；开关状态另有 Redis 镜像（`ec:maintenance:enabled`）供 `JwtAuthTokenFilter` 每次请求快速读取，这张表是持久化来源；迁移脚本：`migrate_add_system_maintenance_mode_table.sql`；设计细节见 docs/it-role-maintenance-mode-and-sidebar-fix.md |
 
 ---
 
@@ -286,6 +287,7 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 - `exchange_rate`（全局每日 FX 快照，非 tenant-scoped）  
 - `platform_settings`（全局平台级配置单例表，非 tenant-scoped）  
 - `audit_log`（IT 控制台 CRUD 审计日志，非 tenant-scoped，跨公司查询）  
+- `system_maintenance_mode`（IT 控制台全局"踢人"维护开关，单例表，非 tenant-scoped）  
 
 （部分在旧库有「功能等价」表，但名称与形状已变，见 §2。）
 
@@ -312,6 +314,7 @@ Due 行为细则见 `docs/frontend-springboot-migration.md` 第31节。
 | `migrate_add_exchange_rate_table.sql` | 增量加全局 `exchange_rate` 表（每日 FX 快照，Dashboard 多币别拆分用） |
 | `migrate_add_platform_settings_table.sql` | 增量加全局单例 `platform_settings` 表（Telegram support link 等平台级配置） |
 | `migrate_add_audit_log_table.sql` | 增量加全局 `audit_log` 表（IT 控制台 CRUD 审计日志；`before_data`/`after_data` 用 `TEXT` 不用原生 `JSON` 类型） |
+| `migrate_add_system_maintenance_mode_table.sql` | 增量加全局单例 `system_maintenance_mode` 表（IT 控制台"踢人"维护开关，`id=1` 固定行） |
 | `migrate_auto_renew_delete.sql` | 增量加 `tenant_auto_renew_transaction` 关联流水表（供 Auto Renew delete/revert 精确定位）；已随命名统一改用新表名，`schema.sql` 全新建库直接含此表 |
 | 其他 `migrate_*` / `add_*` / `seed_*` | 各子域增量与种子数据 |
 
@@ -324,12 +327,12 @@ Get-Content backend\src\main\resources\sql\migrate_datacapture_line.sql -Raw |
 
 ---
 
-## 7. Schema 完成度（截至 2026-09-15）
+## 7. Schema 完成度（截至 2026-09-17）
 
 | 状态 | 内容 |
 |------|------|
 | ✅ 核心业务表 | Login、权限、Domain、Ownership、Currency、Process（含 Copy From）、Bank Process、Transactions/RATE（含 Platform Fee）、Data Capture（含 formula / line / line_deleted / draft）DDL 已就绪 |
-| ✅ 全局表 | `exchange_rate`（每日 FX 快照）、`platform_settings`（平台级配置单例）、`audit_log`（IT 控制台审计日志）已补录进 `schema.sql` |
+| ✅ 全局表 | `exchange_rate`（每日 FX 快照）、`platform_settings`（平台级配置单例）、`audit_log`（IT 控制台审计日志）、`system_maintenance_mode`（IT 控制台踢人维护开关单例）已补录进 `schema.sql` |
 | ✅ 故意不建 | `submit_queue`、`summary_state`、RATE 旧明细/分录、`password_reset_tac*`、backup 表等（§4） |
 | ⚪ 可选未建 | `auto_login_credentials`、`deleted_logs`、`fx_daily_rates`（旧库 8/27 备份新出现，待定；注意与 §5 已建的 `exchange_rate` 是两张不同的表，`fx_daily_rates` 至今仍未迁入） |
 | ⚠️ 非 schema 缺口 | 部分业务仍走 PHP 旧表（如 Summary Submit 仍可能写 `data_capture_details`）。属 **API 迁移**，不是缺 DDL |
