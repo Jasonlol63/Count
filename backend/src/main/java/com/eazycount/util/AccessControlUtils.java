@@ -61,9 +61,12 @@ public final class AccessControlUtils {
         return requireLoggedIn(SecurityUtils.currentUser());
     }
 
-    /* 与上面同语义，但校验调用方已经拿到手的 session（例如方法参数传入），而不是重新取当前登录用户。*/
+    /* 与上面同语义，但校验调用方已经拿到手的 session（例如方法参数传入），而不是重新取当前登录用户。
+     * IT 账号没有 DB user_id（deliberately null，见 SessionUser.fromItOperator），所以这里不能只看
+     * user_id 是否为空，还要认 role="it" 的会话为已登录状态，否则 IT 会在所有业务 Service 的
+     * requireLoggedIn() 检查处被当成未登录直接拒绝。*/
     public static SessionUser requireLoggedIn(SessionUser session) {
-        if (session == null || session.user_id == null) {
+        if (session == null || (session.user_id == null && !isItOperator(session.role))) {
             throw new BusinessException("Not logged in");
         }
         return session;

@@ -275,17 +275,21 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public List<TenantDTO> findAllTenantsByUserType(String userType, Integer userId) {
-        if (userId == null) {
-            throw new BusinessException("Invalid Login!");
-        }
         if (userType == null || userType.isBlank()) {
             throw new BusinessException("Invalid identity type");
         }
+        final String normalizedType = userType.trim().toLowerCase();
+        // IT has no per-tenant assignment row to look up by userId (its user_id is always null) —
+        // it sees every active tenant/group/company instead.
+        if (!"it".equals(normalizedType) && userId == null) {
+            throw new BusinessException("Invalid Login!");
+        }
 
-        return switch (userType.trim().toLowerCase()) {
+        return switch (normalizedType) {
             case "owner" -> tenantDao.findTenantFeaturesByOwnerId(userId);
             case "member" -> tenantDao.findTenantFeaturesByMemberId(userId);
             case "user" -> tenantDao.findTenantFeaturesByAdminId(userId);
+            case "it" -> tenantDao.findAllActiveTenantFeatures();
             default -> throw new BusinessException("Invalid identity type");
         };
     }
@@ -654,7 +658,19 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private boolean userCanAccessTenantId(SessionUser user, int tenantId) {
-        if (user == null || user.user_id == null) {
+        if (user == null) {
+            return false;
+        }
+        if (AccessControlUtils.isItOperator(user.role)) {
+            // IT has no per-tenant assignment row to check against (it is a separate track from
+            // the admin/user permission system) — any active, non-expired tenant is in scope.
+            Tenant tenant = tenantDao.findTenantById(tenantId);
+            if (tenant == null) {
+                return false;
+            }
+            return tenant.getExpirationDate() == null || !tenant.getExpirationDate().isBefore(LocalDate.now());
+        }
+        if (user.user_id == null) {
             return false;
         }
         final String userType = String.valueOf(user.user_type).trim().toLowerCase();
@@ -678,14 +694,20 @@ public class AuthServiceImpl implements AuthService {
 
     private SessionUser rebuildSessionUserWithTenant(SessionUser current, Tenant tenant, List<FeatureModule> featureModules) {
         final String userType = String.valueOf(current.user_type).trim().toLowerCase();
-        UserDTO identity;
+        UserDTO identity = new UserDTO();
         if ("member".equals(userType)) {
             // account_id may repeat across tenants — rebuild by PK, not login code
-            identity = new UserDTO();
             identity.setUser(requireFound(
                     authDao.findMemberById(current.user_id),
                     User::getId,
                     "User Not Found!"));
+        } else if ("it".equals(userType)) {
+            // IT has no DB row to rebuild by PK — re-resolve from the same registry login() uses.
+            ItOperatorProperties.Operator itOperator = itOperatorRegistry.findByUsername(current.login_id);
+            if (itOperator == null) {
+                throw new BusinessException("IT operator not found");
+            }
+            identity.setItOperator(new ItOperatorIdentity(itOperator.getUsername(), itOperator.getDisplayName()));
         } else {
             identity = requireIdentity(userType, current.login_id);
         }

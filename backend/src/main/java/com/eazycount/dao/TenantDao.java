@@ -30,6 +30,10 @@ public interface TenantDao {
   /* Login lookup: tenants matching the entered group/company code (includes parent group match) */
   List<TenantDTO> findActiveTenantFeaturesByLoginCode(@Param("code") String code);
 
+  // IT has no per-tenant assignment row (unrestricted access) — used in place of
+  // findTenantFeaturesBy{Owner,Admin,Member}Id when the session is an IT operator.
+  List<TenantDTO> findAllActiveTenantFeatures();
+
   List<FeatureModule> findActiveFeatureModulesByTenantId(@Param("tenantId") int tenantId);
 
   boolean hasActiveFeatureCode(@Param("tenantId") int tenantId, @Param("code") String code);

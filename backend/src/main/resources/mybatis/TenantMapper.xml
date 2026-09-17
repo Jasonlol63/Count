@@ -261,6 +261,28 @@
             fm.id ASC
     </select>
 
+    <select id="findAllActiveTenantFeatures" resultMap="TenantDTOMap">
+        SELECT
+        <include refid="TenantDtoSelectColumns"/>
+        FROM tenant t
+        LEFT JOIN tenant parent_t
+            ON parent_t.id = t.parent_id
+           AND parent_t.status = 'ACTIVE'
+        LEFT JOIN tenant_feature_module tfm
+            ON tfm.tenant_id = t.id
+        LEFT JOIN feature_module fm
+            ON fm.id = tfm.module_id
+           AND fm.status = 'ACTIVE'
+        WHERE t.status = 'ACTIVE'
+          AND TRIM(t.code) &lt;&gt; ''
+        ORDER BY
+            CASE WHEN t.tenant_type = 'GROUP' THEN 0 ELSE 1 END,
+            t.code ASC,
+            t.id ASC,
+            fm.sort_order ASC,
+            fm.id ASC
+    </select>
+
     <select id="findActiveFeatureModulesByTenantId" resultMap="FeatureModuleMap">
         SELECT
             fm.id,
