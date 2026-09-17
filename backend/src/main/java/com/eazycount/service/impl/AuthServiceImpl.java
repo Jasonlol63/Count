@@ -27,6 +27,7 @@ import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AuthService;
 import com.eazycount.service.LoginRole;
+import com.eazycount.service.SystemMaintenanceModeService;
 import com.eazycount.util.AccessControlUtils;
 import com.eazycount.util.AssertUtils;
 import com.eazycount.service.PermissionService;
@@ -76,6 +77,8 @@ public class AuthServiceImpl implements AuthService {
     private PasswordResetMailService passwordResetMailService;
     @Autowired
     private ItOperatorRegistry itOperatorRegistry;
+    @Autowired
+    private SystemMaintenanceModeService systemMaintenanceModeService;
 
     private static final String RESET_SCOPE_ADMIN = "admin";
     private static final SecureRandom TAC_RANDOM = new SecureRandom();
@@ -114,6 +117,7 @@ public class AuthServiceImpl implements AuthService {
             }
             Tenant sessionTenant = access.get(0).getTenant();
             assertTenantNotExpired(sessionTenant);
+            requireNotUnderMaintenance();
             authDao.updateMemberLastLogin(member.getId());
             identity.setUser(member);
             identity.setTenant(sessionTenant);
@@ -148,6 +152,7 @@ public class AuthServiceImpl implements AuthService {
             }
             Tenant sessionTenant = access.get(0).getTenant();
             assertTenantNotExpired(sessionTenant);
+            requireNotUnderMaintenance();
             authDao.updateAdminLastLogin(admin.getId());
             identity.setAdmin(admin);
             identity.setTenant(sessionTenant);
@@ -168,6 +173,7 @@ public class AuthServiceImpl implements AuthService {
             }
             Tenant sessionTenant = access.get(0).getTenant();
             assertTenantNotExpired(sessionTenant);
+            requireNotUnderMaintenance();
             authDao.updateOwnerLastLogin(owner.getId());
             identity.setOwner(owner);
             identity.setTenant(sessionTenant);
@@ -718,6 +724,14 @@ public class AuthServiceImpl implements AuthService {
         if (tenant.getExpirationDate() != null
                 && tenant.getExpirationDate().isBefore(LocalDate.now())) {
             throw new BusinessException("Company or Group has expired.");
+        }
+    }
+
+    private void requireNotUnderMaintenance() {
+        if (systemMaintenanceModeService.isEnabled()) {
+            throw new BusinessException(
+                    "System is currently under maintenance. Please try again later.",
+                    Map.of("maintenanceMode", true));
         }
     }
 
