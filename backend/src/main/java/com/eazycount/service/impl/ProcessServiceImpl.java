@@ -188,6 +188,11 @@ public class ProcessServiceImpl implements ProcessService {
 
         processDTO.setId(process.getId());
         processDTO.setCategory(category);
+        // CREATE's audit "after" defaults to the method's return value — but that's this same
+        // request DTO echoed back, whose display-only fields (process/processDescriptions/
+        // processDays/currencyCode) are never populated on create and would show as "-" in the
+        // audit panel. A clean flat snapshot of the actual inserted row instead.
+        AuditContext.captureAfter(process.getId(), AuditSnapshots.process(process));
         return processDTO;
     }
 

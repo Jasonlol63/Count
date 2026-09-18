@@ -7,6 +7,7 @@ import com.eazycount.common.BusinessException;
 import com.eazycount.dao.BankProcessResendDao;
 import com.eazycount.dao.DataCaptureSummaryDao;
 import com.eazycount.dao.MaintenanceDao;
+import com.eazycount.dao.ProcessDao;
 import com.eazycount.dao.TransactionRateDao;
 import com.eazycount.dto.MaintenanceBankProcessDTO;
 import com.eazycount.dto.MaintenanceCaptureDTO;
@@ -14,7 +15,9 @@ import com.eazycount.dto.MaintenanceFormulaDTO;
 import com.eazycount.dto.MaintenancePaymentDTO;
 import com.eazycount.dto.MaintenanceTransactionDTO;
 import com.eazycount.entity.AuditLog;
+import com.eazycount.entity.DataCapture;
 import com.eazycount.entity.DataCaptureFormula;
+import com.eazycount.entity.Process;
 import com.eazycount.entity.Transaction;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
@@ -26,6 +29,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -34,6 +38,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -81,6 +86,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     @Autowired
     private DataCaptureSummaryDao dataCaptureSummaryDao;
+
+    @Autowired
+    private ProcessDao processDao;
 
     @Autowired
     private TransactionRateDao transactionRateDao;
@@ -144,6 +152,27 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
         String deletedBy = session.login_id.trim();
 
+        // Snapshot before archiving — same reasoning as deletePaymentMaintenanceRows: only this
+        // method still has the pre-delete rows. One snapshot per capture (entityIdExpr resolves
+        // per captureId), reusing captureSubmit()'s shape since this is effectively that
+        // operation's inverse — a header plus a summary of the transactions it's linked to.
+        Map<Integer, Object> beforeSnapshots = new LinkedHashMap<>();
+        for (Integer captureId : captureIds) {
+            DataCapture header = dataCaptureSummaryDao.findCaptureByIdAndTenantId(captureId, tenantId);
+            List<Integer> captureTransactionIds =
+                    maintenanceDao.findCaptureLineTransactionIdsByCaptureIdsAndTenantId(tenantId, List.of(captureId));
+            BigDecimal total = captureTransactionIds.isEmpty()
+                    ? BigDecimal.ZERO
+                    : maintenanceDao.findByIdsAndTenantId(tenantId, captureTransactionIds).stream()
+                            .map(Transaction::getAmount)
+                            .filter(Objects::nonNull)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+            beforeSnapshots.put(captureId,
+                    AuditSnapshots.captureSubmit(header, captureTransactionIds.size(), total, captureTransactionIds));
+            AuditContext.captureSummary(captureId, "删除数据" + captureLabel(header, tenantId));
+        }
+        AuditContext.captureBeforeBatch(beforeSnapshots);
+
         List<Integer> transactionIds =
                 maintenanceDao.findCaptureLineTransactionIdsByCaptureIdsAndTenantId(tenantId, captureIds);
         if (!transactionIds.isEmpty()) {
@@ -166,6 +195,19 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
 
         maintenanceDao.deleteProcessSubmittedByCaptureIds(tenantId, captureIds);
+    }
+
+    /** "BANK- SALARY" / "GAME- {code}" — same category-prefix format as Data Capture Summary's own submit summary. */
+    private String captureLabel(DataCapture header, Integer tenantId) {
+        if (header == null) {
+            return "抓取";
+        }
+        boolean isGame = header.getCategory() == DataCapture.Category.GAME;
+        Process process = header.getProcessId() != null
+                ? processDao.findProcessByIdAndTenantId(header.getProcessId(), tenantId)
+                : null;
+        String code = process != null && process.getCode() != null ? process.getCode() : "?";
+        return (isGame ? "GAME" : "BANK") + "- " + code;
     }
 
     @Override
@@ -195,7 +237,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         String sourcePercent = normalizeSourcePercent(ft.getSourcePercent());
         String inputMethod = normalizeQ(ft.getInputMethod());
         String formula = normalizeQ(ft.getFormula());
-        String description = normalizeQ(ft.getDescription());
+        String description = NormalizeUtils.trimToEmpty(ft.getDescription());
         String updatedBy = session.login_id.trim();
 
         DataCaptureFormula before = dataCaptureSummaryDao.findByIdAndTenantId(id, tenantId);

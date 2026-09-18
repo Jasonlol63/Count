@@ -1,8 +1,11 @@
 package com.eazycount.service.impl;
 
+import com.eazycount.audit.AuditSummaryDefaults;
 import com.eazycount.dao.AuditLogDao;
+import com.eazycount.dao.DomainDao;
 import com.eazycount.dto.AuditLogDTO;
 import com.eazycount.entity.AuditLog;
+import com.eazycount.entity.Tenant;
 import com.eazycount.security.SecurityUtils;
 import com.eazycount.security.SessionUser;
 import com.eazycount.service.AuditLogService;
@@ -26,6 +29,8 @@ public class AuditLogServiceImpl implements AuditLogService {
 
     @Autowired
     private AuditLogDao auditLogDao;
+    @Autowired
+    private DomainDao domainDao;
     @Autowired
     private ObjectMapper objectMapper;
 
@@ -52,7 +57,7 @@ public class AuditLogServiceImpl implements AuditLogService {
             entry.setAction(request.getAction());
             entry.setEntityId(request.getEntityId());
             entry.setSourceTable(request.getSourceTable());
-            entry.setSummary(request.getSummary());
+            entry.setSummary(resolveSummary(request, session.tenant_code, session.tenant_id));
             entry.setBeforeData(toJson(request.getBeforeData()));
             entry.setAfterData(toJson(request.getAfterData()));
             entry.setRestorable(request.isRestorable());
@@ -88,6 +93,40 @@ public class AuditLogServiceImpl implements AuditLogService {
     public AuditLogDTO summary(AuditLogDTO query) {
         AccessControlUtils.requireItOperator(SecurityUtils.currentUser());
         return auditLogDao.summary(query);
+    }
+
+    /**
+     * The writing method's own {@link com.eazycount.audit.AuditContext#captureSummary} wins when
+     * present; otherwise {@link AuditSummaryDefaults} builds a generic one. Either way, the
+     * tenant name is appended here rather than by the caller — this is the one place that
+     * reliably knows the operator's tenant code, and it's the same suffix for every module.
+     * "公司"/"集团" is picked from the tenant's own {@code tenant_type}, not hardcoded — a GROUP
+     * tenant reads "在 XX 集团", a COMPANY tenant "在 XX 公司".
+     */
+    private String resolveSummary(AuditLogDTO request, String tenantCode, Integer tenantId) {
+        String summary = request.getSummary();
+        if (summary == null) {
+            summary = AuditSummaryDefaults.build(
+                    request.getModule(), request.getSourceTable(), request.getAction(),
+                    request.getBeforeData(), request.getAfterData());
+        }
+        if (summary != null && tenantCode != null && !tenantCode.isBlank()) {
+            summary = summary + " 在 " + tenantCode + " " + tenantUnitLabel(tenantId);
+        }
+        return summary;
+    }
+
+    private String tenantUnitLabel(Integer tenantId) {
+        if (tenantId == null) {
+            return "公司";
+        }
+        try {
+            Tenant tenant = domainDao.findTenantById(tenantId);
+            return tenant != null && tenant.getTenantType() == Tenant.TenantType.GROUP ? "集团" : "公司";
+        } catch (Exception e) {
+            log.warn("Failed to resolve tenant type for audit summary — tenantId={}", tenantId, e);
+            return "公司";
+        }
     }
 
     private String toJson(Object value) {

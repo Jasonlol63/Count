@@ -462,7 +462,7 @@ public class AdminServiceImpl implements AdminService {
 
         if (dto.getRole() != null && !dto.getRole().isBlank()) {
             admin.setRoleId(resolveRoleId(dto.getRole()));
-            admin.setRoleCode(dto.getRole());
+            admin.setRoleCode(normalizeStaffRoleCode(dto.getRole()));
         } else {
             admin.setRoleId(existing.getRoleId());
             admin.setRoleCode(existing.getRoleCode());
@@ -690,7 +690,7 @@ public class AdminServiceImpl implements AdminService {
         admin.setPassword(dto.getPassword());
         admin.setSecondaryPassword(dto.getSecondaryPassword());
         admin.setReadOnly(dto.getReadOnly() != null ? dto.getReadOnly() : false);
-        admin.setRoleCode(dto.getRole());
+        admin.setRoleCode(dto.getRole() != null ? normalizeStaffRoleCode(dto.getRole()) : null);
         return admin;
     }
 

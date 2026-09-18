@@ -309,8 +309,10 @@ public class UserServiceImpl implements UserService {
                 userDao.insertAccountTenantAccess(userTenantAccess);
             }
             for (Integer targetTenantId : toRemove) {
-                userDao.deleteUserTenantAccessByAccountIdAndTenantId(userListDTO.getId(), targetTenantId);
+                // Same ordering reason as deleteUserByIdAndStatus — currency unbind first, while
+                // its audit summary can still look the account up under this tenant.
                 currencyService.deleteByAccountIdAndTenantId(userListDTO.getId(), targetTenantId);
+                userDao.deleteUserTenantAccessByAccountIdAndTenantId(userListDTO.getId(), targetTenantId);
             }
         } catch (BusinessException e) {
             throw e;
@@ -377,6 +379,7 @@ public class UserServiceImpl implements UserService {
             AuditContext.captureBefore(userId, Map.of("status", currentStatus));
             userDao.updateStatusByUserId(userId, newStatus);
             AuditContext.captureAfter(userId, Map.of("status", newStatus));
+            AuditContext.captureSummary(userId, "更新用户 " + user.getName() + " 状态");
 
         } catch (Exception e) {
             throw new BusinessException("Update User failed!");
@@ -409,8 +412,11 @@ public class UserServiceImpl implements UserService {
         AuditContext.captureBefore(id, AuditSnapshots.user(existing, userDao.findTenantIdsByUserId(id)));
 
         try {
-            userDao.deleteUserTenantAccessByAccountIdAndTenantId(id, scopeTenantId);
+            // Currency unbind first — it looks the account up scoped to this tenant (for its
+            // audit summary's name), which would come back empty once the tenant_access row
+            // below is gone.
             currencyService.deleteByAccountIdAndTenantId(id, scopeTenantId);
+            userDao.deleteUserTenantAccessByAccountIdAndTenantId(id, scopeTenantId);
         } catch (Exception e) {
             throw new BusinessException("Delete UserTenantAccess failed!");
         }
@@ -453,7 +459,8 @@ public class UserServiceImpl implements UserService {
         final int a1 = Math.min(a, b);
         final int a2 = Math.max(a, b);
         // 校验两端账号都属于该租户
-        if (userDao.findUserByIdAndTenantId(a1, tenantId) == null) {
+        UserListDTO account1 = userDao.findUserByIdAndTenantId(a1, tenantId);
+        if (account1 == null) {
             throw new BusinessException("User A not found in tenant!");
         }
         if (userDao.findUserByIdAndTenantId(a2, tenantId) == null) {
@@ -493,7 +500,9 @@ public class UserServiceImpl implements UserService {
         } catch (Exception e) {
             throw new BusinessException("Insert Account Link failed!");
         }
-        AuditContext.captureAfter(accLink.getId(), AuditSnapshots.userLink(accLink));
+        Map<String, Object> afterSnapshot = new LinkedHashMap<>(AuditSnapshots.userLink(accLink));
+        afterSnapshot.put("linked_account_name", account1.getName());
+        AuditContext.captureAfter(accLink.getId(), afterSnapshot);
     }
 
     @Override

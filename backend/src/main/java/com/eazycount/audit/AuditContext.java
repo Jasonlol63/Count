@@ -29,6 +29,7 @@ public final class AuditContext {
 
     private static final ThreadLocal<Map<String, Map<String, Object>>> BEFORE = ThreadLocal.withInitial(HashMap::new);
     private static final ThreadLocal<Map<String, Map<String, Object>>> AFTER = ThreadLocal.withInitial(HashMap::new);
+    private static final ThreadLocal<Map<String, Map<String, Object>>> SUMMARY = ThreadLocal.withInitial(HashMap::new);
 
     /** LIFO stack of call-scope ids — captureBefore/captureAfter always write into the top (the call currently executing). */
     private static final ThreadLocal<Deque<String>> CALL_STACK = ThreadLocal.withInitial(ArrayDeque::new);
@@ -55,10 +56,12 @@ public final class AuditContext {
         if (scope != null) {
             BEFORE.get().remove(scope);
             AFTER.get().remove(scope);
+            SUMMARY.get().remove(scope);
         }
         if (stack.isEmpty()) {
             BEFORE.remove();
             AFTER.remove();
+            SUMMARY.remove();
             CALL_STACK.remove();
         }
     }
@@ -114,6 +117,33 @@ public final class AuditContext {
             return null;
         }
         Map<String, Object> byId = AFTER.get().get(scope);
+        return byId == null ? null : byId.remove(String.valueOf(id));
+    }
+
+    /**
+     * Stages a human-readable {@code audit_log.summary} sentence for one entity id — only the
+     * method body has the context (resolved account names, currency codes, etc.) to write one
+     * that reads naturally; {@link AuditLogAspect} consumes it the same way as
+     * {@link #captureBefore}/{@link #captureAfter}. Callers write the "core" sentence only —
+     * no trailing company name — {@code AuditLogServiceImpl.record()} appends that centrally.
+     * When nothing is staged, {@link AuditSummaryDefaults} builds a generic fallback instead.
+     */
+    public static void captureSummary(Object id, String summary) {
+        if (id == null) {
+            return;
+        }
+        String scope = currentScope();
+        if (scope == null) {
+            return;
+        }
+        SUMMARY.get().computeIfAbsent(scope, k -> new HashMap<>()).put(String.valueOf(id), summary);
+    }
+
+    static Object consumeSummary(String scope, Object id) {
+        if (scope == null || id == null) {
+            return null;
+        }
+        Map<String, Object> byId = SUMMARY.get().get(scope);
         return byId == null ? null : byId.remove(String.valueOf(id));
     }
 

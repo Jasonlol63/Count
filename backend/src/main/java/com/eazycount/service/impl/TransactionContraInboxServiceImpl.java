@@ -6,7 +6,9 @@ import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.TransactionContraInboxDao;
 import com.eazycount.dao.MaintenanceDao;
+import com.eazycount.dao.UserDao;
 import com.eazycount.dto.TransactionContraInboxDTO;
+import com.eazycount.dto.UserListDTO;
 import com.eazycount.entity.AuditLog;
 import com.eazycount.entity.Transaction;
 import com.eazycount.security.SecurityUtils;
@@ -29,6 +31,9 @@ public class TransactionContraInboxServiceImpl implements TransactionContraInbox
 
     @Autowired
     private MaintenanceDao maintenanceDao;
+
+    @Autowired
+    private UserDao userDao;
 
     @Override
     public List<TransactionContraInboxDTO> listPending(Integer tenantId) {
@@ -56,6 +61,7 @@ public class TransactionContraInboxServiceImpl implements TransactionContraInbox
 
         Transaction after = findByIdOrNull(tenantId, id);
         AuditContext.captureAfter(id, AuditSnapshots.transaction(after));
+        AuditContext.captureSummary(id, "批准 " + contraSummaryLabel(before, tenantId));
     }
 
     // Reject archives the PENDING row into transactions_deleted then hard-deletes it from `transactions`
@@ -73,6 +79,7 @@ public class TransactionContraInboxServiceImpl implements TransactionContraInbox
 
         Transaction before = findByIdOrNull(tenantId, id);
         AuditContext.captureBefore(id, AuditSnapshots.transaction(before));
+        AuditContext.captureSummary(id, "拒绝 " + contraSummaryLabel(before, tenantId));
 
         int archived = transactionContraInboxDao.archiveRejectedToDeleted(tenantId, id, rejectedBy);
         if (archived <= 0) {
@@ -83,6 +90,27 @@ public class TransactionContraInboxServiceImpl implements TransactionContraInbox
         if (removed <= 0) {
             throw new BusinessException("Failed to remove rejected transaction");
         }
+    }
+
+    /** "CONTRA 交易（收 X / 付 Y）" — X is the account credited (accountId), Y the one debited (fromAccountId). */
+    private String contraSummaryLabel(Transaction txn, Integer tenantId) {
+        if (txn == null) {
+            return "CONTRA 交易";
+        }
+        String toName = accountName(txn.getAccountId(), tenantId);
+        String fromName = accountName(txn.getFromAccountId(), tenantId);
+        String type = txn.getTransactionType() != null ? txn.getTransactionType().name() : "CONTRA";
+        return type + " 交易（收 " + toName + " / 付 " + fromName + "）";
+    }
+
+    private String accountName(Integer accountId, Integer tenantId) {
+        if (accountId == null) {
+            return "?";
+        }
+        UserListDTO account = userDao.findUserByIdAndTenantId(accountId, tenantId);
+        return account != null && account.getName() != null && !account.getName().isBlank()
+                ? account.getName()
+                : String.valueOf(accountId);
     }
 
     private Transaction findByIdOrNull(Integer tenantId, int id) {

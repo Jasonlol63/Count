@@ -33,7 +33,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -132,6 +131,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
                     sourcePercent, enableSourcePercent, enableInputMethod, loginId);
         }
         saved.setProcessCode(process.getCode());
+        AuditContext.captureSummary(saved.getId(), "创建新公式 " + process.getCode());
         return saved;
     }
 
@@ -249,6 +249,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         row.setCreatedBy(loginId);
         row.setUpdatedBy(loginId);
         dataCaptureSummaryDao.insertFormula(row);
+        AuditContext.captureAfter(row.getId(), AuditSnapshots.formula(row));
 
         return toResponse(row, request);
     }
@@ -519,16 +520,8 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         // process/date (no dedup, distinguished by created_at in the Submitted Processes list).
         dataCaptureDao.insertProcessSubmitted(tenantId, processId, session.login_id, captureDate, captureId);
 
-        Map<String, Object> afterSnapshot = new HashMap<>();
-        afterSnapshot.put("category", header.getCategory());
-        afterSnapshot.put("capture_date", captureDate);
-        afterSnapshot.put("process_id", processId);
-        afterSnapshot.put("currency_id", headerCurrencyId);
-        afterSnapshot.put("remark", header.getRemark());
-        afterSnapshot.put("line_count", lineEntities.size());
-        afterSnapshot.put("total_amount", total);
-        afterSnapshot.put("transaction_ids", transactionIds);
-        AuditContext.captureAfter(captureId, afterSnapshot);
+        AuditContext.captureAfter(captureId, AuditSnapshots.captureSubmit(header, lineEntities.size(), total, transactionIds));
+        AuditContext.captureSummary(captureId, "创建新数据" + (isGame ? "GAME" : "BANK") + "- " + process.getCode());
 
         DataCaptureSummarySubmitDTO response = new DataCaptureSummarySubmitDTO();
         response.setCaptureId(captureId);

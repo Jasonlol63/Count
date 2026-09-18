@@ -86,6 +86,7 @@ public class AuditLogAspect {
             request.setRestorable(audited.restorable());
             request.setBeforeData(AuditContext.consumeBefore(callScope, id));
             request.setAfterData(resolveAfterData(callScope, id, audited.action(), result));
+            request.setSummary((String) AuditContext.consumeSummary(callScope, id));
             auditLogService.record(request);
         }
     }

@@ -7,7 +7,9 @@ import com.eazycount.entity.AuditLog;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.TransactionDao;
+import com.eazycount.dao.UserDao;
 import com.eazycount.dto.UserCurrencyDTO;
+import com.eazycount.dto.UserListDTO;
 import com.eazycount.dto.UserLinkedDTO;
 import com.eazycount.entity.Currency;
 import com.eazycount.entity.UserCurrency;
@@ -31,6 +33,9 @@ public class CurrencyServiceImpl implements CurrencyService {
 
     @Autowired
     private TransactionDao transactionDao;
+
+    @Autowired
+    private UserDao userDao;
 
     @Override
     public List<Currency> findCurrencyByTenantId(Integer tenantId) {
@@ -192,6 +197,7 @@ public class CurrencyServiceImpl implements CurrencyService {
             currencyDao.insertAccountCurrency(row);
         }
         AuditContext.captureAfter(accountId, Map.of("currency_ids", ids));
+        AuditContext.captureSummary(accountId, "创建新用户货币绑定 " + accountName(accountId, tenantId));
     }
 
     @Override
@@ -203,11 +209,22 @@ public class CurrencyServiceImpl implements CurrencyService {
 
         AuditContext.captureBefore(accountId,
                 Map.of("currency_ids", currencyDao.findCurrencyIdsByAccountIdAndTenantId(accountId, tenantId)));
+        AuditContext.captureSummary(accountId, "删除用户货币绑定 " + accountName(accountId, tenantId));
         try{
             currencyDao.deleteByAccountIdAndTenantId(accountId, tenantId);
         }catch (Exception e){
             throw new BusinessException("Delete Currency Failed!");
         }
+    }
+
+    private String accountName(Integer accountId, Integer tenantId) {
+        if (accountId == null) {
+            return "?";
+        }
+        UserListDTO account = userDao.findUserByIdAndTenantId(accountId, tenantId);
+        return account != null && account.getName() != null && !account.getName().isBlank()
+                ? account.getName()
+                : String.valueOf(accountId);
     }
 
     // List, Update Linked Account Currency
@@ -244,7 +261,7 @@ public class CurrencyServiceImpl implements CurrencyService {
         AccessControlUtils.requireValidTenantId(tenantId);
         AssertUtils.requirePositive(currencyId, "currencyId");
 
-        AssertUtils.requireFound(
+        Currency currency = AssertUtils.requireFound(
                 currencyDao.findByIdAndTenantId(currencyId, tenantId), "Currency not found or access denied");
 
         List<Integer> toLink = NormalizeUtils.normalizeIds(request.getLinkedAccountIds());
@@ -253,6 +270,8 @@ public class CurrencyServiceImpl implements CurrencyService {
         // from a fresh DB read, since these two lists are exactly what's about to change.
         AuditContext.captureBefore(currencyId, Map.of("about_to_unlink_accounts", toUnlink));
         AuditContext.captureAfter(currencyId, Map.of("linked_accounts", toLink));
+        AuditContext.captureSummary(currencyId, "更新用户货币绑定 " + currency.getCode()
+                + "（关联 " + toLink.size() + " 个、解除 " + toUnlink.size() + " 个用户）");
 
         List<Integer> allAccountIds = new ArrayList<>();
         allAccountIds.addAll(toLink);

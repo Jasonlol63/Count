@@ -566,6 +566,7 @@ public class DomainServiceImpl implements DomainService {
             }
         }
 
+        AuditContext.captureAfter(ownerId, AuditSnapshots.owner(owner));
         return domainDTO;
     }
 

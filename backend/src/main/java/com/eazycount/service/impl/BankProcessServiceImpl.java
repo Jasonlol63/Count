@@ -2,6 +2,7 @@ package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
 import com.eazycount.audit.AuditSnapshots;
+import com.eazycount.audit.AuditSummaryDefaults;
 import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.BankCountryOptionDao;
@@ -88,6 +89,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         AccessControlUtils.requireWritable(sessionUser);
 
         BankProcess bankProcess = insertNewBankProcess(bankProcessDTO, sessionUser);
+        AuditContext.captureSummary(bankProcess.getId(), "创建新合同 " + contractIdentity(bankProcess));
         List<BankProcessShare> shares = insertProfitSharing(bankProcess.getId(), bankProcessDTO.getShares());
 
         BigDecimal bankBalance = normalizeBankBalanceAmount(bankProcessDTO.getBankBalance());
@@ -117,7 +119,15 @@ public class BankProcessServiceImpl implements BankProcessService {
         }
         AccessControlUtils.requireValidTenantId(bankProcessDTO.getTenantId());
 
-        BankProcess updated = updateBankProcess(bankProcessDTO, sessionUser);
+        BankProcessUpdate updateResult = updateBankProcess(bankProcessDTO, sessionUser);
+        BankProcess updated = updateResult.after();
+        String diff = AuditSummaryDefaults.diffFields(
+                AuditSnapshots.bankProcess(updateResult.before()), AuditSnapshots.bankProcess(updated));
+        String summary = "更新合同 " + contractIdentity(updated);
+        if (diff != null) {
+            summary += " 的 " + diff;
+        }
+        AuditContext.captureSummary(updated.getId(), summary);
         deleteBankProcessShareBatch(updated.getId());
         List<BankProcessShare> shares = insertProfitSharing(updated.getId(), bankProcessDTO.getShares());
 
@@ -365,7 +375,10 @@ public class BankProcessServiceImpl implements BankProcessService {
         }
     }
 
-    private BankProcess updateBankProcess(BankProcessDTO bankProcessDTO, SessionUser sessionUser) {
+    private record BankProcessUpdate(BankProcess before, BankProcess after) {
+    }
+
+    private BankProcessUpdate updateBankProcess(BankProcessDTO bankProcessDTO, SessionUser sessionUser) {
         BankProcess existing = AssertUtils.requireFound(
                 bankProcessDao.findBKProcessByIdAndTenantId(bankProcessDTO.getId(), bankProcessDTO.getTenantId()),
                 "Bank process not found!");
@@ -402,9 +415,18 @@ public class BankProcessServiceImpl implements BankProcessService {
         } catch (Exception e) {
             throw new BusinessException("Update bank process failed. Please try again!");
         }
-        AuditContext.captureAfter(bankProcess.getId(),
-                AuditSnapshots.bankProcess(bankProcessDao.findBKProcessByIdAndTenantId(bankProcess.getId(), bankProcess.getTenantId())));
-        return bankProcess;
+        BankProcess after = bankProcessDao.findBKProcessByIdAndTenantId(bankProcess.getId(), bankProcess.getTenantId());
+        AuditContext.captureAfter(bankProcess.getId(), AuditSnapshots.bankProcess(after));
+        return new BankProcessUpdate(existing, after);
+    }
+
+    /** "{card_owner} ({country code} - {bank option name})" — this 合同's identifier for its audit summary. */
+    private String contractIdentity(BankProcess bp) {
+        BankCountry country = bankCountryOptionDao.findCountryById(bp.getTenantId(), bp.getCountryId());
+        BankOption option = bankCountryOptionDao.findBankOptionById(bp.getTenantId(), bp.getCountryId(), bp.getBankOptionId());
+        String countryCode = country != null && country.getCode() != null ? country.getCode() : "?";
+        String optionName = option != null && option.getName() != null ? option.getName() : "?";
+        return bp.getCardOwner() + " (" + countryCode + " - " + optionName + ")";
     }
 
     private static BankProcess.Frequency parseFrequency(String raw) {

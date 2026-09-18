@@ -8,6 +8,7 @@ import com.eazycount.entity.BankCountry;
 import com.eazycount.entity.BankOption;
 import com.eazycount.entity.BankProcess;
 import com.eazycount.entity.Currency;
+import com.eazycount.entity.DataCapture;
 import com.eazycount.entity.DataCaptureFormula;
 import com.eazycount.entity.Maintenance;
 import com.eazycount.entity.Owner;
@@ -16,11 +17,14 @@ import com.eazycount.entity.Process;
 import com.eazycount.entity.ProcessDescription;
 import com.eazycount.entity.Tenant;
 import com.eazycount.entity.Transaction;
+import com.eazycount.entity.TransactionRate;
 import com.eazycount.entity.User;
 import com.eazycount.entity.UserLink;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 public final class AuditSnapshots {
@@ -51,7 +55,7 @@ public final class AuditSnapshots {
      * tenant_ids (see AuditSnapshots.user). Coarser than a dedicated audit row per table; revisit
      * if/when there's a clearer direction for cascaded writes in general.
      */
-    public static Map<String, Object> admin(Admin a, java.util.List<Integer> tenantIds, java.util.List<String> permissionCodes) {
+    public static Map<String, Object> admin(Admin a, List<Integer> tenantIds, List<String> permissionCodes) {
         if (a == null) {
             return null;
         }
@@ -90,7 +94,7 @@ public final class AuditSnapshots {
      * just the resulting id list) — revisit if/when there's a clearer direction for cascaded
      * writes in general.
      */
-    public static Map<String, Object> user(User u, java.util.List<Integer> tenantIds) {
+    public static Map<String, Object> user(User u, List<Integer> tenantIds) {
         if (u == null) {
             return null;
         }
@@ -108,8 +112,8 @@ public final class AuditSnapshots {
         return s;
     }
 
-    /** Deliberately excludes password — never belongs in an audit trail. See {@link #user(User, java.util.List)}. */
-    public static Map<String, Object> user(UserListDTO u, java.util.List<Integer> tenantIds) {
+    /** Deliberately excludes password — never belongs in an audit trail. See {@link #user(User, List)}. */
+    public static Map<String, Object> user(UserListDTO u, List<Integer> tenantIds) {
         if (u == null) {
             return null;
         }
@@ -214,27 +218,65 @@ public final class AuditSnapshots {
         return snapshot;
     }
 
+    /**
+     * {@code transaction_rate} column names — the FX rate/middleman header a RATE-type submit
+     * also writes alongside its transaction legs (see TransactionSubmitServiceImpl#submitRate).
+     * Not its own audited write (submit()'s entityIdExpr only tracks transactions.id values, and
+     * transaction_rate has no id of its own in that list) — folded into leg1's transaction
+     * snapshot under a nested "rate" key instead, as a stopgap.
+     *
+     * <p>Deliberately omits {@code tenant_id}, {@code rate_group_id}, {@code leg1_transaction_id},
+     * {@code currency_from_id} and {@code amount_from} — by construction (see submitRate) these
+     * are always identical to leg1's own {@code tenant_id}/{@code rate_group_id}/{@code
+     * currency_id}/{@code amount} fields already sitting at the top level of the very same
+     * snapshot, and {@code leg1_transaction_id} always equals this row's own 记录ID/entity_id.
+     * Manually restoring the {@code transaction_rate} row: reuse those top-level values for the
+     * matching {@code transaction_rate} columns instead of repeating them here.
+     */
+    public static Map<String, Object> transactionRate(TransactionRate r) {
+        if (r == null) {
+            return null;
+        }
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("leg2_transaction_id", r.getLeg2TransactionId());
+        snapshot.put("currency_to_id", r.getCurrencyToId());
+        snapshot.put("amount_to", r.getAmountTo());
+        snapshot.put("exchange_rate", r.getExchangeRate());
+        snapshot.put("rate_expression", r.getRateExpression());
+        snapshot.put("middleman_account_id", r.getMiddlemanAccountId());
+        snapshot.put("middleman_rate", r.getMiddlemanRate());
+        snapshot.put("middleman_rate_expression", r.getMiddlemanRateExpression());
+        snapshot.put("middleman_amount", r.getMiddlemanAmount());
+        snapshot.put("platform_fee_amount", r.getPlatformFeeAmount());
+        return snapshot;
+    }
+
     public static Map<String, Object> formula(DataCaptureFormula f) {
         if (f == null) {
             return null;
         }
         Map<String, Object> s = new HashMap<>();
         s.put("id_product", f.getIdProduct());
+        s.put("product_type", f.getProductType());
+        s.put("parent_id_product", f.getParentIdProduct());
         s.put("description", f.getDescription());
         s.put("source_columns", f.getSourceColumns());
         s.put("formula", f.getFormula());
         s.put("input_method", f.getInputMethod());
         s.put("source_percent", f.getSourcePercent());
+        s.put("enable_source_percent", f.getEnableSourcePercent());
+        s.put("enable_input_method", f.getEnableInputMethod());
         s.put("account_id", f.getAccountId());
         s.put("currency_id", f.getCurrencyId());
         return s;
     }
 
     /**
-     * Fuller formula snapshot than {@link #formula} — includes ids and audit metadata
-     * (created_by/at, updated_by/at), not just the user-editable fields. Used where the
-     * snapshot needs to support manual row restoration (Formula Maintenance's delete),
-     * as opposed to {@link #formula}'s lighter "what changed" snapshot for a plain edit.
+     * Fuller formula snapshot than {@link #formula} — covers every {@code data_capture_formula}
+     * column (ids, ordering/versioning fields, audit metadata), not just the user-editable ones.
+     * Used where the snapshot needs to support manual row restoration (Formula Maintenance's
+     * update/delete), as opposed to {@link #formula}'s lighter "what changed" snapshot for a
+     * plain Data Capture Summary edit.
      */
     public static Map<String, Object> formulaFull(DataCaptureFormula f) {
         if (f == null) {
@@ -248,9 +290,14 @@ public final class AuditSnapshots {
         snapshot.put("id_product", f.getIdProduct());
         snapshot.put("product_type", f.getProductType());
         snapshot.put("parent_id_product", f.getParentIdProduct());
+        snapshot.put("formula_variant", f.getFormulaVariant());
+        snapshot.put("sub_order", f.getSubOrder());
+        snapshot.put("row_index", f.getRowIndex());
         snapshot.put("account_id", f.getAccountId());
         snapshot.put("currency_id", f.getCurrencyId());
         snapshot.put("description", f.getDescription());
+        snapshot.put("source_columns", f.getSourceColumns());
+        snapshot.put("columns_display", f.getColumnsDisplay());
         snapshot.put("formula", f.getFormula());
         snapshot.put("input_method", f.getInputMethod());
         snapshot.put("source_percent", f.getSourcePercent());
@@ -260,6 +307,33 @@ public final class AuditSnapshots {
         snapshot.put("updated_by", f.getUpdatedBy());
         snapshot.put("created_at", f.getCreatedAt());
         snapshot.put("updated_at", f.getUpdatedAt());
+        return snapshot;
+    }
+
+    /**
+     * Data Capture Summary's submit — a composite, not a single-entity snapshot: {@code header}
+     * covers the {@code data_captures} row, while {@code lineCount}/{@code total}/{@code
+     * transactionIds} summarize the {@code data_capture_line} and {@code transactions} rows
+     * submit() also writes in the same call (full per-line detail is deliberately left out —
+     * would make the snapshot unbounded for a large submit; entity id + sourceTable already
+     * point at data_captures for manual lookup).
+     */
+    public static Map<String, Object> captureSubmit(DataCapture header, int lineCount, BigDecimal total, List<Integer> transactionIds) {
+        if (header == null) {
+            return null;
+        }
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("category", header.getCategory());
+        snapshot.put("capture_date", header.getCaptureDate());
+        snapshot.put("process_id", header.getProcessId());
+        snapshot.put("currency_id", header.getCurrencyId());
+        snapshot.put("remark", header.getRemark());
+        snapshot.put("remove_word", header.getRemoveWord());
+        snapshot.put("replace_word_from", header.getReplaceWordFrom());
+        snapshot.put("replace_word_to", header.getReplaceWordTo());
+        snapshot.put("line_count", lineCount);
+        snapshot.put("total_amount", total);
+        snapshot.put("transaction_ids", transactionIds);
         return snapshot;
     }
 
