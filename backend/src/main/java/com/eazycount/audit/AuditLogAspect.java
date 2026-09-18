@@ -47,22 +47,29 @@ public class AuditLogAspect {
 
     @Around("@annotation(audited)")
     public Object around(ProceedingJoinPoint joinPoint, Audited audited) throws Throwable {
-        Object result = joinPoint.proceed();
-
+        // Pushed before proceed() so any AuditContext.captureBefore/captureAfter call made deep
+        // inside this method's own body (or a method it calls directly, not through another
+        // @Audited proxy) lands in *this* call's own scope — never a caller's or a nested
+        // @Audited callee's, even when they target the same entity id (see AuditContext's
+        // class doc for the bug this fixes: an Account delete and the account_currency delete
+        // it triggers both key off the same account id).
+        String callScope = AuditContext.pushCallScope();
         try {
-            recordAll(joinPoint, audited, result);
-        } catch (Exception e) {
-            // A broken audit capture must never look like the underlying write failed —
-            // to write already succeeded by the time we get here.
-            log.warn("AuditLogAspect failed to record audit for {}", joinPoint.getSignature(), e);
+            Object result = joinPoint.proceed();
+            try {
+                recordAll(joinPoint, audited, result, callScope);
+            } catch (Exception e) {
+                // A broken audit capture must never look like the underlying write failed —
+                // the write already succeeded by the time we get here.
+                log.warn("AuditLogAspect failed to record audit for {}", joinPoint.getSignature(), e);
+            }
+            return result;
         } finally {
-            AuditContext.clear();
+            AuditContext.popCallScope();
         }
-
-        return result;
     }
 
-    private void recordAll(ProceedingJoinPoint joinPoint, Audited audited, Object result) {
+    private void recordAll(ProceedingJoinPoint joinPoint, Audited audited, Object result, String callScope) {
         List<Object> ids = toIdList(evaluateEntityIdExpr(joinPoint, audited.entityIdExpr(), result));
         if (ids.isEmpty()) {
             log.warn("@Audited({}) on {} resolved no entity ids — nothing recorded",
@@ -77,8 +84,8 @@ public class AuditLogAspect {
             request.setEntityId(String.valueOf(id));
             request.setSourceTable(audited.sourceTable());
             request.setRestorable(audited.restorable());
-            request.setBeforeData(AuditContext.consumeBefore(id));
-            request.setAfterData(resolveAfterData(id, audited.action(), result));
+            request.setBeforeData(AuditContext.consumeBefore(callScope, id));
+            request.setAfterData(resolveAfterData(callScope, id, audited.action(), result));
             auditLogService.record(request);
         }
     }
@@ -89,8 +96,8 @@ public class AuditLogAspect {
      * body explicitly staged one via {@link AuditContext#captureAfter}/{@code captureAfterBatch}
      * — most don't yet, and their audit rows correctly keep {@code afterData == null} until they do.
      */
-    private Object resolveAfterData(Object id, AuditLog.Action action, Object result) {
-        Object captured = AuditContext.consumeAfter(id);
+    private Object resolveAfterData(String callScope, Object id, AuditLog.Action action, Object result) {
+        Object captured = AuditContext.consumeAfter(callScope, id);
         if (captured != null) {
             return captured;
         }

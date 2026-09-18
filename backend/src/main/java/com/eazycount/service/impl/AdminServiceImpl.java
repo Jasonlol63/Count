@@ -368,9 +368,11 @@ public class AdminServiceImpl implements AdminService {
 
         Admin admin = persistUserForCreate(dto);
         AdminTenantAccess primaryAccess = syncTenantGrants(admin, dto, true);
-        // Only the primary `user` row — the fanned-out tenant/account/process access grants and
-        // permission overrides this also writes are separate tables outside this sourceTable.
-        AuditContext.captureAfter(admin.getId(), AuditSnapshots.admin(admin));
+        // Primary `user` row, with company binding + effective sidebar permissions folded into
+        // tenant_ids/permission_codes as a stopgap (see AuditSnapshots.admin) — the account/process
+        // ACL detail this also writes is still unaudited.
+        AuditContext.captureAfter(admin.getId(), AuditSnapshots.admin(
+                admin, adminDao.findAdminTenantIdsByUserId(admin.getId()), resolveEffectiveSidebarPermissionCodes(admin)));
         return buildResult(admin, primaryAccess);
     }
 
@@ -400,12 +402,15 @@ public class AdminServiceImpl implements AdminService {
         AccessControlUtils.assertCanManageAdminTarget(
                 session, actorRole.getHierarchyLevel(), isSelf, targetRole.getHierarchyLevel(), roleChanging);
 
-        // Only the primary `user` row — the re-synced tenant/account/process access grants and
-        // permission overrides this also writes are separate tables outside this sourceTable.
-        AuditContext.captureBefore(userId, AuditSnapshots.admin(existing));
+        // Primary `user` row, with company binding + effective sidebar permissions folded into
+        // tenant_ids/permission_codes as a stopgap (see AuditSnapshots.admin) — the account/process
+        // ACL detail this also writes is still unaudited.
+        AuditContext.captureBefore(userId, AuditSnapshots.admin(
+                existing, adminDao.findAdminTenantIdsByUserId(userId), resolveEffectiveSidebarPermissionCodes(existing)));
         Admin admin = persistUserForUpdate(dto, existing);
         AdminTenantAccess primaryAccess = syncTenantGrants(admin, dto, false);
-        AuditContext.captureAfter(userId, AuditSnapshots.admin(admin));
+        AuditContext.captureAfter(userId, AuditSnapshots.admin(
+                admin, adminDao.findAdminTenantIdsByUserId(userId), resolveEffectiveSidebarPermissionCodes(admin)));
         return buildResult(admin, primaryAccess);
     }
 
@@ -878,7 +883,8 @@ public class AdminServiceImpl implements AdminService {
         AdminRole targetRole = resolveRole(scoped.getAdmin().getRoleCode());
         AccessControlUtils.assertCanManageAdminTarget(
                 session, actorRole.getHierarchyLevel(), false, targetRole.getHierarchyLevel(), false);
-        AuditContext.captureBefore(userId, AuditSnapshots.admin(scoped.getAdmin()));
+        AuditContext.captureBefore(userId, AuditSnapshots.admin(
+                scoped.getAdmin(), adminDao.findAdminTenantIdsByUserId(userId), resolveEffectiveSidebarPermissionCodes(scoped.getAdmin())));
 
         try {
             adminDao.deleteTenantAccessByUserIdAndTenantId(userId, scopeTenantId);

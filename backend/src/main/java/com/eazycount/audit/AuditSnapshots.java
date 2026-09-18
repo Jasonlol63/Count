@@ -41,8 +41,17 @@ public final class AuditSnapshots {
         return s;
     }
 
-    /** Deliberately excludes password/secondaryPassword — never belongs in an audit trail. */
-    public static Map<String, Object> admin(Admin a) {
+    /**
+     * Deliberately excludes password/secondaryPassword — never belongs in an audit trail.
+     *
+     * <p>{@code tenantIds}/{@code permissionCodes}: neither {@code user_tenant_access} (company
+     * binding) nor {@code user_permission_override} (custom sidebar permissions) is its own
+     * audited write (both are plain DAO calls inline in createAdmin/updateAdmin) — folded in
+     * here as a stopgap so they're at least visible somewhere, same approach as Account's
+     * tenant_ids (see AuditSnapshots.user). Coarser than a dedicated audit row per table; revisit
+     * if/when there's a clearer direction for cascaded writes in general.
+     */
+    public static Map<String, Object> admin(Admin a, java.util.List<Integer> tenantIds, java.util.List<String> permissionCodes) {
         if (a == null) {
             return null;
         }
@@ -55,6 +64,8 @@ public final class AuditSnapshots {
         s.put("status", a.getStatus());
         s.put("read_only", a.getReadOnly());
         s.put("permission_mode", a.getPermissionMode());
+        s.put("tenant_ids", tenantIds);
+        s.put("permission_codes", permissionCodes);
         return s;
     }
 
@@ -69,8 +80,17 @@ public final class AuditSnapshots {
         return s;
     }
 
-    /** Deliberately excludes password — never belongs in an audit trail. */
-    public static Map<String, Object> user(User u) {
+    /**
+     * Deliberately excludes password — never belongs in an audit trail.
+     *
+     * <p>{@code tenantIds}: {@code account_tenant_access} isn't its own audited write (no
+     * separate Service call for it, just a DAO call inline in createUser/updateUser) — folded
+     * in here as a stopgap so the company-binding change is at least visible somewhere, rather
+     * than fully unaudited. Coarser than a dedicated audit row (no per-company before/after,
+     * just the resulting id list) — revisit if/when there's a clearer direction for cascaded
+     * writes in general.
+     */
+    public static Map<String, Object> user(User u, java.util.List<Integer> tenantIds) {
         if (u == null) {
             return null;
         }
@@ -84,11 +104,12 @@ public final class AuditSnapshots {
         s.put("alert_amount", u.getAlertAmount());
         s.put("alert_specific_date", u.getAlertSpecificDate());
         s.put("remark", u.getRemark());
+        s.put("tenant_ids", tenantIds);
         return s;
     }
 
-    /** Deliberately excludes password — never belongs in an audit trail. */
-    public static Map<String, Object> user(UserListDTO u) {
+    /** Deliberately excludes password — never belongs in an audit trail. See {@link #user(User, java.util.List)}. */
+    public static Map<String, Object> user(UserListDTO u, java.util.List<Integer> tenantIds) {
         if (u == null) {
             return null;
         }
@@ -98,6 +119,7 @@ public final class AuditSnapshots {
         s.put("role", u.getRole());
         s.put("status", u.getStatus());
         s.put("remark", u.getRemark());
+        s.put("tenant_ids", tenantIds);
         return s;
     }
 

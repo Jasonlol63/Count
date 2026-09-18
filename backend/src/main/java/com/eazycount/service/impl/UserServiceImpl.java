@@ -223,9 +223,9 @@ public class UserServiceImpl implements UserService {
         userListDTO.setTenantAccessId(primaryTenantAccessId);
         userListDTO.setScopeTenantId(userListDTO.getScopeTenantId());
         userListDTO.setTenantIds(targetTenantIds);
-        // Only the primary `account` row — the tenant access grants and currency grants this
-        // also writes are separate tables outside this sourceTable.
-        AuditContext.captureAfter(user.getId(), AuditSnapshots.user(user));
+        // Primary `account` row, with account_tenant_access folded into tenant_ids as a stopgap
+        // (see AuditSnapshots.user) — currency grants are a separate table, still unaudited here.
+        AuditContext.captureAfter(user.getId(), AuditSnapshots.user(user, targetTenantIds));
         return userListDTO;
 
     }
@@ -242,9 +242,13 @@ public class UserServiceImpl implements UserService {
 
         UserListDTO existing = AssertUtils.requireFound(
                 userDao.findUserByIdAndTenantId(userListDTO.getId(), userListDTO.getScopeTenantId()), "User not found!");
-        // Only the primary `account` row — the tenant access re-sync and currency grants this
-        // also writes are separate tables outside this sourceTable.
-        AuditContext.captureBefore(userListDTO.getId(), AuditSnapshots.user(existing));
+        // findUserByIdAndTenantId is scoped to one tenant and never populates tenantIds — fetch
+        // the account's full company list up front so the before-snapshot's tenant_ids reflects
+        // its actual pre-update membership, and reuse it below instead of querying twice.
+        List<Integer> currentTenantIds = userDao.findTenantIdsByUserId(userListDTO.getId());
+        // Primary `account` row, with account_tenant_access folded into tenant_ids as a stopgap
+        // (see AuditSnapshots.user) — currency grants are a separate table, still unaudited here.
+        AuditContext.captureBefore(userListDTO.getId(), AuditSnapshots.user(existing, currentTenantIds));
 
         Integer tenantId = userListDTO.getScopeTenantId();
         AccessControlUtils.requireValidTenantId(tenantId);
@@ -275,7 +279,6 @@ public class UserServiceImpl implements UserService {
         }
         assertHomogeneousAccountTenants(desiredTenantIds);
 
-        List<Integer> currentTenantIds = userDao.findTenantIdsByUserId(userListDTO.getId());
         Set<Integer> currentSet = new HashSet<>(currentTenantIds);
         Set<Integer> desiredSet = new HashSet<>(desiredTenantIds);
 
@@ -323,7 +326,7 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException("User not found after update!");
         }
         updated.setTenantIds(desiredTenantIds);
-        AuditContext.captureAfter(userListDTO.getId(), AuditSnapshots.user(updated));
+        AuditContext.captureAfter(userListDTO.getId(), AuditSnapshots.user(updated, desiredTenantIds));
 
         if (desiredSet.contains(tenantId)) {
             currencyService.deleteByAccountIdAndTenantId(
@@ -403,7 +406,7 @@ public class UserServiceImpl implements UserService {
         if (transactionDao.countTransactionsByAccountId(id, scopeTenantId) > 0) {
             throw new BusinessException("This Account has existing transaction cannot be deleted!");
         }
-        AuditContext.captureBefore(id, AuditSnapshots.user(existing));
+        AuditContext.captureBefore(id, AuditSnapshots.user(existing, userDao.findTenantIdsByUserId(id)));
 
         try {
             userDao.deleteUserTenantAccessByAccountIdAndTenantId(id, scopeTenantId);
