@@ -29,7 +29,7 @@ public final class AuditSummaryDefaults {
     }
 
     private record EntityConfig(String label, List<String> identifierKeys, String labelTemplate, boolean nameOnlyDiff,
-                                 boolean noDiff, String roleLabelField, String identifierConnector) {
+                                boolean noDiff, String roleLabelField, String identifierConnector) {
     }
 
     /** Audit-trail/structural columns every snapshot carries — never the "what changed" a human cares about. */
@@ -68,7 +68,7 @@ public final class AuditSummaryDefaults {
      * delete path that never captured one) still reads cleanly without a dangling connector.
      */
     private static void putNoDiffWithConnector(String module, String sourceTable, String label,
-                                                 List<String> identifierKeys, String identifierConnector) {
+                                               List<String> identifierKeys, String identifierConnector) {
         CONFIG.put(module + "|" + sourceTable,
                 new EntityConfig(label, identifierKeys, null, false, true, null, identifierConnector));
     }
@@ -81,7 +81,7 @@ public final class AuditSummaryDefaults {
      * duplicated in the label).
      */
     private static void putRoleLabel(String module, String sourceTable, String fallbackLabel,
-                                      List<String> identifierKeys, String roleLabelField) {
+                                     List<String> identifierKeys, String roleLabelField) {
         CONFIG.put(module + "|" + sourceTable,
                 new EntityConfig(fallbackLabel, identifierKeys, null, false, true, roleLabelField, null));
     }
@@ -167,7 +167,7 @@ public final class AuditSummaryDefaults {
                         // implies a change, so just name the field, not the value swing.
                         sb.append(" 状态");
                     } else {
-                        String diff = buildDiff(beforeMap, afterMap, config.nameOnlyDiff());
+                        String diff = buildDiff(beforeMap, afterMap, config.nameOnlyDiff(), false);
                         if (diff != null) {
                             sb.append(" 的 ").append(diff);
                         }
@@ -187,7 +187,15 @@ public final class AuditSummaryDefaults {
     public static String diffFields(Object before, Object after) {
         Map<String, Object> beforeMap = before instanceof Map ? (Map<String, Object>) before : Map.of();
         Map<String, Object> afterMap = after instanceof Map ? (Map<String, Object>) after : Map.of();
-        return buildDiff(beforeMap, afterMap, false);
+        return buildDiff(beforeMap, afterMap, false, false);
+    }
+
+    /** Same as {@link #diffFields} but names only, quoted — e.g. {@code "insurance_price"}. */
+    @SuppressWarnings("unchecked")
+    public static String diffFieldNames(Object before, Object after) {
+        Map<String, Object> beforeMap = before instanceof Map ? (Map<String, Object>) before : Map.of();
+        Map<String, Object> afterMap = after instanceof Map ? (Map<String, Object>) after : Map.of();
+        return buildDiff(beforeMap, afterMap, true, true);
     }
 
     private static void appendIdentifier(StringBuilder sb, String identifier, String connector) {
@@ -197,7 +205,7 @@ public final class AuditSummaryDefaults {
     }
 
     private static String resolveRoleLabel(EntityConfig config, Map<String, Object> after, Map<String, Object> before,
-                                            AuditLog.Action action) {
+                                           AuditLog.Action action) {
         if (config.roleLabelField() == null) {
             return config.label();
         }
@@ -246,13 +254,18 @@ public final class AuditSummaryDefaults {
         return keys;
     }
 
-    private static String buildDiff(Map<String, Object> before, Map<String, Object> after, boolean nameOnly) {
+    private static String buildDiff(Map<String, Object> before, Map<String, Object> after,
+                                    boolean nameOnly, boolean quotedNames) {
         if (before.isEmpty() && after.isEmpty()) {
             return null;
         }
         List<String> changed = new ArrayList<>();
         for (String key : changedKeys(before, after)) {
-            changed.add(nameOnly ? key : key + "：" + display(before.get(key)) + " → " + display(after.get(key)));
+            if (nameOnly) {
+                changed.add(quotedNames ? "\"" + key + "\"" : key);
+            } else {
+                changed.add(key + "：" + display(before.get(key)) + " → " + display(after.get(key)));
+            }
         }
         if (changed.isEmpty()) {
             return null;

@@ -89,6 +89,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         AccessControlUtils.requireWritable(sessionUser);
 
         BankProcess bankProcess = insertNewBankProcess(bankProcessDTO, sessionUser);
+        AuditContext.captureAfter(bankProcess.getId(), AuditSnapshots.bankProcess(bankProcess));
         AuditContext.captureSummary(bankProcess.getId(), "创建新合同 " + contractIdentity(bankProcess));
         List<BankProcessShare> shares = insertProfitSharing(bankProcess.getId(), bankProcessDTO.getShares());
 
@@ -121,7 +122,7 @@ public class BankProcessServiceImpl implements BankProcessService {
 
         BankProcessUpdate updateResult = updateBankProcess(bankProcessDTO, sessionUser);
         BankProcess updated = updateResult.after();
-        String diff = AuditSummaryDefaults.diffFields(
+        String diff = AuditSummaryDefaults.diffFieldNames(
                 AuditSnapshots.bankProcess(updateResult.before()), AuditSnapshots.bankProcess(updated));
         String summary = "更新合同 " + contractIdentity(updated);
         if (diff != null) {
@@ -206,6 +207,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         existing.setStatus(status);
         existing.setUpdatedBy(sessionUser.login_id);
         AuditContext.captureAfter(id, AuditSnapshots.bankProcess(existing));
+        AuditContext.captureSummary(id, "更新合同 " + contractIdentity(existing) + " 状态");
         return existing;
     }
 
@@ -232,6 +234,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         }
 
         AuditContext.captureAfter(id, AuditSnapshots.bankProcess(bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId)));
+        AuditContext.captureSummary(id, "更新合同 " + contractIdentity(existing) + " 的 \"remark\"");
     }
 
     @Override

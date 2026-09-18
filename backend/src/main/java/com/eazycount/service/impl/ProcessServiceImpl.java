@@ -340,6 +340,7 @@ public class ProcessServiceImpl implements ProcessService {
 
         Process updated = AssertUtils.requireFound(processDao.findProcessById(id), "Process not found!");
         AuditContext.captureAfter(id, AuditSnapshots.process(updated));
+        AuditContext.captureSummary(id, "更新流程 " + updated.getCode() + " 状态");
         return updated;
     }
 
