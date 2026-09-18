@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.BankCountryOptionDao;
@@ -29,10 +30,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -155,7 +154,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         if (existing.getStatus() == null || existing.getStatus() != BankProcess.Status.INACTIVE) {
             throw new BusinessException("Bank process is not inactive, cannot be deleted!");
         }
-        AuditContext.captureBefore(id, bankProcessSnapshot(existing));
+        AuditContext.captureBefore(id, AuditSnapshots.bankProcess(existing));
 
         try {
             deleteBankProcessShareBatch(id);
@@ -186,7 +185,7 @@ public class BankProcessServiceImpl implements BankProcessService {
 
         BankProcess existing = AssertUtils.requireFound(
                 bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId), "Bank process not found!");
-        AuditContext.captureBefore(id, bankProcessSnapshot(existing));
+        AuditContext.captureBefore(id, AuditSnapshots.bankProcess(existing));
 
         try {
             bankProcessDao.updateStatus(id, tenantId, status);
@@ -196,7 +195,7 @@ public class BankProcessServiceImpl implements BankProcessService {
 
         existing.setStatus(status);
         existing.setUpdatedBy(sessionUser.login_id);
-        AuditContext.captureAfter(id, bankProcessSnapshot(existing));
+        AuditContext.captureAfter(id, AuditSnapshots.bankProcess(existing));
         return existing;
     }
 
@@ -214,7 +213,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         BankProcess existing = AssertUtils.requireFound(
                 bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId), "Bank process not found!");
         assertEditable(existing);
-        AuditContext.captureBefore(id, bankProcessSnapshot(existing));
+        AuditContext.captureBefore(id, AuditSnapshots.bankProcess(existing));
 
         try {
             bankProcessDao.updateRemark(id, tenantId, remark, sessionUser.login_id);
@@ -222,7 +221,7 @@ public class BankProcessServiceImpl implements BankProcessService {
             throw new BusinessException("Update bank process remark failed. Please try again!");
         }
 
-        AuditContext.captureAfter(id, bankProcessSnapshot(bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId)));
+        AuditContext.captureAfter(id, AuditSnapshots.bankProcess(bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId)));
     }
 
     @Override
@@ -242,7 +241,7 @@ public class BankProcessServiceImpl implements BankProcessService {
 
         Transaction linked = AssertUtils.requireFound(
                 transactionDao.findLinkedBankBalanceTransaction(tenantId, id), "No Bank Balance to delete!");
-        AuditContext.captureBefore(id, bankBalanceSnapshot(linked));
+        AuditContext.captureBefore(id, AuditSnapshots.bankBalance(linked));
 
         // Reuse the existing Payment Maintenance delete flow (archives to transactions_deleted, then
         // hard-deletes) — CONTRA is already one of its supported types, so this keeps Bank Balance
@@ -371,7 +370,7 @@ public class BankProcessServiceImpl implements BankProcessService {
                 bankProcessDao.findBKProcessByIdAndTenantId(bankProcessDTO.getId(), bankProcessDTO.getTenantId()),
                 "Bank process not found!");
         assertEditable(existing);
-        AuditContext.captureBefore(existing.getId(), bankProcessSnapshot(existing));
+        AuditContext.captureBefore(existing.getId(), AuditSnapshots.bankProcess(existing));
 
         BankProcess.Frequency frequency = parseFrequency(bankProcessDTO.getFrequency());
 
@@ -404,67 +403,8 @@ public class BankProcessServiceImpl implements BankProcessService {
             throw new BusinessException("Update bank process failed. Please try again!");
         }
         AuditContext.captureAfter(bankProcess.getId(),
-                bankProcessSnapshot(bankProcessDao.findBKProcessByIdAndTenantId(bankProcess.getId(), bankProcess.getTenantId())));
+                AuditSnapshots.bankProcess(bankProcessDao.findBKProcessByIdAndTenantId(bankProcess.getId(), bankProcess.getTenantId())));
         return bankProcess;
-    }
-
-    /** {@code bank_process} column names, not {@link BankProcess}'s Java field names — see docs/it-role-audit-log.md. */
-    private static Map<String, Object> bankProcessSnapshot(BankProcess bp) {
-        if (bp == null) {
-            return null;
-        }
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("id", bp.getId());
-        snapshot.put("tenant_id", bp.getTenantId());
-        snapshot.put("country_id", bp.getCountryId());
-        snapshot.put("bank_option_id", bp.getBankOptionId());
-        snapshot.put("card_owner", bp.getCardOwner());
-        snapshot.put("card_owner_type", bp.getCardOwnerType());
-        snapshot.put("day_start", bp.getDayStart());
-        snapshot.put("day_end", bp.getDayEnd());
-        snapshot.put("day_end_monthly_cap_enabled", bp.getDayEndMonthlyCapEnabled());
-        snapshot.put("expired_at_creation", bp.getExpiredAtCreation());
-        snapshot.put("due_generation_floor", bp.getDueGenerationFloor());
-        snapshot.put("frequency", bp.getFrequency());
-        snapshot.put("supplier_account_id", bp.getSupplierAccountId());
-        snapshot.put("supplier_price", bp.getSupplierPrice());
-        snapshot.put("customer_account_id", bp.getCustomerAccountId());
-        snapshot.put("customer_price", bp.getCustomerPrice());
-        snapshot.put("company_account_id", bp.getCompanyAccountId());
-        snapshot.put("company_price", bp.getCompanyPrice());
-        snapshot.put("contract", bp.getContract());
-        snapshot.put("insurance_price", bp.getInsurancePrice());
-        snapshot.put("sop", bp.getSop());
-        snapshot.put("remark", bp.getRemark());
-        snapshot.put("status", bp.getStatus());
-        snapshot.put("resend_schedule_day_start", bp.getResendScheduleDayStart());
-        snapshot.put("resend_schedule_day_end", bp.getResendScheduleDayEnd());
-        snapshot.put("resend_schedule_frequency", bp.getResendScheduleFrequency());
-        snapshot.put("created_by", bp.getCreatedBy());
-        snapshot.put("updated_by", bp.getUpdatedBy());
-        snapshot.put("created_at", bp.getCreatedAt());
-        snapshot.put("updated_at", bp.getUpdatedAt());
-        return snapshot;
-    }
-
-    /** {@code transactions} column names for the Bank Balance Contra being removed — see docs/it-role-audit-log.md. */
-    private static Map<String, Object> bankBalanceSnapshot(Transaction t) {
-        if (t == null) {
-            return null;
-        }
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("id", t.getId());
-        snapshot.put("tenant_id", t.getTenantId());
-        snapshot.put("transaction_type", t.getTransactionType());
-        snapshot.put("account_id", t.getAccountId());
-        snapshot.put("from_account_id", t.getFromAccountId());
-        snapshot.put("currency_id", t.getCurrencyId());
-        snapshot.put("amount", t.getAmount());
-        snapshot.put("transaction_date", t.getTransactionDate());
-        snapshot.put("bank_process_id", t.getBankProcessId());
-        snapshot.put("created_by", t.getCreatedBy());
-        snapshot.put("created_at", t.getCreatedAt());
-        return snapshot;
     }
 
     private static BankProcess.Frequency parseFrequency(String raw) {

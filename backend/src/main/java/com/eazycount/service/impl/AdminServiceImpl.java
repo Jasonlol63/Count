@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.entity.AuditLog;
 import com.eazycount.common.BusinessException;
@@ -60,36 +61,6 @@ public class AdminServiceImpl implements AdminService {
 
     public AdminServiceImpl(AdminDao adminDao) {
         this.adminDao = adminDao;
-    }
-
-    /** Deliberately excludes password/secondaryPassword — never belongs in an audit trail. */
-    private Map<String, Object> adminSnapshot(Admin a) {
-        if (a == null) {
-            return null;
-        }
-        Map<String, Object> s = new HashMap<>();
-        s.put("login_id", a.getLoginId());
-        s.put("name", a.getName());
-        s.put("email", a.getEmail());
-        s.put("role_id", a.getRoleId());
-        s.put("role_code", a.getRoleCode());
-        s.put("status", a.getStatus());
-        s.put("read_only", a.getReadOnly());
-        s.put("permission_mode", a.getPermissionMode());
-        return s;
-    }
-
-    /** Deliberately excludes password/secondaryPassword — never belongs in an audit trail. */
-    private Map<String, Object> ownerSnapshot(Owner o) {
-        if (o == null) {
-            return null;
-        }
-        Map<String, Object> s = new HashMap<>();
-        s.put("owner_code", o.getOwnerCode());
-        s.put("name", o.getName());
-        s.put("email", o.getEmail());
-        s.put("status", o.getStatus());
-        return s;
     }
 
     @Override
@@ -275,7 +246,7 @@ public class AdminServiceImpl implements AdminService {
         requireOwnerSessionForProfile(dto.getId());
 
         Owner existing = AssertUtils.requireFound(domainDao.findOwnerById(dto.getId()), "Owner not found!");
-        AuditContext.captureBefore(dto.getId(), ownerSnapshot(existing));
+        AuditContext.captureBefore(dto.getId(), AuditSnapshots.owner(existing));
 
         Owner patch = new Owner();
         patch.setId(existing.getId());
@@ -292,7 +263,7 @@ public class AdminServiceImpl implements AdminService {
         domainService.updateOwnerDetails(patch);
 
         Owner updated = AssertUtils.requireFound(domainDao.findOwnerById(dto.getId()), "Owner not found!");
-        AuditContext.captureAfter(dto.getId(), ownerSnapshot(updated));
+        AuditContext.captureAfter(dto.getId(), AuditSnapshots.owner(updated));
         return buildOwnerShadowListRow(updated);
     }
 
@@ -399,7 +370,7 @@ public class AdminServiceImpl implements AdminService {
         AdminTenantAccess primaryAccess = syncTenantGrants(admin, dto, true);
         // Only the primary `user` row — the fanned-out tenant/account/process access grants and
         // permission overrides this also writes are separate tables outside this sourceTable.
-        AuditContext.captureAfter(admin.getId(), adminSnapshot(admin));
+        AuditContext.captureAfter(admin.getId(), AuditSnapshots.admin(admin));
         return buildResult(admin, primaryAccess);
     }
 
@@ -431,10 +402,10 @@ public class AdminServiceImpl implements AdminService {
 
         // Only the primary `user` row — the re-synced tenant/account/process access grants and
         // permission overrides this also writes are separate tables outside this sourceTable.
-        AuditContext.captureBefore(userId, adminSnapshot(existing));
+        AuditContext.captureBefore(userId, AuditSnapshots.admin(existing));
         Admin admin = persistUserForUpdate(dto, existing);
         AdminTenantAccess primaryAccess = syncTenantGrants(admin, dto, false);
-        AuditContext.captureAfter(userId, adminSnapshot(admin));
+        AuditContext.captureAfter(userId, AuditSnapshots.admin(admin));
         return buildResult(admin, primaryAccess);
     }
 
@@ -907,7 +878,7 @@ public class AdminServiceImpl implements AdminService {
         AdminRole targetRole = resolveRole(scoped.getAdmin().getRoleCode());
         AccessControlUtils.assertCanManageAdminTarget(
                 session, actorRole.getHierarchyLevel(), false, targetRole.getHierarchyLevel(), false);
-        AuditContext.captureBefore(userId, adminSnapshot(scoped.getAdmin()));
+        AuditContext.captureBefore(userId, AuditSnapshots.admin(scoped.getAdmin()));
 
         try {
             adminDao.deleteTenantAccessByUserIdAndTenantId(userId, scopeTenantId);

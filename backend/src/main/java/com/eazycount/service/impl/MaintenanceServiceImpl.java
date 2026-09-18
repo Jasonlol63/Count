@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.BankProcessResendDao;
@@ -198,7 +199,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         String updatedBy = session.login_id.trim();
 
         DataCaptureFormula before = dataCaptureSummaryDao.findByIdAndTenantId(id, tenantId);
-        AuditContext.captureBefore(id, formulaSnapshot(before));
+        AuditContext.captureBefore(id, AuditSnapshots.formulaFull(before));
 
         int updated = maintenanceDao.updateFormulaMaintenanceRow(
                 tenantId, id, accountId, sourcePercent, inputMethod, formula, description, updatedBy);
@@ -207,7 +208,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
 
         DataCaptureFormula after = dataCaptureSummaryDao.findByIdAndTenantId(id, tenantId);
-        AuditContext.captureAfter(id, formulaSnapshot(after));
+        AuditContext.captureAfter(id, AuditSnapshots.formulaFull(after));
 
         // Copy From formula sync: mirror this edit onto every other formula sharing the same group
         // tag (i.e. formulas copied from/to this one across processes). Delete is deliberately NOT
@@ -231,7 +232,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
         Map<Integer, Object> beforeSnapshots = new LinkedHashMap<>();
         for (Integer id : ids) {
-            beforeSnapshots.put(id, formulaSnapshot(dataCaptureSummaryDao.findByIdAndTenantId(id, tenantId)));
+            beforeSnapshots.put(id, AuditSnapshots.formulaFull(dataCaptureSummaryDao.findByIdAndTenantId(id, tenantId)));
         }
         AuditContext.captureBeforeBatch(beforeSnapshots);
 
@@ -239,34 +240,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (removed <= 0) {
             throw new BusinessException("No matching formula maintenance records to delete");
         }
-    }
-
-    /** {@code data_capture_formula} column names, not {@link DataCaptureFormula}'s Java field names — see docs/it-role-audit-log.md. */
-    private static Map<String, Object> formulaSnapshot(DataCaptureFormula f) {
-        if (f == null) {
-            return null;
-        }
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("id", f.getId());
-        snapshot.put("formula_group_id", f.getFormulaGroupId());
-        snapshot.put("tenant_id", f.getTenantId());
-        snapshot.put("process_id", f.getProcessId());
-        snapshot.put("id_product", f.getIdProduct());
-        snapshot.put("product_type", f.getProductType());
-        snapshot.put("parent_id_product", f.getParentIdProduct());
-        snapshot.put("account_id", f.getAccountId());
-        snapshot.put("currency_id", f.getCurrencyId());
-        snapshot.put("description", f.getDescription());
-        snapshot.put("formula", f.getFormula());
-        snapshot.put("input_method", f.getInputMethod());
-        snapshot.put("source_percent", f.getSourcePercent());
-        snapshot.put("enable_source_percent", f.getEnableSourcePercent());
-        snapshot.put("enable_input_method", f.getEnableInputMethod());
-        snapshot.put("created_by", f.getCreatedBy());
-        snapshot.put("updated_by", f.getUpdatedBy());
-        snapshot.put("created_at", f.getCreatedAt());
-        snapshot.put("updated_at", f.getUpdatedAt());
-        return snapshot;
     }
 
     @Override
@@ -350,7 +323,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         List<Transaction> rowsBeingDeleted = maintenanceDao.findByIdsAndTenantId(tenantId, batch.ids());
         Map<Integer, Object> beforeSnapshots = new LinkedHashMap<>();
         for (Transaction row : rowsBeingDeleted) {
-            beforeSnapshots.put(row.getId(), transactionSnapshot(row));
+            beforeSnapshots.put(row.getId(), AuditSnapshots.transaction(row));
         }
         AuditContext.captureBeforeBatch(beforeSnapshots);
 
@@ -371,32 +344,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
 
         return batch.ids();
-    }
-
-    /** {@code transactions} column names, not {@link Transaction}'s Java field names — see docs/it-role-audit-log.md. */
-    private static Map<String, Object> transactionSnapshot(Transaction t) {
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("id", t.getId());
-        snapshot.put("tenant_id", t.getTenantId());
-        snapshot.put("transaction_type", t.getTransactionType());
-        snapshot.put("account_id", t.getAccountId());
-        snapshot.put("from_account_id", t.getFromAccountId());
-        snapshot.put("currency_id", t.getCurrencyId());
-        snapshot.put("amount", t.getAmount());
-        snapshot.put("transaction_date", t.getTransactionDate());
-        snapshot.put("description", t.getDescription());
-        snapshot.put("remark", t.getRemark());
-        snapshot.put("created_by", t.getCreatedBy());
-        snapshot.put("updated_by", t.getUpdatedBy());
-        snapshot.put("approval_status", t.getApprovalStatus());
-        snapshot.put("approved_by", t.getApprovedBy());
-        snapshot.put("approved_at", t.getApprovedAt());
-        snapshot.put("bank_process_posted_id", t.getBankProcessPostedId());
-        snapshot.put("bank_process_id", t.getBankProcessId());
-        snapshot.put("rate_group_id", t.getRateGroupId());
-        snapshot.put("created_at", t.getCreatedAt());
-        snapshot.put("updated_at", t.getUpdatedAt());
-        return snapshot;
     }
 
     @Override
@@ -420,7 +367,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         List<Transaction> rowsBeingDeleted = maintenanceDao.findByIdsAndTenantId(tenantId, batch.ids());
         Map<Integer, Object> beforeSnapshots = new LinkedHashMap<>();
         for (Transaction row : rowsBeingDeleted) {
-            beforeSnapshots.put(row.getId(), transactionSnapshot(row));
+            beforeSnapshots.put(row.getId(), AuditSnapshots.transaction(row));
         }
         AuditContext.captureBeforeBatch(beforeSnapshots);
 

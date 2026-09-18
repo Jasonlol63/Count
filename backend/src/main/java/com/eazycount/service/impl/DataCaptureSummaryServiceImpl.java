@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.entity.AuditLog;
 import com.eazycount.common.BusinessException;
@@ -59,22 +60,6 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
 
     @Autowired
     private TransactionDao transactionDao;
-
-    private Map<String, Object> formulaSnapshot(DataCaptureFormula f) {
-        if (f == null) {
-            return null;
-        }
-        Map<String, Object> s = new HashMap<>();
-        s.put("id_product", f.getIdProduct());
-        s.put("description", f.getDescription());
-        s.put("source_columns", f.getSourceColumns());
-        s.put("formula", f.getFormula());
-        s.put("input_method", f.getInputMethod());
-        s.put("source_percent", f.getSourcePercent());
-        s.put("account_id", f.getAccountId());
-        s.put("currency_id", f.getCurrencyId());
-        return s;
-    }
 
     // Actually branches at runtime into either an insert (new MAIN/SUB row) or an update
     // (editing an existing MAIN row) — see saveAsMain/saveAsSub. Annotated CREATE for the
@@ -221,13 +206,13 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         row.setUpdatedBy(loginId);
 
         if (existingMain != null && existingMain.getId() != null) {
-            AuditContext.captureBefore(existingMain.getId(), formulaSnapshot(existingMain));
+            AuditContext.captureBefore(existingMain.getId(), AuditSnapshots.formula(existingMain));
             dataCaptureSummaryDao.updateMainFields(row);
         } else {
             row.setCreatedBy(loginId);
             dataCaptureSummaryDao.insertFormula(row);
         }
-        AuditContext.captureAfter(row.getId(), formulaSnapshot(row));
+        AuditContext.captureAfter(row.getId(), AuditSnapshots.formula(row));
 
         return toResponse(row, request);
     }
@@ -308,7 +293,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         if (existing == null || existing.getId() == null) {
             throw new BusinessException("Formula not found");
         }
-        AuditContext.captureBefore(existing.getId(), formulaSnapshot(existing));
+        AuditContext.captureBefore(existing.getId(), AuditSnapshots.formula(existing));
 
         String formula = NormalizeUtils.trimToNull(request.getFormula());
         if (formula == null) {
@@ -362,7 +347,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         existing.setUpdatedBy(session.login_id != null ? session.login_id : "");
 
         dataCaptureSummaryDao.updateFormulaById(existing);
-        AuditContext.captureAfter(existing.getId(), formulaSnapshot(existing));
+        AuditContext.captureAfter(existing.getId(), AuditSnapshots.formula(existing));
 
         // Copy From formula sync: mirror this edit onto every other formula sharing the same group
         // tag (i.e. formulas copied from/to this one across processes). Delete is deliberately NOT
@@ -414,7 +399,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
             int removed = dataCaptureSummaryDao.deleteByIdAndTenantId(existing.getId(), tenantId);
             if (removed > 0) {
                 deletedIds.add(existing.getId());
-                beforeSnapshots.put(existing.getId(), formulaSnapshot(existing));
+                beforeSnapshots.put(existing.getId(), AuditSnapshots.formula(existing));
                 if (existing.getProductType() == DataCaptureFormula.ProductType.SUB
                         && existing.getParentIdProduct() != null) {
                     subGroupsToResequence.add(existing.getParentIdProduct());
@@ -447,8 +432,15 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         }
     }
 
+    // The highest-write-fanout method in the whole app — one submit creates a data_captures
+    // header, N data_capture_line rows, N posted transactions, and a process_submitted marker.
+    // Logged against the header (sourceTable="data_captures"); the line/transaction detail is
+    // summarized into the after-snapshot rather than split into one row per table, since they're
+    // all created together as one atomic business action, not independently editable rows.
     @Override
     @Transactional
+    @Audited(module = "DATA_CAPTURE", action = AuditLog.Action.CREATE,
+            entityIdExpr = "#result.captureId", sourceTable = "data_captures")
     public DataCaptureSummarySubmitDTO submit(DataCaptureSummarySubmitDTO request) {
         SessionUser session = AccessControlUtils.requireLoggedIn();
         AccessControlUtils.requireWritable(session);
@@ -512,10 +504,12 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         Integer captureId = header.getId();
 
         List<DataCaptureLine> lineEntities = new ArrayList<>();
+        List<Integer> transactionIds = new ArrayList<>();
         int order = 0;
         for (ComputedLine computed : computedLines) {
             Transaction txn = toTransaction(computed, tenantId, headerCurrencyId, captureDate, process.getCode(), session);
             transactionDao.insert(txn);
+            transactionIds.add(txn.getId());
             lineEntities.add(toLineEntity(computed, tenantId, captureId, headerCurrencyId, order, txn.getId()));
             order++;
         }
@@ -524,6 +518,17 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         // 3) submitted record — GAME and BANK both log every submit; BANK may repeat the same
         // process/date (no dedup, distinguished by created_at in the Submitted Processes list).
         dataCaptureDao.insertProcessSubmitted(tenantId, processId, session.login_id, captureDate, captureId);
+
+        Map<String, Object> afterSnapshot = new HashMap<>();
+        afterSnapshot.put("category", header.getCategory());
+        afterSnapshot.put("capture_date", captureDate);
+        afterSnapshot.put("process_id", processId);
+        afterSnapshot.put("currency_id", headerCurrencyId);
+        afterSnapshot.put("remark", header.getRemark());
+        afterSnapshot.put("line_count", lineEntities.size());
+        afterSnapshot.put("total_amount", total);
+        afterSnapshot.put("transaction_ids", transactionIds);
+        AuditContext.captureAfter(captureId, afterSnapshot);
 
         DataCaptureSummarySubmitDTO response = new DataCaptureSummarySubmitDTO();
         response.setCaptureId(captureId);

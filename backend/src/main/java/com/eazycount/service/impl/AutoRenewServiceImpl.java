@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.entity.AuditLog;
 import com.eazycount.dao.AutoRenewDao;
@@ -211,19 +212,6 @@ public class AutoRenewServiceImpl implements AutoRenewService {
         return responseData;
     }
 
-    private Map<String, Object> statusSnapshot(AutoRenewDTO r) {
-        if (r == null) {
-            return null;
-        }
-        Map<String, Object> s = new HashMap<>();
-        s.put("status", r.getStatus());
-        s.put("period", r.getPeriod());
-        s.put("price", r.getPrice());
-        s.put("new_expiration_date", r.getNewExpirationDate());
-        s.put("processed_by", r.getProcessedBy());
-        return s;
-    }
-
     @Override
     @Audited(module = "AUTO_RENEW", action = AuditLog.Action.UPDATE, entityIdExpr = "#requestId", sourceTable = "tenant_auto_renew")
     public void rejectRequest(Integer requestId) {
@@ -237,11 +225,11 @@ public class AutoRenewServiceImpl implements AutoRenewService {
         if (!"pending".equalsIgnoreCase(request.getStatus())) {
             throw new BusinessException("Auto renew request is not pending");
         }
-        AuditContext.captureBefore(requestId, statusSnapshot(request));
+        AuditContext.captureBefore(requestId, AuditSnapshots.autoRenewStatus(request));
 
         String processedBy = session.login_id != null ? session.login_id : "system";
         autoRenewDao.rejectRequest(requestId, processedBy);
-        AuditContext.captureAfter(requestId, statusSnapshot(autoRenewDao.selectRequestById(requestId)));
+        AuditContext.captureAfter(requestId, AuditSnapshots.autoRenewStatus(autoRenewDao.selectRequestById(requestId)));
     }
 
     @Override
@@ -262,7 +250,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
         if (!"pending".equalsIgnoreCase(request.getStatus())) {
             throw new BusinessException("Auto renew request is not pending");
         }
-        AuditContext.captureBefore(requestId, statusSnapshot(request));
+        AuditContext.captureBefore(requestId, AuditSnapshots.autoRenewStatus(request));
 
         Tenant tenant = domainDao.findTenantById(request.getTenantId());
         if (tenant == null || tenant.getId() == null) {
@@ -298,7 +286,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
 
         String processedBy = session.login_id != null ? session.login_id : "system";
         autoRenewDao.approveRequest(requestId, period, price, newExpiration, processedBy);
-        AuditContext.captureAfter(requestId, statusSnapshot(autoRenewDao.selectRequestById(requestId)));
+        AuditContext.captureAfter(requestId, AuditSnapshots.autoRenewStatus(autoRenewDao.selectRequestById(requestId)));
 
         AutoRenewDTO data = new AutoRenewDTO();
         data.setRequestId(requestId);
@@ -321,7 +309,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
 
         AutoRenewDTO request = AssertUtils.requireFound(
                 autoRenewDao.selectRequestById(requestId), "Auto renew request not found");
-        AuditContext.captureBefore(requestId, statusSnapshot(request));
+        AuditContext.captureBefore(requestId, AuditSnapshots.autoRenewStatus(request));
 
         String status = request.getStatus();
         if ("approved".equalsIgnoreCase(status)) {
@@ -348,7 +336,7 @@ public class AutoRenewServiceImpl implements AutoRenewService {
         } else {
             throw new BusinessException("Only approved or rejected requests can be deleted");
         }
-        AuditContext.captureAfter(requestId, statusSnapshot(autoRenewDao.selectRequestById(requestId)));
+        AuditContext.captureAfter(requestId, AuditSnapshots.autoRenewStatus(autoRenewDao.selectRequestById(requestId)));
     }
 
     /* 到期状态 Badge 阈值：≤7 天 danger，≤30 天 warning，已过期 expired，其余 normal */

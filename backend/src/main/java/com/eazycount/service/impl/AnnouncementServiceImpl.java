@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.AnnouncementDao;
@@ -23,32 +24,6 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
     @Autowired
     private AnnouncementDao announcementDao;
-
-    private Map<String, Object> snapshot(Announcements a) {
-        if (a == null) {
-            return null;
-        }
-        Map<String, Object> s = new HashMap<>();
-        s.put("title", a.getTitle());
-        s.put("content", a.getContent());
-        s.put("company_code", a.getCompanyCode());
-        s.put("status", a.getStatus());
-        s.put("user_type", a.getUserType());
-        return s;
-    }
-
-    private Map<String, Object> snapshot(Maintenance m) {
-        if (m == null) {
-            return null;
-        }
-        Map<String, Object> s = new HashMap<>();
-        s.put("prefix", m.getPrefix());
-        s.put("content", m.getContent());
-        s.put("company_code", m.getCompanyCode());
-        s.put("status", m.getStatus());
-        s.put("user_type", m.getUserType());
-        return s;
-    }
 
     @Override
     public List<Announcements> findAllAnnouncement() {return announcementDao.findAllAnnouncement();}
@@ -99,7 +74,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             maintenance.setContent(maintenance.getContent());
             maintenance.setCreatedAt(maintenance.getCreatedAt());
             announcementDao.addMaintenance(maintenance);
-            AuditContext.captureAfter(maintenance.getId(), snapshot(maintenance));
+            AuditContext.captureAfter(maintenance.getId(), AuditSnapshots.maintenance(maintenance));
         } catch (Exception e) {
             throw new BusinessException("Insert failed. Please try again!");
         }
@@ -139,7 +114,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             announcements.setContent(announcements.getContent());
             announcements.setCreatedAt(announcements.getCreatedAt());
             announcementDao.addAnnouncement(announcements);
-            AuditContext.captureAfter(announcements.getId(), snapshot(announcements));
+            AuditContext.captureAfter(announcements.getId(), AuditSnapshots.announcement(announcements));
 
         }catch (Exception e){
             throw new BusinessException("Insert failed. Please try again!");
@@ -159,11 +134,11 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             throw new BusinessException("Id not found. Please try again!");
         }
         try{
-            AuditContext.captureBefore(announcements.getId(), snapshot(announcementDao.findAnnouncementById(announcements.getId())));
+            AuditContext.captureBefore(announcements.getId(), AuditSnapshots.announcement(announcementDao.findAnnouncementById(announcements.getId())));
             announcements.setTitle(announcements.getTitle());
             announcements.setContent(announcements.getContent());
             announcementDao.updateAnnouncement(announcements);
-            AuditContext.captureAfter(announcements.getId(), snapshot(announcementDao.findAnnouncementById(announcements.getId())));
+            AuditContext.captureAfter(announcements.getId(), AuditSnapshots.announcement(announcementDao.findAnnouncementById(announcements.getId())));
         }catch (Exception e){
             throw new BusinessException("Update failed. Please try again!");
         }
@@ -181,11 +156,11 @@ public class AnnouncementServiceImpl implements AnnouncementService {
         }
 
         try{
-            AuditContext.captureBefore(maintenance.getId(), snapshot(announcementDao.findMaintenanceById(maintenance.getId())));
+            AuditContext.captureBefore(maintenance.getId(), AuditSnapshots.maintenance(announcementDao.findMaintenanceById(maintenance.getId())));
             maintenance.setPrefix(maintenance.getPrefix());
             maintenance.setContent(maintenance.getContent());
             announcementDao.updateMaintenance(maintenance);
-            AuditContext.captureAfter(maintenance.getId(), snapshot(announcementDao.findMaintenanceById(maintenance.getId())));
+            AuditContext.captureAfter(maintenance.getId(), AuditSnapshots.maintenance(announcementDao.findMaintenanceById(maintenance.getId())));
         }catch (Exception e){
             throw new BusinessException("Update failed. Please try again!");
         }
@@ -202,7 +177,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             throw new BusinessException("Id not found. Please try again!");
         }
         try{
-            AuditContext.captureBefore(announcements.getId(), snapshot(announcementDao.findAnnouncementById(announcements.getId())));
+            AuditContext.captureBefore(announcements.getId(), AuditSnapshots.announcement(announcementDao.findAnnouncementById(announcements.getId())));
             announcementDao.deleteAnnouncement(announcements);
         }catch (Exception e){
             throw new BusinessException("Delete failed. Please try again!");
@@ -220,7 +195,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             throw new BusinessException("Id not found. Please try again!");
         }
         try{
-            AuditContext.captureBefore(maintenance.getId(), snapshot(announcementDao.findMaintenanceById(maintenance.getId())));
+            AuditContext.captureBefore(maintenance.getId(), AuditSnapshots.maintenance(announcementDao.findMaintenanceById(maintenance.getId())));
             announcementDao.deleteMaintenance(maintenance);
         }catch (Exception e){
             throw new BusinessException("Delete failed. Please try again!");

@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.ProcessDescDao;
@@ -15,9 +16,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 @Service
 public class ProcessDescServiceImpl implements ProcessDescService {
@@ -59,7 +58,7 @@ public class ProcessDescServiceImpl implements ProcessDescService {
             throw new BusinessException("Insert failed. Please try again!");
         }
 
-        AuditContext.captureAfter(processDescription.getId(), processDescriptionSnapshot(processDescription));
+        AuditContext.captureAfter(processDescription.getId(), AuditSnapshots.processDescription(processDescription));
     }
 
     @Override
@@ -75,25 +74,12 @@ public class ProcessDescServiceImpl implements ProcessDescService {
 
         ProcessDescription processDescription = AssertUtils.requireFound(
                 processDescDao.findDescriptionByIdAndTenantId(id, tenantId), "Description does not exist!");
-        AuditContext.captureBefore(id, processDescriptionSnapshot(processDescription));
+        AuditContext.captureBefore(id, AuditSnapshots.processDescription(processDescription));
 
         try {
             processDescDao.deleteProcessDescriptionById(id, tenantId);
         } catch (Exception e) {
             throw new BusinessException("Delete failed. Please try again!");
         }
-    }
-
-    /** {@code process_description} column names, not {@link ProcessDescription}'s Java field names — see docs/it-role-audit-log.md. */
-    private static Map<String, Object> processDescriptionSnapshot(ProcessDescription d) {
-        if (d == null) {
-            return null;
-        }
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("id", d.getId());
-        snapshot.put("tenant_id", d.getTenantId());
-        snapshot.put("name", d.getName());
-        snapshot.put("created_at", d.getCreatedAt());
-        return snapshot;
     }
 }

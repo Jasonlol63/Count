@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.AdminDao;
@@ -24,10 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -207,7 +206,7 @@ public class ProcessServiceImpl implements ProcessService {
         if (existed == null || !processDTO.getTenantId().equals(existed.getTenantId())) {
             throw new BusinessException("Process not found!");
         }
-        AuditContext.captureBefore(existed.getId(), processSnapshot(existed));
+        AuditContext.captureBefore(existed.getId(), AuditSnapshots.process(existed));
 
         if (currencyDao.findByIdAndTenantId(processDTO.getCurrencyId(), processDTO.getTenantId()) == null) {
             throw new BusinessException("Currency not found!");
@@ -230,7 +229,7 @@ public class ProcessServiceImpl implements ProcessService {
         processDao.updateProcessDetails(process);
 
         Integer processId = processDTO.getId();
-        AuditContext.captureAfter(processId, processSnapshot(processDao.findProcessById(processId)));
+        AuditContext.captureAfter(processId, AuditSnapshots.process(processDao.findProcessById(processId)));
         processDao.deleteProcessDescriptionLinkByProcessId(processId);
         processDao.deleteProcessDayByProcessId(processId);
 
@@ -299,7 +298,7 @@ public class ProcessServiceImpl implements ProcessService {
             throw new BusinessException("Process has existing transaction cannot be deleted!");
         }
 
-        AuditContext.captureBefore(id, processSnapshot(process));
+        AuditContext.captureBefore(id, AuditSnapshots.process(process));
 
         // Child rows (description_link / day / process_submitted) cascade from process FK.
         try {
@@ -323,7 +322,7 @@ public class ProcessServiceImpl implements ProcessService {
         if (process == null || !tenantId.equals(process.getTenantId())) {
             throw new BusinessException("Process not found!");
         }
-        AuditContext.captureBefore(id, processSnapshot(process));
+        AuditContext.captureBefore(id, AuditSnapshots.process(process));
 
         Process.Status current = process.getStatus() != null
                 ? process.getStatus()
@@ -335,7 +334,7 @@ public class ProcessServiceImpl implements ProcessService {
         processDao.updateProcessStatus(id, tenantId, newStatus);
 
         Process updated = AssertUtils.requireFound(processDao.findProcessById(id), "Process not found!");
-        AuditContext.captureAfter(id, processSnapshot(updated));
+        AuditContext.captureAfter(id, AuditSnapshots.process(updated));
         return updated;
     }
 
@@ -370,31 +369,6 @@ public class ProcessServiceImpl implements ProcessService {
         } catch (Exception e) {
             throw new BusinessException("Failed to copy data from source process!");
         }
-    }
-
-    /** {@code process} column names, not {@link Process}'s Java field names — see docs/it-role-audit-log.md. */
-    private static Map<String, Object> processSnapshot(Process p) {
-        if (p == null) {
-            return null;
-        }
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("id", p.getId());
-        snapshot.put("tenant_id", p.getTenantId());
-        snapshot.put("category", p.getCategory());
-        snapshot.put("code", p.getCode());
-        snapshot.put("copied_from_process_id", p.getCopiedFromProcessId());
-        snapshot.put("enable_save_draft", p.getEnableSaveDraft());
-        snapshot.put("currency_id", p.getCurrencyId());
-        snapshot.put("remove_word", p.getRemoveWord());
-        snapshot.put("replace_word_from", p.getReplaceWordFrom());
-        snapshot.put("replace_word_to", p.getReplaceWordTo());
-        snapshot.put("remark", p.getRemark());
-        snapshot.put("status", p.getStatus());
-        snapshot.put("created_by", p.getCreatedBy());
-        snapshot.put("updated_by", p.getUpdatedBy());
-        snapshot.put("created_at", p.getCreatedAt());
-        snapshot.put("updated_at", p.getUpdatedAt());
-        return snapshot;
     }
 
     private void assertNoCodeDescriptionConflict(

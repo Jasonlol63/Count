@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.CurrencyDao;
@@ -405,13 +406,13 @@ public class DomainServiceImpl implements DomainService {
 
             // Only the tenant-row fields this method actually writes — not the cascading feature
             // module / fee share side effects below, which live in other tables.
-            AuditContext.captureBefore(findTenantOwner.getId(), tenantSettingSnapshot(findTenantOwner));
+            AuditContext.captureBefore(findTenantOwner.getId(), AuditSnapshots.tenantSetting(findTenantOwner));
 
             findTenantOwner.setCode(tenant.getCode());
             findTenantOwner.setName(tenant.getCode());
             findTenantOwner.setExpirationDate(tenant.getExpirationDate());
             domainDao.updateTenantDetails(findTenantOwner);
-            AuditContext.captureAfter(findTenantOwner.getId(), tenantSettingSnapshot(findTenantOwner));
+            AuditContext.captureAfter(findTenantOwner.getId(), AuditSnapshots.tenantSetting(findTenantOwner));
 
             Integer tenantId = findTenantOwner.getId();
 
@@ -438,28 +439,6 @@ public class DomainServiceImpl implements DomainService {
         } catch (Exception e) {
             throw new BusinessException("Update Tenant Failed!");
         }
-    }
-
-    /** Column-named owner snapshot for audit capture — deliberately excludes password/secondaryPassword, never belongs in an audit trail. */
-    private Map<String, Object> ownerSnapshot(Owner o) {
-        if (o == null) {
-            return null;
-        }
-        Map<String, Object> snapshot = new HashMap<>();
-        snapshot.put("owner_code", o.getOwnerCode());
-        snapshot.put("name", o.getName());
-        snapshot.put("email", o.getEmail());
-        snapshot.put("status", o.getStatus());
-        return snapshot;
-    }
-
-    /** Column-named snapshot of the tenant fields {@link #updateTenantDetailsSetting} writes — for audit before/after capture. */
-    private Map<String, Object> tenantSettingSnapshot(Tenant t) {
-        Map<String, Object> snapshot = new HashMap<>();
-        snapshot.put("code", t.getCode());
-        snapshot.put("name", t.getName());
-        snapshot.put("expiration_date", t.getExpirationDate());
-        return snapshot;
     }
 
     @Override
@@ -604,9 +583,9 @@ public class DomainServiceImpl implements DomainService {
         BeanUtils.copyProperties(domainDTO, owner);
         // Only the owner row itself — this method also cascades into tenant/account creation
         // below, which are separate tables outside this annotation's declared "owner" sourceTable.
-        AuditContext.captureBefore(owner.getId(), ownerSnapshot(domainDao.findOwnerById(owner.getId())));
+        AuditContext.captureBefore(owner.getId(), AuditSnapshots.owner(domainDao.findOwnerById(owner.getId())));
         this.updateOwnerDetails(owner);
-        AuditContext.captureAfter(owner.getId(), ownerSnapshot(domainDao.findOwnerById(owner.getId())));
+        AuditContext.captureAfter(owner.getId(), AuditSnapshots.owner(domainDao.findOwnerById(owner.getId())));
 
         Integer ownerId = owner.getId();
 

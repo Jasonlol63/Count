@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.PlatformSettingDao;
@@ -13,9 +14,6 @@ import com.eazycount.util.AccessControlUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 @Service
 public class PlatformSettingServiceImpl implements PlatformSettingService {
@@ -38,7 +36,7 @@ public class PlatformSettingServiceImpl implements PlatformSettingService {
             throw new BusinessException("User not logged in");
         }
 
-        AuditContext.captureBefore(1, platformSettingSnapshot(platformSettingDao.findLink()));
+        AuditContext.captureBefore(1, AuditSnapshots.platformSetting(platformSettingDao.findLink()));
 
         String link = platformSetting.getTelegramSupportLink();
         if (link != null) {
@@ -65,20 +63,6 @@ public class PlatformSettingServiceImpl implements PlatformSettingService {
             throw new BusinessException("Update failed. Please try again!");
         }
 
-        AuditContext.captureAfter(1, platformSettingSnapshot(platformSettingDao.findLink()));
-    }
-
-    /** {@code platform_settings} column names, not {@link PlatformSetting}'s Java field names. */
-    private static Map<String, Object> platformSettingSnapshot(PlatformSetting s) {
-        if (s == null) {
-            return null;
-        }
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("id", s.getId());
-        snapshot.put("telegram_support_link", s.getTelegramSupportLink());
-        snapshot.put("updated_by", s.getUpdatedBy());
-        snapshot.put("updated_by_type", s.getUpdatedByType());
-        snapshot.put("updated_at", s.getUpdatedAt());
-        return snapshot;
+        AuditContext.captureAfter(1, AuditSnapshots.platformSetting(platformSettingDao.findLink()));
     }
 }

@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.BankCountryOptionDao;
@@ -14,9 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 @Service
 public class BankCountryOptionServiceImpl implements BankCountryOptionService {
@@ -73,7 +72,7 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
         }
 
         AuditContext.captureAfter(bankCountry.getId(),
-                countrySnapshot(bankCountryOptionDao.findCountryById(bankCountry.getTenantId(), bankCountry.getId())));
+                AuditSnapshots.bankCountry(bankCountryOptionDao.findCountryById(bankCountry.getTenantId(), bankCountry.getId())));
     }
 
     @Transactional
@@ -109,7 +108,7 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
             throw new BusinessException("Failed to insert new bank option!");
         }
 
-        AuditContext.captureAfter(bankOption.getId(), bankOptionSnapshot(bankCountryOptionDao.findBankOptionById(
+        AuditContext.captureAfter(bankOption.getId(), AuditSnapshots.bankOption(bankCountryOptionDao.findBankOptionById(
                 bankOption.getTenantId(), bankOption.getCountryId(), bankOption.getId())));
     }
 
@@ -125,7 +124,7 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
         AccessControlUtils.requireValidTenantId(tenantId);
 
         BankCountry existing = AssertUtils.requireFound(bankCountryOptionDao.findCountryById(tenantId, id), "Country not found!");
-        AuditContext.captureBefore(id, countrySnapshot(existing));
+        AuditContext.captureBefore(id, AuditSnapshots.bankCountry(existing));
 
         try {
             bankCountryOptionDao.deleteCountryByIdAndTenantId(id, tenantId);
@@ -150,40 +149,13 @@ public class BankCountryOptionServiceImpl implements BankCountryOptionService {
 
         BankOption existing = AssertUtils.requireFound(
                 bankCountryOptionDao.findBankOptionById(tenantId, countryId, id), "Bank option not found!");
-        AuditContext.captureBefore(id, bankOptionSnapshot(existing));
+        AuditContext.captureBefore(id, AuditSnapshots.bankOption(existing));
 
         try {
             bankCountryOptionDao.deleteBankOptionByIdAndTenantId(id, tenantId, countryId);
         } catch (Exception e) {
             throw new BusinessException("Failed to delete bank option! It may be in use by a bank process.");
         }
-    }
-
-    /** {@code bank_country} column names, not {@link BankCountry}'s Java field names — see docs/it-role-audit-log.md. */
-    private static Map<String, Object> countrySnapshot(BankCountry c) {
-        if (c == null) {
-            return null;
-        }
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("id", c.getId());
-        snapshot.put("tenant_id", c.getTenantId());
-        snapshot.put("code", c.getCode());
-        snapshot.put("created_at", c.getCreatedAt());
-        return snapshot;
-    }
-
-    /** {@code bank_option} column names, not {@link BankOption}'s Java field names — see docs/it-role-audit-log.md. */
-    private static Map<String, Object> bankOptionSnapshot(BankOption o) {
-        if (o == null) {
-            return null;
-        }
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("id", o.getId());
-        snapshot.put("tenant_id", o.getTenantId());
-        snapshot.put("country_id", o.getCountryId());
-        snapshot.put("name", o.getName());
-        snapshot.put("created_at", o.getCreatedAt());
-        return snapshot;
     }
 
 }

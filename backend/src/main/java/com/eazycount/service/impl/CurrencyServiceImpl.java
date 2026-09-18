@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.entity.AuditLog;
 import com.eazycount.common.BusinessException;
@@ -74,16 +75,6 @@ public class CurrencyServiceImpl implements CurrencyService {
         return new HashSet<>(linked);
     }
 
-    private Map<String, Object> currencySnapshot(Currency c) {
-        if (c == null) {
-            return null;
-        }
-        Map<String, Object> s = new HashMap<>();
-        s.put("code", c.getCode());
-        s.put("sync_source", c.getSyncSource());
-        s.put("status", c.getStatus());
-        return s;
-    }
 
     @Transactional
     @Override
@@ -118,7 +109,7 @@ public class CurrencyServiceImpl implements CurrencyService {
         } catch (Exception e) {
             throw new BusinessException("Insert Currency Failed!");
         }
-        AuditContext.captureAfter(currency.getId(), currencySnapshot(currency));
+        AuditContext.captureAfter(currency.getId(), AuditSnapshots.currency(currency));
 
         return currency;
     }
@@ -136,7 +127,7 @@ public class CurrencyServiceImpl implements CurrencyService {
 
         Currency currency = AssertUtils.requireFound(
                 currencyDao.findByIdAndTenantId(id, tenantId), "Currency not found or access denied");
-        AuditContext.captureBefore(id, currencySnapshot(currency));
+        AuditContext.captureBefore(id, AuditSnapshots.currency(currency));
         List<UserLinkedDTO> accountsInUse = currencyDao.findLinkedAccountsByCurrencyIdAndTenantId(id, tenantId);
         if (accountsInUse != null && !accountsInUse.isEmpty()) {
             String labels = accountsInUse.stream()

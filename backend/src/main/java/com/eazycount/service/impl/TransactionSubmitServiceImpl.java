@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.CurrencyDao;
@@ -565,34 +566,8 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         txn.setRateGroupId(rateGroupId);
 
         transactionDao.insert(txn);
-        AuditContext.captureAfter(txn.getId(), transactionSnapshot(txn));
+        AuditContext.captureAfter(txn.getId(), AuditSnapshots.transaction(txn));
         return txn;
-    }
-
-    /** {@code transactions} column names, not {@link Transaction}'s Java field names — see docs/it-role-audit-log.md. */
-    private static Map<String, Object> transactionSnapshot(Transaction t) {
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("id", t.getId());
-        snapshot.put("tenant_id", t.getTenantId());
-        snapshot.put("transaction_type", t.getTransactionType());
-        snapshot.put("account_id", t.getAccountId());
-        snapshot.put("from_account_id", t.getFromAccountId());
-        snapshot.put("currency_id", t.getCurrencyId());
-        snapshot.put("amount", t.getAmount());
-        snapshot.put("transaction_date", t.getTransactionDate());
-        snapshot.put("description", t.getDescription());
-        snapshot.put("remark", t.getRemark());
-        snapshot.put("created_by", t.getCreatedBy());
-        snapshot.put("updated_by", t.getUpdatedBy());
-        snapshot.put("approval_status", t.getApprovalStatus());
-        snapshot.put("approved_by", t.getApprovedBy());
-        snapshot.put("approved_at", t.getApprovedAt());
-        snapshot.put("bank_process_posted_id", t.getBankProcessPostedId());
-        snapshot.put("bank_process_id", t.getBankProcessId());
-        snapshot.put("rate_group_id", t.getRateGroupId());
-        snapshot.put("created_at", t.getCreatedAt());
-        snapshot.put("updated_at", t.getUpdatedAt());
-        return snapshot;
     }
 
     /*

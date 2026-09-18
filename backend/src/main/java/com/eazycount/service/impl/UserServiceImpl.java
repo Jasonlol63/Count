@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.entity.AuditLog;
 import com.eazycount.common.BusinessException;
@@ -52,50 +53,6 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
-
-    /** Deliberately excludes password — never belongs in an audit trail. */
-    private Map<String, Object> userSnapshot(User u) {
-        if (u == null) {
-            return null;
-        }
-        Map<String, Object> s = new HashMap<>();
-        s.put("account_id", u.getAccountId());
-        s.put("name", u.getName());
-        s.put("role", u.getRole());
-        s.put("status", u.getStatus());
-        s.put("payment_alert", u.getPaymentAlert());
-        s.put("alert_day", u.getAlertDay());
-        s.put("alert_amount", u.getAlertAmount());
-        s.put("alert_specific_date", u.getAlertSpecificDate());
-        s.put("remark", u.getRemark());
-        return s;
-    }
-
-    private Map<String, Object> userSnapshot(UserListDTO u) {
-        if (u == null) {
-            return null;
-        }
-        Map<String, Object> s = new HashMap<>();
-        s.put("account_id", u.getAccountId());
-        s.put("name", u.getName());
-        s.put("role", u.getRole());
-        s.put("status", u.getStatus());
-        s.put("remark", u.getRemark());
-        return s;
-    }
-
-    private Map<String, Object> linkSnapshot(UserLink l) {
-        if (l == null) {
-            return null;
-        }
-        Map<String, Object> s = new HashMap<>();
-        s.put("account_id_1", l.getAccountId1());
-        s.put("account_id_2", l.getAccountId2());
-        s.put("tenant_id", l.getTenantId());
-        s.put("link_type", l.getLinkType());
-        s.put("source_account_id", l.getSourceAccountId());
-        return s;
-    }
 
     private List<Integer> normalizeTenantIds(List<Integer> raw) {
         LinkedHashSet<Integer> out = new LinkedHashSet<>();
@@ -268,7 +225,7 @@ public class UserServiceImpl implements UserService {
         userListDTO.setTenantIds(targetTenantIds);
         // Only the primary `account` row — the tenant access grants and currency grants this
         // also writes are separate tables outside this sourceTable.
-        AuditContext.captureAfter(user.getId(), userSnapshot(user));
+        AuditContext.captureAfter(user.getId(), AuditSnapshots.user(user));
         return userListDTO;
 
     }
@@ -287,7 +244,7 @@ public class UserServiceImpl implements UserService {
                 userDao.findUserByIdAndTenantId(userListDTO.getId(), userListDTO.getScopeTenantId()), "User not found!");
         // Only the primary `account` row — the tenant access re-sync and currency grants this
         // also writes are separate tables outside this sourceTable.
-        AuditContext.captureBefore(userListDTO.getId(), userSnapshot(existing));
+        AuditContext.captureBefore(userListDTO.getId(), AuditSnapshots.user(existing));
 
         Integer tenantId = userListDTO.getScopeTenantId();
         AccessControlUtils.requireValidTenantId(tenantId);
@@ -366,7 +323,7 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException("User not found after update!");
         }
         updated.setTenantIds(desiredTenantIds);
-        AuditContext.captureAfter(userListDTO.getId(), userSnapshot(updated));
+        AuditContext.captureAfter(userListDTO.getId(), AuditSnapshots.user(updated));
 
         if (desiredSet.contains(tenantId)) {
             currencyService.deleteByAccountIdAndTenantId(
@@ -446,7 +403,7 @@ public class UserServiceImpl implements UserService {
         if (transactionDao.countTransactionsByAccountId(id, scopeTenantId) > 0) {
             throw new BusinessException("This Account has existing transaction cannot be deleted!");
         }
-        AuditContext.captureBefore(id, userSnapshot(existing));
+        AuditContext.captureBefore(id, AuditSnapshots.user(existing));
 
         try {
             userDao.deleteUserTenantAccessByAccountIdAndTenantId(id, scopeTenantId);
@@ -533,7 +490,7 @@ public class UserServiceImpl implements UserService {
         } catch (Exception e) {
             throw new BusinessException("Insert Account Link failed!");
         }
-        AuditContext.captureAfter(accLink.getId(), linkSnapshot(accLink));
+        AuditContext.captureAfter(accLink.getId(), AuditSnapshots.userLink(accLink));
     }
 
     @Override
