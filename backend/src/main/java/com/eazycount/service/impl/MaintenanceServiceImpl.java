@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditLabels;
 import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
@@ -40,6 +41,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class MaintenanceServiceImpl implements MaintenanceService {
@@ -207,7 +209,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 ? processDao.findProcessByIdAndTenantId(header.getProcessId(), tenantId)
                 : null;
         String code = process != null && process.getCode() != null ? process.getCode() : "?";
-        return (isGame ? "GAME" : "BANK") + "- " + code;
+        return AuditLabels.categoryProcess(isGame, code);
     }
 
     @Override
@@ -407,9 +409,16 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         // method still has the pre-delete rows, and field names match the `transactions` DB
         // columns (not this entity's Java property names) for manual-recovery use.
         List<Transaction> rowsBeingDeleted = maintenanceDao.findByIdsAndTenantId(tenantId, batch.ids());
+        Map<Integer, String> cardOwnerByTransactionId = maintenanceDao
+                .findBankProcessCardOwnersByTransactionIds(tenantId, batch.ids()).stream()
+                .collect(Collectors.toMap(
+                        row -> ((Number) row.get("id")).intValue(),
+                        row -> String.valueOf(row.get("cardOwner"))));
         Map<Integer, Object> beforeSnapshots = new LinkedHashMap<>();
         for (Transaction row : rowsBeingDeleted) {
             beforeSnapshots.put(row.getId(), AuditSnapshots.transaction(row));
+            String cardOwner = cardOwnerByTransactionId.getOrDefault(row.getId(), "?");
+            AuditContext.captureSummary(row.getId(), "删除" + cardOwner + "合同交易");
         }
         AuditContext.captureBeforeBatch(beforeSnapshots);
 

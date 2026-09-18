@@ -11,6 +11,7 @@ import org.apache.ibatis.annotations.Param;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 /** Payment Maintenance + Bank Process Maintenance (list/archive/delete); backs {@code MaintenanceServiceImpl}. */
 @Mapper
@@ -39,6 +40,11 @@ public interface MaintenanceDao {
 
     // Distinct bank_process.id for live maintenance transaction ids being deleted.
     List<Integer> findBankProcessIdsByTransactionIds(
+            @Param("tenantId") Integer tenantId,
+            @Param("ids") List<Integer> ids);
+
+    // Each transaction id's own bank_process.card_owner (a batch can span several contracts) — for delete-audit summaries.
+    List<Map<String, Object>> findBankProcessCardOwnersByTransactionIds(
             @Param("tenantId") Integer tenantId,
             @Param("ids") List<Integer> ids);
 

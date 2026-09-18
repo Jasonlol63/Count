@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditLabels;
 import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.AuditSummaryDefaults;
 import com.eazycount.audit.Audited;
@@ -90,7 +91,7 @@ public class BankProcessServiceImpl implements BankProcessService {
 
         BankProcess bankProcess = insertNewBankProcess(bankProcessDTO, sessionUser);
         AuditContext.captureAfter(bankProcess.getId(), AuditSnapshots.bankProcess(bankProcess));
-        AuditContext.captureSummary(bankProcess.getId(), "创建新合同 " + contractIdentity(bankProcess));
+        AuditContext.captureSummary(bankProcess.getId(), AuditLabels.create("合同", contractIdentity(bankProcess)));
         List<BankProcessShare> shares = insertProfitSharing(bankProcess.getId(), bankProcessDTO.getShares());
 
         BigDecimal bankBalance = normalizeBankBalanceAmount(bankProcessDTO.getBankBalance());
@@ -124,11 +125,8 @@ public class BankProcessServiceImpl implements BankProcessService {
         BankProcess updated = updateResult.after();
         String diff = AuditSummaryDefaults.diffFieldNames(
                 AuditSnapshots.bankProcess(updateResult.before()), AuditSnapshots.bankProcess(updated));
-        String summary = "更新合同 " + contractIdentity(updated);
-        if (diff != null) {
-            summary += " 的 " + diff;
-        }
-        AuditContext.captureSummary(updated.getId(), summary);
+        AuditContext.captureSummary(updated.getId(),
+                AuditLabels.updateWithDiff("合同", contractIdentity(updated), diff));
         deleteBankProcessShareBatch(updated.getId());
         List<BankProcessShare> shares = insertProfitSharing(updated.getId(), bankProcessDTO.getShares());
 
@@ -207,7 +205,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         existing.setStatus(status);
         existing.setUpdatedBy(sessionUser.login_id);
         AuditContext.captureAfter(id, AuditSnapshots.bankProcess(existing));
-        AuditContext.captureSummary(id, "更新合同 " + contractIdentity(existing) + " 状态");
+        AuditContext.captureSummary(id, AuditLabels.updateStatus("合同", contractIdentity(existing)));
         return existing;
     }
 
@@ -234,7 +232,7 @@ public class BankProcessServiceImpl implements BankProcessService {
         }
 
         AuditContext.captureAfter(id, AuditSnapshots.bankProcess(bankProcessDao.findBKProcessByIdAndTenantId(id, tenantId)));
-        AuditContext.captureSummary(id, "更新合同 " + contractIdentity(existing) + " 的 \"remark\"");
+        AuditContext.captureSummary(id, AuditLabels.updateWithDiff("合同", contractIdentity(existing), "\"remark\""));
     }
 
     @Override

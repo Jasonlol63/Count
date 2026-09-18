@@ -1,14 +1,13 @@
 package com.eazycount.service.impl;
 
+import com.eazycount.audit.AuditAccountNames;
 import com.eazycount.audit.AuditContext;
 import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.TransactionContraInboxDao;
 import com.eazycount.dao.MaintenanceDao;
-import com.eazycount.dao.UserDao;
 import com.eazycount.dto.TransactionContraInboxDTO;
-import com.eazycount.dto.UserListDTO;
 import com.eazycount.entity.AuditLog;
 import com.eazycount.entity.Transaction;
 import com.eazycount.security.SecurityUtils;
@@ -33,7 +32,7 @@ public class TransactionContraInboxServiceImpl implements TransactionContraInbox
     private MaintenanceDao maintenanceDao;
 
     @Autowired
-    private UserDao userDao;
+    private AuditAccountNames auditAccountNames;
 
     @Override
     public List<TransactionContraInboxDTO> listPending(Integer tenantId) {
@@ -97,20 +96,10 @@ public class TransactionContraInboxServiceImpl implements TransactionContraInbox
         if (txn == null) {
             return "CONTRA 交易";
         }
-        String toName = accountName(txn.getAccountId(), tenantId);
-        String fromName = accountName(txn.getFromAccountId(), tenantId);
+        String toName = auditAccountNames.resolve(txn.getAccountId(), tenantId);
+        String fromName = auditAccountNames.resolve(txn.getFromAccountId(), tenantId);
         String type = txn.getTransactionType() != null ? txn.getTransactionType().name() : "CONTRA";
         return type + " 交易（收 " + toName + " / 付 " + fromName + "）";
-    }
-
-    private String accountName(Integer accountId, Integer tenantId) {
-        if (accountId == null) {
-            return "?";
-        }
-        UserListDTO account = userDao.findUserByIdAndTenantId(accountId, tenantId);
-        return account != null && account.getName() != null && !account.getName().isBlank()
-                ? account.getName()
-                : String.valueOf(accountId);
     }
 
     private Transaction findByIdOrNull(Integer tenantId, int id) {

@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditLabels;
 import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.common.BusinessException;
@@ -106,9 +107,9 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         BigDecimal amount = parsePositiveAmount(request.getAmount(), "Amount");
         String description = formatTransferDescription(
                 transactionType.name(), accounts.fromAccount(), accounts.toAccount());
-        String auditSummary = "创建新交易 " + transactionType.name() + " · "
-                + accountDisplayName(accounts.fromAccount()) + " → " + accountDisplayName(accounts.toAccount())
-                + " · " + TransactionMoneyFormat.formatMoney(amount);
+        String auditSummary = AuditLabels.transferTransaction(transactionType.name(),
+                accountDisplayName(accounts.fromAccount()), accountDisplayName(accounts.toAccount()),
+                TransactionMoneyFormat.formatMoney(amount));
         return insertAndBuildResult(
                 session, tenantId, transactionType, accounts.toAccountId(), accounts.fromAccountId(),
                 accounts.currency(), amount, resolveTransactionDate(request),
@@ -126,9 +127,9 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         BigDecimal amount = parsePositiveAmount(request.getAmount(), "Amount");
         String description = formatTransferDescription(
                 Transaction.TransactionType.PROFIT.name(), accounts.fromAccount(), accounts.toAccount());
-        String auditSummary = "创建新交易 PROFIT · "
-                + accountDisplayName(accounts.fromAccount()) + " → " + accountDisplayName(accounts.toAccount())
-                + " · " + TransactionMoneyFormat.formatMoney(amount);
+        String auditSummary = AuditLabels.transferTransaction("PROFIT",
+                accountDisplayName(accounts.fromAccount()), accountDisplayName(accounts.toAccount()),
+                TransactionMoneyFormat.formatMoney(amount));
         return insertAndBuildResult(
                 session, tenantId, Transaction.TransactionType.PROFIT,
                 accounts.toAccountId(), accounts.fromAccountId(), accounts.currency(),
@@ -153,8 +154,8 @@ public class TransactionSubmitServiceImpl implements TransactionSubmitService {
         requireAccountCurrency(tenantId, toAccountId, currency.getId(), toAccount.getAccountId());
 
         BigDecimal amount = parseSignedNonZeroAmount(request.getAmount());
-        String auditSummary = "创建新交易 ADJUSTMENT · " + accountDisplayName(toAccount)
-                + " · " + TransactionMoneyFormat.formatMoney(amount);
+        String auditSummary = AuditLabels.accountTransaction("ADJUSTMENT",
+                accountDisplayName(toAccount), TransactionMoneyFormat.formatMoney(amount));
         return insertAndBuildResult(
                 session, tenantId, Transaction.TransactionType.ADJUSTMENT, toAccountId, null, currency,
                 amount, resolveTransactionDate(request), NormalizeUtils.trimToNull(request.getRemark()),

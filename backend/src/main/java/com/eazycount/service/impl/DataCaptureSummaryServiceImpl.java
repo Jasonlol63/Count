@@ -1,6 +1,7 @@
 package com.eazycount.service.impl;
 
 import com.eazycount.audit.AuditContext;
+import com.eazycount.audit.AuditLabels;
 import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
 import com.eazycount.entity.AuditLog;
@@ -521,7 +522,7 @@ public class DataCaptureSummaryServiceImpl implements DataCaptureSummaryService 
         dataCaptureDao.insertProcessSubmitted(tenantId, processId, session.login_id, captureDate, captureId);
 
         AuditContext.captureAfter(captureId, AuditSnapshots.captureSubmit(header, lineEntities.size(), total, transactionIds));
-        AuditContext.captureSummary(captureId, "创建新数据" + (isGame ? "GAME" : "BANK") + "- " + process.getCode());
+        AuditContext.captureSummary(captureId, "创建新数据" + AuditLabels.categoryProcess(isGame, process.getCode()));
 
         DataCaptureSummarySubmitDTO response = new DataCaptureSummarySubmitDTO();
         response.setCaptureId(captureId);

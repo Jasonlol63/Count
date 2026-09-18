@@ -1,5 +1,6 @@
 package com.eazycount.service.impl;
 
+import com.eazycount.audit.AuditAccountNames;
 import com.eazycount.audit.AuditContext;
 import com.eazycount.audit.AuditSnapshots;
 import com.eazycount.audit.Audited;
@@ -7,9 +8,7 @@ import com.eazycount.entity.AuditLog;
 import com.eazycount.common.BusinessException;
 import com.eazycount.dao.CurrencyDao;
 import com.eazycount.dao.TransactionDao;
-import com.eazycount.dao.UserDao;
 import com.eazycount.dto.UserCurrencyDTO;
-import com.eazycount.dto.UserListDTO;
 import com.eazycount.dto.UserLinkedDTO;
 import com.eazycount.entity.Currency;
 import com.eazycount.entity.UserCurrency;
@@ -35,7 +34,7 @@ public class CurrencyServiceImpl implements CurrencyService {
     private TransactionDao transactionDao;
 
     @Autowired
-    private UserDao userDao;
+    private AuditAccountNames auditAccountNames;
 
     @Override
     public List<Currency> findCurrencyByTenantId(Integer tenantId) {
@@ -197,7 +196,7 @@ public class CurrencyServiceImpl implements CurrencyService {
             currencyDao.insertAccountCurrency(row);
         }
         AuditContext.captureAfter(accountId, Map.of("currency_ids", ids));
-        AuditContext.captureSummary(accountId, "创建新用户货币绑定 " + accountName(accountId, tenantId));
+        AuditContext.captureSummary(accountId, "创建新用户货币绑定 " + auditAccountNames.resolve(accountId, tenantId));
     }
 
     @Override
@@ -209,22 +208,12 @@ public class CurrencyServiceImpl implements CurrencyService {
 
         AuditContext.captureBefore(accountId,
                 Map.of("currency_ids", currencyDao.findCurrencyIdsByAccountIdAndTenantId(accountId, tenantId)));
-        AuditContext.captureSummary(accountId, "删除用户货币绑定 " + accountName(accountId, tenantId));
+        AuditContext.captureSummary(accountId, "删除用户货币绑定 " + auditAccountNames.resolve(accountId, tenantId));
         try{
             currencyDao.deleteByAccountIdAndTenantId(accountId, tenantId);
         }catch (Exception e){
             throw new BusinessException("Delete Currency Failed!");
         }
-    }
-
-    private String accountName(Integer accountId, Integer tenantId) {
-        if (accountId == null) {
-            return "?";
-        }
-        UserListDTO account = userDao.findUserByIdAndTenantId(accountId, tenantId);
-        return account != null && account.getName() != null && !account.getName().isBlank()
-                ? account.getName()
-                : String.valueOf(accountId);
     }
 
     // List, Update Linked Account Currency

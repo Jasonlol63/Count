@@ -125,6 +125,18 @@
         </foreach>
     </select>
 
+    <select id="findBankProcessCardOwnersByTransactionIds" resultType="map">
+        SELECT t.id AS id, bp.card_owner AS cardOwner
+        FROM transactions t
+        INNER JOIN bank_process_accounting_posted bpap ON bpap.id = t.bank_process_posted_id
+        INNER JOIN bank_process bp ON bp.id = bpap.bank_process_id
+        WHERE t.tenant_id = #{tenantId}
+          AND t.id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
     <select id="findPaymentMaintenanceIdsByRateGroupIds" resultType="int">
         SELECT t.id
         FROM transactions t
